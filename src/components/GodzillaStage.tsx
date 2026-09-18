@@ -1,0 +1,1004 @@
+import React, { useEffect } from 'react';
+import confetti from 'canvas-confetti';
+import { GodzillaCharacter } from './GodzillaCharacter';
+import { KingGhidorah } from './KingGhidorah';
+import {
+  playEvolutionBeamSound,
+  playDingDongSuccess,
+  playElectricShockSound,
+} from '../utils/soundEffects';
+import { getGodzillaEvolution } from '../types';
+import { Trophy, RotateCcw, Swords, ShieldAlert, Zap, Heart } from 'lucide-react';
+
+interface GodzillaStageProps {
+  level: number;
+  isShootingBeam: boolean;
+  isGhidorahAttacking: boolean;
+  godzillaHp: number;
+  ghidorahHp: number;
+  combo: number;
+  isAllCleared: boolean;
+  isGameOver: boolean;
+  onResetGame: () => void;
+  onReviveGame: () => void;
+  clearedCount: number;
+  totalCount: number;
+  isReviewMode?: boolean;
+  onExitReviewMode?: () => void;
+  stageRangeLabel?: string;
+  currentStageNum?: number;
+  totalStages?: number;
+}
+
+export const GodzillaStage: React.FC<GodzillaStageProps> = ({
+  level,
+  isShootingBeam,
+  isGhidorahAttacking,
+  godzillaHp,
+  ghidorahHp,
+  combo,
+  isAllCleared,
+  isGameOver,
+  onResetGame,
+  onReviveGame,
+  clearedCount,
+  totalCount,
+  isReviewMode = false,
+  onExitReviewMode,
+  stageRangeLabel,
+  currentStageNum,
+  totalStages,
+}) => {
+  // 오직 모든 단어를 100% 클리어했을 때만 적 격퇴 및 승리 화면 트리거 (HP 조건 완전 배제)
+  const isGhidorahDefeated = isAllCleared && !isGameOver;
+
+  // 1. 공식 파워 랭킹에 따른 고질라 5단계 진화 정보
+  // LV.1 ~ 2: 치비 고질라 (Chibi)
+  // LV.3 ~ 4: 기본 고질라 (Classic)
+  // LV.5 ~ 6: 고질라 -1.0 (Minus One)
+  // LV.7 ~ 8: 이블 고질라 (Evil GMK)
+  // LV.9 이상: 최강 버닝 고질라 (Burning)
+  const evo = getGodzillaEvolution(level);
+
+  // 2. 3연속 콤보 이상 시 버닝 피버 모드 활성화
+  const isFever = combo >= 3;
+
+  // 고질라 형태별 특화 열선 발사 사운드
+  useEffect(() => {
+    if (isShootingBeam) {
+      playEvolutionBeamSound(evo.tier, isFever);
+    }
+  }, [isShootingBeam, evo.tier, isFever]);
+
+  // 킹 기도라 중력 번개 공격 사운드
+  useEffect(() => {
+    if (isGhidorahAttacking) {
+      playElectricShockSound();
+    }
+  }, [isGhidorahAttacking]);
+
+  // 승리 팡파레 & 폭죽
+  useEffect(() => {
+    if (isGhidorahDefeated && !isGameOver) {
+      playDingDongSuccess();
+
+      const end = Date.now() + 2500;
+      const interval = setInterval(() => {
+        if (Date.now() > end) {
+          clearInterval(interval);
+          return;
+        }
+        confetti({
+          startVelocity: 30,
+          spread: 360,
+          ticks: 60,
+          origin: { x: Math.random(), y: Math.random() * 0.5 },
+          colors: ['#00f2ff', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'],
+        });
+      }, 300);
+
+      return () => clearInterval(interval);
+    }
+  }, [isGhidorahDefeated, isGameOver]);
+
+  // 고질라 체력 바 색상
+  let gzHpColor = 'linear-gradient(90deg, #06b6d4 0%, #22c55e 100%)';
+  if (godzillaHp <= 25) {
+    gzHpColor = 'linear-gradient(90deg, #ef4444 0%, #b91c1c 100%)';
+  } else if (godzillaHp <= 50) {
+    gzHpColor = 'linear-gradient(90deg, #f59e0b 0%, #d97706 100%)';
+  }
+
+  // 킹 기도라 체력 바 색상
+  let kgHpColor = 'linear-gradient(90deg, #22c55e 0%, #84cc16 100%)';
+  if (ghidorahHp <= 25) {
+    kgHpColor = 'linear-gradient(90deg, #ef4444 0%, #b91c1c 100%)';
+  } else if (ghidorahHp <= 50) {
+    kgHpColor = 'linear-gradient(90deg, #f59e0b 0%, #d97706 100%)';
+  }
+
+  // 스테이지 프레임 테두리 & 네온 펄스 효과
+  let frameBorder = `2px solid ${evo.themeColor}88`;
+  let frameShadow = `0 0 25px ${evo.themeColor}44`;
+  if (isFever) {
+    frameBorder = '2.5px solid #ef4444';
+    frameShadow =
+      '0 0 25px rgba(239, 68, 68, 0.85), 0 0 50px rgba(249, 115, 22, 0.65), inset 0 0 20px rgba(239, 68, 68, 0.3)';
+  }
+
+  // 빔 높이 및 구슬 크기 (피버 모드 시 확대)
+  const beamHeight = evo.tier === 'burning' ? (isFever ? '58px' : '48px') : isFever ? '50px' : '34px';
+  const mouthBallSize = isFever ? '34px' : '26px';
+
+  // 5단계 진화별 열선 그라데이션 및 발광
+  let beamGradient = 'linear-gradient(90deg, #ffffff 0%, #cffafe 10%, #22d3ee 45%, #00f2ff 100%)';
+  let beamShadow = isFever
+    ? '0 0 35px #00f2ff, 0 0 70px #06b6d4, 0 0 95px #38bdf8'
+    : '0 0 25px #00f2ff, 0 0 50px #06b6d4';
+  let innerCoreColor = '#ffffff';
+  let innerCoreShadow = '0 0 10px #ffffff';
+  let mouthBallBg = 'radial-gradient(circle, #ffffff 35%, #a5f3fc 55%, #00f0ff 80%, transparent 100%)';
+  let mouthBallShadow = '0 0 20px #00f2ff, 0 0 40px #0284c7';
+
+  if (evo.tier === 'chibi') {
+    mouthBallBg = 'radial-gradient(circle, #ffffff 40%, #86efac 65%, #00f0ff 90%, transparent 100%)';
+    mouthBallShadow = '0 0 20px #4ade80, 0 0 35px #00f0ff';
+  } else if (evo.tier === 'minusone') {
+    beamGradient = 'linear-gradient(90deg, #ffffff 0%, #f0fdfa 15%, #ffffff 50%, #e0f2fe 80%, #38bdf8 100%)';
+    beamShadow = isFever
+      ? '0 0 45px #ffffff, 0 0 85px #38bdf8, 0 0 125px #0284c7'
+      : '0 0 32px #ffffff, 0 0 65px #38bdf8';
+    innerCoreColor = '#ffffff';
+    innerCoreShadow = '0 0 18px #ffffff';
+    mouthBallBg = 'radial-gradient(circle, #ffffff 50%, #e0f2fe 75%, #38bdf8 90%, transparent 100%)';
+    mouthBallShadow = '0 0 25px #ffffff, 0 0 50px #38bdf8';
+  } else if (evo.tier === 'evil') {
+    beamGradient = 'linear-gradient(90deg, #ffffff 0%, #c084fc 25%, #a855f7 55%, #818cf8 80%, #38bdf8 100%)';
+    beamShadow = isFever
+      ? '0 0 45px #a855f7, 0 0 85px #818cf8, 0 0 120px #38bdf8'
+      : '0 0 30px #a855f7, 0 0 60px #818cf8';
+    innerCoreColor = '#faf5ff';
+    innerCoreShadow = '0 0 14px #c084fc';
+    mouthBallBg = 'radial-gradient(circle, #ffffff 35%, #c084fc 60%, #a855f7 85%, transparent 100%)';
+    mouthBallShadow = '0 0 25px #a855f7, 0 0 50px #38bdf8';
+  } else if (evo.tier === 'burning') {
+    beamGradient = 'linear-gradient(90deg, #ffffff 0%, #ffee55 10%, #ff8800 35%, #ff2200 70%, #991b1b 100%)';
+    beamShadow = isFever
+      ? '0 0 50px #ff2200, 0 0 95px #ff8800, 0 0 140px #ffee55'
+      : '0 0 35px #ff2200, 0 0 75px #ff8800';
+    innerCoreColor = '#fffbeb';
+    innerCoreShadow = '0 0 16px #ffee55';
+    mouthBallBg = 'radial-gradient(circle, #ffffff 30%, #ffee55 50%, #ff8800 75%, #ff2200 100%)';
+    mouthBallShadow = '0 0 30px #ff2200, 0 0 60px #ff8800';
+  }
+
+  return (
+    <div
+      className="w-full max-w-5xl mx-auto flex-none px-1.5 sm:px-2 my-1"
+      style={{
+        width: '100%',
+        maxWidth: '1024px',
+        margin: '2px auto',
+        flexShrink: 0,
+        height: '27vh',
+        maxHeight: '210px',
+        minHeight: '150px',
+      }}
+    >
+      <div
+        className={`relative overflow-hidden rounded-2xl bg-slate-900 p-2 sm:p-2.5 flex flex-col justify-between h-full ${
+          isFever ? 'animate-fever-pulse' : ''
+        }`}
+        style={{
+          backgroundColor: '#0f172a',
+          borderRadius: '18px',
+          border: frameBorder,
+          height: '100%',
+          boxShadow: frameShadow,
+          position: 'relative',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          transition: 'border 0.3s ease, box-shadow 0.3s ease',
+        }}
+      >
+        {/* 우주 배경 그리드 */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundImage: isFever
+              ? 'radial-gradient(#ef4444 1px, transparent 1px)'
+              : `radial-gradient(${evo.themeColor} 1px, transparent 1px)`,
+            backgroundSize: '20px 20px',
+            opacity: isFever ? 0.22 : 0.12,
+          }}
+        />
+
+        {/* 1. 상단 대칭형 대전 격투 HUD (5단계 진화 연동) */}
+        <div
+          className="w-full flex items-center justify-between flex-none z-10"
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            zIndex: 10,
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            paddingBottom: '4px',
+            marginBottom: '2px',
+          }}
+        >
+          {/* [좌측] 고질라 5단계 진화 라벨 & HP */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '1px' }}>
+              <Heart style={{ width: '11px', height: '11px', color: evo.themeColor, fill: evo.themeColor }} />
+              <span style={{ fontSize: '11px', fontWeight: 900, color: evo.themeColor }}>
+                {evo.icon} {evo.label}
+              </span>
+              <span style={{ fontSize: '10px', fontWeight: 900, color: godzillaHp <= 25 ? '#ef4444' : '#a5f3fc' }}>
+                {godzillaHp}%
+              </span>
+            </div>
+            {/* 고질라 체력 트랙 */}
+            <div
+              style={{
+                width: '120px',
+                height: '8px',
+                backgroundColor: '#020617',
+                borderRadius: '9999px',
+                overflow: 'hidden',
+                border: `1px solid ${evo.themeColor}99`,
+              }}
+            >
+              <div
+                style={{
+                  width: `${godzillaHp}%`,
+                  height: '100%',
+                  background: gzHpColor,
+                  borderRadius: '9999px',
+                  transition: 'width 0.35s ease, background 0.35s ease',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* [중앙] VS 배지 & 피버 모드 팝업 & 콤보 & 격파 진행도 */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+            {isReviewMode ? (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '2px 8px',
+                  borderRadius: '8px',
+                  background: 'linear-gradient(90deg, #b45309 0%, #ea580c 100%)',
+                  color: '#ffffff',
+                  fontSize: '11px',
+                  fontWeight: 900,
+                  border: '1.5px solid #fde047',
+                  boxShadow: '0 0 12px rgba(245, 158, 11, 0.6)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <span>🔥 특훈! 오답 격파 배틀</span>
+              </div>
+            ) : isFever ? (
+              <div
+                className="animate-bounce"
+                style={{
+                  padding: '2px 10px',
+                  borderRadius: '9999px',
+                  background: 'linear-gradient(90deg, #ef4444 0%, #f97316 50%, #eab308 100%)',
+                  color: '#ffffff',
+                  fontSize: '11px',
+                  fontWeight: 900,
+                  border: '1.5px solid #fef08a',
+                  boxShadow: '0 0 16px rgba(239, 68, 68, 0.9), 0 0 25px rgba(234, 179, 8, 0.7)',
+                  letterSpacing: '0.04em',
+                  whiteSpace: 'nowrap',
+                  textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+                }}
+              >
+                🔥 FEVER x2 EXP! 🔥
+              </div>
+            ) : combo > 1 ? (
+              <div
+                className="animate-bounce"
+                style={{
+                  padding: '1px 8px',
+                  borderRadius: '8px',
+                  backgroundColor: '#f59e0b',
+                  color: '#020617',
+                  fontSize: '11px',
+                  fontWeight: 900,
+                  border: '1.5px solid #fde047',
+                  boxShadow: '0 0 10px rgba(245, 158, 11, 0.5)',
+                }}
+              >
+                🔥 {combo} COMBO!
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  color: '#ef4444',
+                  fontWeight: 900,
+                  fontSize: '11px',
+                  padding: '1px 6px',
+                  borderRadius: '6px',
+                  backgroundColor: '#450a0a',
+                  border: '1px solid #dc2626',
+                }}
+              >
+                <Swords style={{ width: '11px', height: '11px' }} />
+                <span>VS</span>
+              </div>
+            )}
+            <div
+              style={{
+                fontSize: '9px',
+                fontWeight: 800,
+                color: isFever || isReviewMode ? '#fde047' : '#94a3b8',
+                letterSpacing: '0.02em',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              <span>
+                {isReviewMode
+                  ? `오답 격파 ${clearedCount}/${totalCount}`
+                  : `${isFever ? `${combo}연속 정답! EXP 2배 ` : ''}격파 ${clearedCount}/${totalCount}`}
+              </span>
+              {isReviewMode && onExitReviewMode && (
+                <button
+                  type="button"
+                  onClick={onExitReviewMode}
+                  style={{
+                    fontSize: '9px',
+                    fontWeight: 700,
+                    color: '#94a3b8',
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    background: 'none',
+                    border: 'none',
+                    padding: '0 2px',
+                  }}
+                >
+                  (일반 모드로)
+                </button>
+              )}
+            </div>
+            {/* 스테이지 범위 라벨 */}
+            {stageRangeLabel && !isReviewMode && (
+              <div
+                style={{
+                  fontSize: '8px',
+                  fontWeight: 700,
+                  color: '#475569',
+                  letterSpacing: '0.02em',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {stageRangeLabel}
+              </div>
+            )}
+          </div>
+
+          {/* [우측] 👑 킹 기도라 HP */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '1px' }}>
+              <ShieldAlert style={{ width: '11px', height: '11px', color: '#facc15' }} />
+              <span style={{ fontSize: '11px', fontWeight: 900, color: '#fef08a' }}>
+                👑 킹 기도라
+              </span>
+              <span style={{ fontSize: '10px', fontWeight: 900, color: ghidorahHp <= 25 ? '#ef4444' : '#fef08a' }}>
+                {ghidorahHp}%
+              </span>
+            </div>
+            {/* 킹 기도라 체력 트랙 */}
+            <div
+              style={{
+                width: '120px',
+                height: '8px',
+                backgroundColor: '#020617',
+                borderRadius: '9999px',
+                overflow: 'hidden',
+                border: '1px solid #ca8a04',
+              }}
+            >
+              <div
+                style={{
+                  width: `${ghidorahHp}%`,
+                  height: '100%',
+                  background: kgHpColor,
+                  borderRadius: '9999px',
+                  transition: 'width 0.35s ease, background 0.35s ease',
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* 2. 대전 격투 아레나 (유연한 flex 3단 구조: 고질라 - 빔 공간 - 킹 기도라) */}
+        <div
+          className="relative w-full flex-1 min-h-0 flex items-end justify-between overflow-hidden"
+          style={{
+            position: 'relative',
+            width: '100%',
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'space-between',
+          }}
+        >
+          {/* 바닥 접지 라인 */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '1px',
+              left: '5px',
+              right: '5px',
+              height: '2.5px',
+              background: `linear-gradient(90deg, transparent, ${evo.themeColor}88 15%, rgba(245, 158, 11, 0.5) 85%, transparent)`,
+              borderRadius: '9999px',
+              pointerEvents: 'none',
+            }}
+          />
+
+          {/* 좌측: 5단계 진화 고질라 (상대 축 100% 일치) */}
+          <div
+            className="relative h-full flex-shrink-0 flex items-end"
+            style={{ height: '100%', position: 'relative', zIndex: 10 }}
+          >
+            <GodzillaCharacter
+              level={level}
+              tier={evo.tier}
+              isShooting={isShootingBeam}
+              isHit={isGhidorahAttacking}
+              isDefeated={isGameOver}
+              isFever={isFever}
+            />
+          </div>
+
+          {/* 중앙: 5단계 특화 열선 & 공격 이펙트 레이어 (반응형 연결 공간) */}
+          <div
+            className="flex-1 h-full relative"
+            style={{ flex: 1, height: '100%', position: 'relative', minWidth: '40px' }}
+          >
+            {/* [정답 시] 고질라 5단계 특화 열선 (고질라 입 cx=282 cy=132 -> 기도라 흉부 직격) */}
+            {isShootingBeam && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: '-18px', // 고질라 입술 끝 오버랩
+                  right: '-24px', // 킹 기도라 흉곽 오버랩
+                  bottom: '40%', // 양측 캐릭터의 88/220 높이와 100% 일치
+                  transform: 'translateY(50%)',
+                  height: beamHeight,
+                  display: 'flex',
+                  alignItems: 'center',
+                  zIndex: 25,
+                  transition: 'height 0.2s ease',
+                }}
+              >
+                {/* 고질라 입 발광 구슬 */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: mouthBallSize,
+                    height: mouthBallSize,
+                    borderRadius: '9999px',
+                    background: mouthBallBg,
+                    boxShadow: mouthBallShadow,
+                    zIndex: 35,
+                    pointerEvents: 'none',
+                  }}
+                />
+
+                {/* 1단계 (치비 고질라): 귀여운 파이어볼 팝 (Fireball Pop) */}
+                {evo.tier === 'chibi' ? (
+                  <div
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      position: 'relative',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-around',
+                      paddingRight: '12px',
+                    }}
+                  >
+                    <div
+                      className="animate-bounce"
+                      style={{
+                        width: isFever ? '26px' : '20px',
+                        height: isFever ? '26px' : '20px',
+                        borderRadius: '9999px',
+                        background: 'radial-gradient(circle, #ffffff 30%, #86efac 60%, #00f0ff 100%)',
+                        boxShadow: '0 0 16px #00f0ff, 0 0 28px #4ade80',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '11px',
+                      }}
+                    >
+                      ✨
+                    </div>
+                    <div
+                      className="animate-pulse"
+                      style={{
+                        width: isFever ? '30px' : '23px',
+                        height: isFever ? '30px' : '23px',
+                        borderRadius: '9999px',
+                        background: 'radial-gradient(circle, #ffffff 30%, #38bdf8 65%, #0284c7 100%)',
+                        boxShadow: '0 0 20px #38bdf8, 0 0 35px #00f0ff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '12px',
+                      }}
+                    >
+                      💫
+                    </div>
+                    <div
+                      className="animate-bounce"
+                      style={{
+                        width: isFever ? '34px' : '26px',
+                        height: isFever ? '34px' : '26px',
+                        borderRadius: '9999px',
+                        background: 'radial-gradient(circle, #ffffff 35%, #67e8f9 60%, #06b6d4 100%)',
+                        boxShadow: '0 0 22px #06b6d4, 0 0 40px #22d3ee',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '13px',
+                      }}
+                    >
+                      ⭐
+                    </div>
+                    <div
+                      className="animate-pulse"
+                      style={{
+                        width: isFever ? '40px' : '30px',
+                        height: isFever ? '40px' : '30px',
+                        borderRadius: '9999px',
+                        background: 'radial-gradient(circle, #ffffff 40%, #a7f3d0 70%, #00f0ff 100%)',
+                        boxShadow: '0 0 25px #00f0ff, 0 0 45px #38bdf8',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '15px',
+                      }}
+                    >
+                      🔥
+                    </div>
+                  </div>
+                ) : (
+                  /* 2~5단계: 메인 에너지 열선 레이저 코어 */
+                  <div
+                    className="animate-beam-glow"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      background: beamGradient,
+                      borderRadius: '0 16px 16px 0',
+                      boxShadow: beamShadow,
+                      position: 'relative',
+                    }}
+                  >
+                    {/* 중심 레이저 하이라이트 코어 */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: isFever ? '8px' : '6px',
+                        bottom: isFever ? '8px' : '6px',
+                        left: 0,
+                        right: '10px',
+                        backgroundColor: innerCoreColor,
+                        borderRadius: '0 12px 12px 0',
+                        boxShadow: innerCoreShadow,
+                      }}
+                    />
+
+                    {/* 3단계 (고질라 -1.0): 팽창하는 충격파 고리 이펙트 */}
+                    {evo.tier === 'minusone' && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          inset: '-8px 0',
+                          pointerEvents: 'none',
+                          display: 'flex',
+                          justifyContent: 'space-around',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '18px',
+                            height: '100%',
+                            border: '3px solid #ffffff',
+                            borderRadius: '9999px',
+                            boxShadow: '0 0 20px #38bdf8',
+                          }}
+                          className="animate-ping"
+                        />
+                        <div
+                          style={{
+                            width: '24px',
+                            height: '100%',
+                            border: '3px solid #ffffff',
+                            borderRadius: '9999px',
+                            boxShadow: '0 0 24px #0284c7',
+                          }}
+                          className="animate-ping"
+                        />
+                      </div>
+                    )}
+
+                    {/* 4단계 (이블 고질라): 일렁이는 보랏빛/청백색 악령 파괴 번개 */}
+                    {evo.tier === 'evil' && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          inset: '-6px 0',
+                          pointerEvents: 'none',
+                          zIndex: 32,
+                          display: 'flex',
+                          justifyContent: 'space-around',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span className="animate-bounce" style={{ fontSize: '18px', filter: 'drop-shadow(0 0 8px #a855f7)' }}>
+                          ⚡
+                        </span>
+                        <span className="animate-pulse" style={{ fontSize: '18px', filter: 'drop-shadow(0 0 8px #38bdf8)' }}>
+                          🟣
+                        </span>
+                        <span className="animate-bounce" style={{ fontSize: '20px', filter: 'drop-shadow(0 0 8px #a855f7)' }}>
+                          ⚡
+                        </span>
+                      </div>
+                    )}
+
+                    {/* 5단계 (버닝 고질라): 초대형 나선 화염 회오리 (Infinite Spiral Heat Ray) */}
+                    {evo.tier === 'burning' && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          inset: '-12px 0',
+                          pointerEvents: 'none',
+                          zIndex: 32,
+                        }}
+                      >
+                        {/* 회전하는 나선 화염 파티클 */}
+                        <span
+                          className="animate-pulse"
+                          style={{ position: 'absolute', left: '10%', top: '-10px', fontSize: '20px' }}
+                        >
+                          🔥
+                        </span>
+                        <span
+                          className="animate-pulse"
+                          style={{ position: 'absolute', left: '40%', bottom: '-12px', fontSize: '22px' }}
+                        >
+                          🔥
+                        </span>
+                        <span
+                          className="animate-pulse"
+                          style={{ position: 'absolute', left: '70%', top: '-8px', fontSize: '22px' }}
+                        >
+                          🔥
+                        </span>
+                        {/* 나선형 와류 오버레이 */}
+                        <div
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            background:
+                              'repeating-linear-gradient(45deg, transparent, transparent 15px, rgba(255, 238, 85, 0.4) 15px, rgba(255, 238, 85, 0.4) 30px)',
+                            borderRadius: '0 16px 16px 0',
+                          }}
+                          className="animate-pulse"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 킹 기도라 피격 폭발 */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    right: '-14px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    fontSize: isFever ? '42px' : '34px',
+                    filter: 'drop-shadow(0 0 14px #ef4444) drop-shadow(0 0 24px #facc15)',
+                    zIndex: 35,
+                    pointerEvents: 'none',
+                  }}
+                >
+                  {evo.tier === 'chibi' ? '💥✨' : '💥'}
+                </div>
+
+                {/* EXP 및 피버 팝업 배지 */}
+                <div
+                  className="animate-bounce"
+                  style={{
+                    position: 'absolute',
+                    left: '50%',
+                    top: isFever ? '-30px' : '-26px',
+                    transform: 'translateX(-50%)',
+                    backgroundColor: isFever ? '#ef4444' : '#facc15',
+                    color: isFever ? '#ffffff' : '#0f172a',
+                    fontWeight: 900,
+                    padding: isFever ? '3px 12px' : '2px 10px',
+                    borderRadius: '9999px',
+                    border: isFever ? '2px solid #fef08a' : '1.5px solid #ffffff',
+                    boxShadow: isFever
+                      ? '0 0 20px rgba(239, 68, 68, 0.9), 0 0 30px rgba(245, 158, 11, 0.7)'
+                      : '0 0 15px rgba(250, 204, 21, 0.8)',
+                    whiteSpace: 'nowrap',
+                    fontSize: '11px',
+                    zIndex: 40,
+                  }}
+                >
+                  {isFever ? '⚡ FEVER EXP 2배 획득! (+50 EXP)' : `⚡ ${evo.beamName} (+25 EXP)`}
+                </div>
+              </div>
+            )}
+
+            {/* [오답 시] 킹 기도라 중력 번개 (우측 기도라 머리 -> 좌측 고질라 직격) */}
+            {isGhidorahAttacking && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: '-20px',
+                  right: '-15px',
+                  top: '15%',
+                  bottom: '15%',
+                  zIndex: 25,
+                  pointerEvents: 'none',
+                }}
+              >
+                <svg
+                  viewBox="0 0 300 100"
+                  preserveAspectRatio="none"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    overflow: 'visible',
+                    filter: 'drop-shadow(0 0 12px #facc15) drop-shadow(0 0 22px #eab308)',
+                  }}
+                >
+                  <path
+                    d="M 290 10 Q 230 20 180 45 T 80 55 T 5 65"
+                    stroke="#fef08a"
+                    strokeWidth="4"
+                    fill="none"
+                    className="animate-pulse"
+                  />
+                  <path
+                    d="M 290 10 Q 230 20 180 45 T 80 55 T 5 65"
+                    stroke="#ffffff"
+                    strokeWidth="2"
+                    fill="none"
+                  />
+                  <path
+                    d="M 270 50 Q 200 35 140 60 T 60 65 T 2 70"
+                    stroke="#facc15"
+                    strokeWidth="5"
+                    fill="none"
+                    className="animate-pulse"
+                  />
+                  <path
+                    d="M 270 50 Q 200 35 140 60 T 60 65 T 2 70"
+                    stroke="#ffffff"
+                    strokeWidth="2.5"
+                    fill="none"
+                  />
+                </svg>
+
+                {/* 감전 폭발 */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: '-8px',
+                    top: '55%',
+                    transform: 'translateY(-50%)',
+                    fontSize: '32px',
+                    filter: 'drop-shadow(0 0 15px #ef4444)',
+                    zIndex: 35,
+                  }}
+                >
+                  ⚡💥
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 우측: 킹 기도라 (높이 100% 비례 축소, 접지) */}
+          <div
+            className="relative h-full flex-shrink-0 flex items-end"
+            style={{ height: '100%', position: 'relative', zIndex: 10 }}
+          >
+            <KingGhidorah
+              isHit={isShootingBeam}
+              isDefeated={isGhidorahDefeated}
+              hp={ghidorahHp}
+            />
+          </div>
+        </div>
+
+        {/* 3. 승리 화면 오버레이 (모든 단어 100% 클리어 시에만 표시) */}
+        {isGhidorahDefeated && (
+          <div
+            className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm flex flex-col items-center justify-center text-center p-3 z-50 animate-fadeIn"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              backgroundColor: 'rgba(2, 6, 23, 0.9)',
+              backdropFilter: 'blur(6px)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 50,
+            }}
+          >
+            <Trophy className="w-12 h-12 text-amber-400 mb-1 animate-bounce" />
+            <h2 className="text-xl sm:text-2xl font-black text-amber-300 mb-0.5">
+              {isReviewMode
+                ? '🎉 오답 격파 완료!'
+                : `🎉 킹 기도라 격퇴! ${evo.name} 승리!`}
+            </h2>
+            {/* 복습 모드: 마스터 완료 뱃지 */}
+            {isReviewMode && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  marginBottom: '4px',
+                }}
+              >
+                <span
+                  style={{
+                    padding: '2px 10px',
+                    borderRadius: '9999px',
+                    background: 'linear-gradient(90deg, #b45309, #ea580c)',
+                    color: '#ffffff',
+                    fontSize: '11px',
+                    fontWeight: 900,
+                    border: '1.5px solid #fde047',
+                    boxShadow: '0 0 8px rgba(245, 158, 11, 0.5)',
+                  }}
+                >
+                  🏆 모든 오답 단어 완전 정복!
+                </span>
+              </div>
+            )}
+            {/* 일반 모드: 스테이지 진행 정보 */}
+            {!isReviewMode && currentStageNum !== undefined && totalStages !== undefined && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  marginBottom: '4px',
+                }}
+              >
+                <span
+                  style={{
+                    padding: '2px 10px',
+                    borderRadius: '9999px',
+                    background: currentStageNum < totalStages
+                      ? 'linear-gradient(90deg, #0369a1, #06b6d4)'
+                      : 'linear-gradient(90deg, #d97706, #f59e0b)',
+                    color: '#ffffff',
+                    fontSize: '11px',
+                    fontWeight: 900,
+                    border: '1.5px solid rgba(255,255,255,0.4)',
+                  }}
+                >
+                  {currentStageNum < totalStages
+                    ? `STAGE ${currentStageNum} / ${totalStages} 클리어!`
+                    : `🏆 전체 ${totalStages} 스테이지 완전 정복!`}
+                </span>
+              </div>
+            )}
+            <p className="text-slate-300 text-xs sm:text-sm font-bold mb-3">
+              {isReviewMode
+                ? `틀렸던 단어 ${totalCount}개를 모두 마스터했어요! 대단해요! 🌟`
+                : currentStageNum !== undefined && totalStages !== undefined && currentStageNum < totalStages
+                  ? `단어 ${totalCount}개 격파! 다음 스테이지로 고고!`
+                  : `단어 ${totalCount}개(${totalCount}/${totalCount})를 모두 격파했어요! 대단해요!`}
+            </p>
+            {/* 메인 CTA 버튼 */}
+            <button
+              type="button"
+              onClick={onResetGame}
+              className={`flex items-center gap-1.5 px-5 py-2 rounded-xl text-slate-950 font-black text-xs sm:text-sm border border-white shadow-lg transition-all cursor-pointer ${
+                isReviewMode
+                  ? 'bg-gradient-to-r from-amber-400 via-orange-500 to-red-500 hover:brightness-110 active:scale-95'
+                  : 'bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 active:scale-95'
+              }`}
+            >
+              <RotateCcw className="w-4 h-4" />
+              {isReviewMode
+                ? '✅ 일반 모드로 나가기'
+                : currentStageNum !== undefined && totalStages !== undefined && currentStageNum < totalStages
+                  ? `⚔️ STAGE ${currentStageNum + 1} 시작하기!`
+                  : '🔄 처음부터 다시 시작하기!'}
+            </button>
+            {/* 복습 모드: 추가 나가기 버튼 (배틀 중단) */}
+            {isReviewMode && onExitReviewMode && (
+              <button
+                type="button"
+                onClick={onExitReviewMode}
+                style={{
+                  marginTop: '8px',
+                  background: 'none',
+                  border: '1px solid #475569',
+                  borderRadius: '8px',
+                  color: '#94a3b8',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '4px 12px',
+                  cursor: 'pointer',
+                }}
+              >
+                그냥 나가기
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* 4. 패배 모달 오버레이 */}
+        {isGameOver && (
+          <div
+            className="absolute inset-0 bg-slate-950/92 backdrop-blur-md flex flex-col items-center justify-center text-center p-3 z-50 animate-fadeIn"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              backgroundColor: 'rgba(2, 6, 23, 0.94)',
+              backdropFilter: 'blur(8px)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 50,
+            }}
+          >
+            <div className="text-4xl mb-1 animate-pulse">⚡🦖💔</div>
+            <h2 className="text-xl sm:text-2xl font-black text-red-400 mb-1">
+              고질라 에너지 방전!
+            </h2>
+            <p className="text-slate-300 text-xs font-semibold mb-3">
+              킹 기도라의 공격에 에너지가 소진되었어요. 다시 충전할까요?
+            </p>
+            <button
+              type="button"
+              onClick={onReviveGame}
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 via-orange-500 to-red-500 hover:brightness-110 active:scale-95 text-slate-950 font-black text-xs sm:text-sm border border-white shadow-lg transition-all cursor-pointer"
+            >
+              <Zap className="w-4 h-4 fill-slate-950" />
+              ⚡ 에너지 충전 후 부활하기!
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

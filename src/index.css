@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: #0f172a; /* slate-900 */
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  overflow: hidden;
+  height: 100%;
+}
+
+/* Shake animation on mismatch */
+@keyframes shakeAnimation {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px) rotate(-1deg); }
+  40% { transform: translateX(8px) rotate(1deg); }
+  60% { transform: translateX(-6px) rotate(-1deg); }
+  80% { transform: translateX(6px) rotate(1deg); }
+}
+
+.animate-mismatch-shake {
+  animation: shakeAnimation 0.45s ease-in-out;
+}
+
+/* Atomic breath beam animations */
+@keyframes beamPulse {
+  0% { transform: scaleY(0.7); opacity: 0.85; filter: drop-shadow(0 0 15px #00f2ff); }
+  50% { transform: scaleY(1.15); opacity: 1; filter: drop-shadow(0 0 35px #00f2ff) drop-shadow(0 0 60px #38bdf8); }
+  100% { transform: scaleY(0.85); opacity: 0.9; filter: drop-shadow(0 0 20px #00f2ff); }
+}
+
+.animate-beam-glow {
+  animation: beamPulse 0.2s infinite alternate ease-in-out;
+}
+
+/* Fin glow pulse */
+@keyframes dorsalGlow {
+  0%, 100% { filter: drop-shadow(0 0 4px #06b6d4); opacity: 0.8; }
+  50% { filter: drop-shadow(0 0 22px #00f2ff) drop-shadow(0 0 40px #38bdf8); opacity: 1; }
+}
+
+.animate-dorsal-glow {
+  animation: dorsalGlow 0.8s infinite ease-in-out;
+}
+
+/* Boss Hit Shake & Red Flash */
+@keyframes bossHit {
+  0%, 100% { transform: translate(0, 0); filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.6)); }
+  15% { transform: translate(10px, -4px) scale(0.96); filter: brightness(2.2) drop-shadow(0 0 30px #ef4444) hue-rotate(-50deg); }
+  35% { transform: translate(-10px, 4px) scale(1.03); filter: brightness(2.6) drop-shadow(0 0 40px #ef4444); }
+  55% { transform: translate(8px, 2px) scale(0.97); filter: brightness(2) drop-shadow(0 0 25px #ef4444); }
+  75% { transform: translate(-6px, -2px) scale(1.01); filter: brightness(1.6) drop-shadow(0 0 18px #f59e0b); }
+}
+
+.animate-boss-hit {
+  animation: bossHit 0.45s ease-in-out;
+}
+
+/* Boss Low HP Tremble */
+@keyframes bossTremble {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(-1.5px, 1px) rotate(-0.5deg); }
+  50% { transform: translate(1.5px, -1px) rotate(0.5deg); }
+  75% { transform: translate(-1px, -1px); }
+}
+
+.animate-boss-tremble {
+  animation: bossTremble 0.35s infinite ease-in-out;
+}
+
+/* Fever Mode Pulsating Flame Border */
+@keyframes feverPulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.7), 0 0 40px rgba(249, 115, 22, 0.5), inset 0 0 15px rgba(239, 68, 68, 0.3);
+    border-color: #ef4444;
+  }
+  50% {
+    box-shadow: 0 0 35px rgba(239, 68, 68, 1), 0 0 65px rgba(245, 158, 11, 0.8), inset 0 0 25px rgba(239, 68, 68, 0.5);
+    border-color: #f59e0b;
+  }
+}
+
+.animate-fever-pulse {
+  animation: feverPulse 0.9s infinite ease-in-out;
+}
