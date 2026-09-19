@@ -15,9 +15,9 @@ export const useSpeech = () => {
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = lang;
-      // 초등학교 2학년 아이가 또박또박 들을 수 있도록 또렷한 재생 속도(0.85)
-      utterance.rate = 0.85;
-      utterance.pitch = 1.05;
+      // 언어별 최적 발화 속도 분기: 일본어는 늘어지지 않게 0.8, 한국어/영어는 또박또박 따라 읽기 좋은 0.6
+      utterance.rate = lang === 'ja-JP' ? 0.8 : 0.6;
+      utterance.pitch = 1.1;
 
       // 브라우저에서 해당 언어 음성 선택 최적화
       const voices = window.speechSynthesis.getVoices();

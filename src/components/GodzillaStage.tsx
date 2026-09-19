@@ -28,6 +28,9 @@ interface GodzillaStageProps {
   stageRangeLabel?: string;
   currentStageNum?: number;
   totalStages?: number;
+  onOpenGacha?: () => void;
+  hasClaimedStageReward?: boolean;
+  isCriticalHit?: boolean;
 }
 
 export const GodzillaStage: React.FC<GodzillaStageProps> = ({
@@ -48,6 +51,9 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
   stageRangeLabel,
   currentStageNum,
   totalStages,
+  onOpenGacha,
+  hasClaimedStageReward = false,
+  isCriticalHit = false,
 }) => {
   // 오직 모든 단어를 100% 클리어했을 때만 적 격퇴 및 승리 화면 트리거 (HP 조건 완전 배제)
   const isGhidorahDefeated = isAllCleared && !isGameOver;
@@ -126,9 +132,20 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
       '0 0 25px rgba(239, 68, 68, 0.85), 0 0 50px rgba(249, 115, 22, 0.65), inset 0 0 20px rgba(239, 68, 68, 0.3)';
   }
 
-  // 빔 높이 및 구슬 크기 (피버 모드 시 확대)
-  const beamHeight = evo.tier === 'burning' ? (isFever ? '58px' : '48px') : isFever ? '50px' : '34px';
-  const mouthBallSize = isFever ? '34px' : '26px';
+  // 빔 높이 및 구슬 크기 (피버 모드 및 크리티컬 시 대폭 확대)
+  const beamHeight =
+    evo.tier === 'burning'
+      ? isCriticalHit
+        ? '66px'
+        : isFever
+        ? '58px'
+        : '48px'
+      : isCriticalHit
+      ? '58px'
+      : isFever
+      ? '50px'
+      : '34px';
+  const mouthBallSize = isCriticalHit ? '38px' : isFever ? '34px' : '26px';
 
   // 5단계 진화별 열선 그라데이션 및 발광
   let beamGradient = 'linear-gradient(90deg, #ffffff 0%, #cffafe 10%, #22d3ee 45%, #00f2ff 100%)';
@@ -740,21 +757,38 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                     left: '50%',
                     top: isFever ? '-30px' : '-26px',
                     transform: 'translateX(-50%)',
-                    backgroundColor: isFever ? '#ef4444' : '#facc15',
-                    color: isFever ? '#ffffff' : '#0f172a',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    background: isCriticalHit
+                      ? 'linear-gradient(90deg, #b91c1c, #ea580c, #f59e0b)'
+                      : isFever
+                      ? 'linear-gradient(90deg, #ef4444, #f97316)'
+                      : 'linear-gradient(90deg, #0284c7, #06b6d4)',
+                    color: '#ffffff',
                     fontWeight: 900,
-                    padding: isFever ? '3px 12px' : '2px 10px',
+                    padding: isCriticalHit ? '4px 14px' : isFever ? '3px 12px' : '2px 10px',
                     borderRadius: '9999px',
-                    border: isFever ? '2px solid #fef08a' : '1.5px solid #ffffff',
-                    boxShadow: isFever
+                    border: isCriticalHit
+                      ? '2px solid #fef08a'
+                      : isFever
+                      ? '2px solid #fef08a'
+                      : '1.5px solid #ffffff',
+                    boxShadow: isCriticalHit
+                      ? '0 0 25px rgba(239, 68, 68, 1), 0 0 40px rgba(245, 158, 11, 0.9)'
+                      : isFever
                       ? '0 0 20px rgba(239, 68, 68, 0.9), 0 0 30px rgba(245, 158, 11, 0.7)'
                       : '0 0 15px rgba(250, 204, 21, 0.8)',
                     whiteSpace: 'nowrap',
-                    fontSize: '11px',
+                    fontSize: isCriticalHit ? '12px' : '11px',
                     zIndex: 40,
                   }}
                 >
-                  {isFever ? '⚡ FEVER EXP 2배 획득! (+50 EXP)' : `⚡ ${evo.beamName} (+25 EXP)`}
+                  {isCriticalHit
+                    ? '💥 CRITICAL ROAR 2배 치명타! (+60 EXP)'
+                    : isFever
+                    ? '⚡ FEVER EXP 2배 획득! (+50 EXP)'
+                    : `⚡ ${evo.beamName} (+25 EXP)`}
                 </div>
               </div>
             )}
@@ -920,11 +954,51 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
             )}
             <p className="text-slate-300 text-xs sm:text-sm font-bold mb-3">
               {isReviewMode
-                ? `틀렸던 단어 ${totalCount}개를 모두 마스터했어요! 대단해요! 🌟`
-                : currentStageNum !== undefined && totalStages !== undefined && currentStageNum < totalStages
-                  ? `단어 ${totalCount}개 격파! 다음 스테이지로 고고!`
-                  : `단어 ${totalCount}개(${totalCount}/${totalCount})를 모두 격파했어요! 대단해요!`}
+                 ? `틀렸던 단어 ${totalCount}개를 모두 마스터했어요! 대단해요! 🌟`
+                 : currentStageNum !== undefined && totalStages !== undefined && currentStageNum < totalStages
+                   ? `단어 ${totalCount}개 격파! 다음 스테이지로 고고!`
+                   : `단어 ${totalCount}개(${totalCount}/${totalCount})를 모두 격파했어요! 대단해요!`}
             </p>
+
+            {/* 알 깨기 가챠 보상 버튼 (한 스테이지당 1회 수령 제한) */}
+            {onOpenGacha && (
+              hasClaimedStageReward ? (
+                <button
+                  type="button"
+                  disabled
+                  className="bg-slate-700/60 text-slate-400 font-bold text-xs sm:text-sm px-6 py-2.5 sm:py-3 rounded-xl cursor-not-allowed border border-slate-600 flex items-center gap-2 mb-2.5 select-none shadow-sm"
+                >
+                  <span className="text-base">✅</span>
+                  <span>이번 스테이지 괴수 알 보상 획득 완료!</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onOpenGacha}
+                  className="bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-white font-black text-sm sm:text-base px-6 py-2.5 sm:py-3 rounded-xl shadow-xl animate-bounce flex items-center gap-2 cursor-pointer border-2 border-yellow-300 mb-2.5 active:scale-95"
+                  style={{
+                    boxShadow: '0 0 25px rgba(245, 158, 11, 0.7), 0 0 12px rgba(244, 63, 94, 0.6)',
+                  }}
+                >
+                  <span className="text-xl">🥚</span>
+                  <span>승리 보상 괴수 알 깨러 가기!</span>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      backgroundColor: '#facc15',
+                      color: '#0f172a',
+                      padding: '2px 8px',
+                      borderRadius: '9999px',
+                      fontWeight: 900,
+                      boxShadow: '0 0 6px rgba(250, 204, 21, 0.8)',
+                    }}
+                  >
+                    보상 획득!
+                  </span>
+                </button>
+              )
+            )}
+
             {/* 메인 CTA 버튼 */}
             <button
               type="button"

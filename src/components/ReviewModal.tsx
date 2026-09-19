@@ -16,7 +16,7 @@ interface ReviewModalProps {
   onClose: () => void;
   wrongWords: WordItem[];
   onClearWrongWords: () => void;
-  onRemoveWord: (id: number) => void;
+  onRemoveWord: (id: string | number) => void;
   onStartReviewBattle: () => void;
 }
 

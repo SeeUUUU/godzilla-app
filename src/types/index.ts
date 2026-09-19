@@ -1,5 +1,5 @@
 export interface WordItem {
-  id: number;
+  id: string | number;
   ko: string;
   en: string;
   ja: string;
@@ -15,9 +15,9 @@ export interface GameState {
 export type Language = 'ko' | 'en' | 'ja';
 
 export interface SelectedCards {
-  ko: number | null;
-  en: number | null;
-  ja: number | null;
+  ko: string | number | null;
+  en: string | number | null;
+  ja: string | number | null;
 }
 
 // 5단계 고질라 공식 파워 랭킹 진화 단계
@@ -106,3 +106,28 @@ export const getGodzillaEvolution = (level: number): GodzillaEvolutionInfo => {
     imageSrc: '/images/godzilla-chibi.png',
   };
 };
+
+export type MonsterRarity = 'normal' | 'rare' | 'super_rare' | 'legendary' | 'mythic';
+
+export interface MonsterCardData {
+  id: string;
+  ko: string;
+  en: string;
+  ja: string;
+  jaKana: string;
+  rarity: MonsterRarity;
+  rarityLabel: string;
+  stars: number;
+  description: string;
+  color: string;
+  borderColor: string;
+  badgeBg: string;
+  glowColor: string;
+  title: string;
+  element: string;
+}
+
+export interface UnlockedMonsterRecord {
+  unlockedAt: string;
+  count: number;
+}

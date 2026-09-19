@@ -339,3 +339,229 @@ export const playCardTapSound = () => {
     console.warn('Audio error:', e);
   }
 };
+
+// 6. 알 탭 타격/금가는 소리 (Egg Tap & Crack)
+export const playEggTapSound = (tapIndex: number = 1) => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    // 탭 횟수(1, 2, 3)에 따라 점진적으로 높아지는 긴장감 피치
+    const baseFreq = 320 + tapIndex * 140;
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(baseFreq, now);
+    osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.5, now + 0.06);
+    osc.frequency.exponentialRampToValueAtTime(80, now + 0.12);
+
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.13);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.14);
+
+    // 금가는 고주파 딱! 소리
+    const click = ctx.createOscillator();
+    const clickGain = ctx.createGain();
+    click.type = 'sawtooth';
+    click.frequency.setValueAtTime(1200 + tapIndex * 400, now);
+    click.frequency.exponentialRampToValueAtTime(300, now + 0.05);
+
+    clickGain.gain.setValueAtTime(0.2, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+
+    click.connect(clickGain);
+    clickGain.connect(ctx.destination);
+
+    click.start(now);
+    click.stop(now + 0.06);
+  } catch (e) {
+    console.warn('Audio error:', e);
+  }
+};
+
+// 7. 알 부화 및 대폭발 섬광음 (Egg Hatch Flash Burst)
+export const playEggHatchSound = () => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+
+    // 1) 폭발적 럼블 베이스
+    const bass = ctx.createOscillator();
+    const bassGain = ctx.createGain();
+    bass.type = 'sawtooth';
+    bass.frequency.setValueAtTime(350, now);
+    bass.frequency.exponentialRampToValueAtTime(40, now + 0.6);
+
+    bassGain.gain.setValueAtTime(0.4, now);
+    bassGain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+
+    bass.connect(bassGain);
+    bassGain.connect(ctx.destination);
+    bass.start(now);
+    bass.stop(now + 0.62);
+
+    // 2) 찬란하게 터지는 샤인 벨 (Shine Glissando)
+    const pitches = [523.25, 659.25, 783.99, 1046.5, 1318.51, 1567.98];
+    pitches.forEach((freq, idx) => {
+      const bell = ctx.createOscillator();
+      const bellGain = ctx.createGain();
+      bell.type = 'sine';
+      bell.frequency.setValueAtTime(freq, now + idx * 0.06);
+
+      bellGain.gain.setValueAtTime(0.18, now + idx * 0.06);
+      bellGain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.06 + 0.4);
+
+      bell.connect(bellGain);
+      bellGain.connect(ctx.destination);
+
+      bell.start(now + idx * 0.06);
+      bell.stop(now + idx * 0.06 + 0.42);
+    });
+  } catch (e) {
+    console.warn('Audio error:', e);
+  }
+};
+
+// 8. 희귀도별 카드 등장 팡파레 (Card Reveal Fanfare)
+export const playCardRevealFanfare = (rarity: string) => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+    const isHighRarity = rarity === 'legendary' || rarity === 'mythic' || rarity === 'super_rare';
+    const notes = isHighRarity
+      ? [523.25, 659.25, 783.99, 1046.5, 1318.51] // C Major fanfare
+      : [440, 554.37, 659.25, 880];
+
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = isHighRarity ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(freq, now + i * 0.09);
+
+      gain.gain.setValueAtTime(0.25, now + i * 0.09);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.09 + 0.35);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now + i * 0.09);
+      osc.stop(now + i * 0.09 + 0.38);
+    });
+  } catch (e) {
+    console.warn('Audio error:', e);
+  }
+};
+
+// 9. 고질라 음성 포효 공격 크리티컬 타격음 (Critical Voice Roar Beam)
+export const playCriticalRoarSound = () => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+
+    // 1) 고질라의 육중한 포효 럼블 (Mega Roar Rumble)
+    const roar = ctx.createOscillator();
+    const roarGain = ctx.createGain();
+    roar.type = 'sawtooth';
+    roar.frequency.setValueAtTime(160, now);
+    roar.frequency.linearRampToValueAtTime(320, now + 0.18);
+    roar.frequency.exponentialRampToValueAtTime(50, now + 0.65);
+
+    roarGain.gain.setValueAtTime(0.4, now);
+    roarGain.gain.exponentialRampToValueAtTime(0.01, now + 0.65);
+
+    roar.connect(roarGain);
+    roarGain.connect(ctx.destination);
+    roar.start(now);
+    roar.stop(now + 0.67);
+
+    // 2) 초강력 빔 방사음 (Critical Beam Surge)
+    const beam = ctx.createOscillator();
+    const beamGain = ctx.createGain();
+    beam.type = 'triangle';
+    beam.frequency.setValueAtTime(880, now + 0.08);
+    beam.frequency.exponentialRampToValueAtTime(1760, now + 0.28);
+    beam.frequency.exponentialRampToValueAtTime(220, now + 0.55);
+
+    beamGain.gain.setValueAtTime(0.35, now + 0.08);
+    beamGain.gain.exponentialRampToValueAtTime(0.01, now + 0.55);
+
+    beam.connect(beamGain);
+    beamGain.connect(ctx.destination);
+    beam.start(now + 0.08);
+    beam.stop(now + 0.57);
+
+    // 3) 크리티컬 타격 팡파레 화음 (C Major Chord Burst)
+    [523.25, 659.25, 783.99, 1046.5].forEach((freq) => {
+      const chime = ctx.createOscillator();
+      const chimeGain = ctx.createGain();
+      chime.type = 'sine';
+      chime.frequency.setValueAtTime(freq, now + 0.12);
+
+      chimeGain.gain.setValueAtTime(0.18, now + 0.12);
+      chimeGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+
+      chime.connect(chimeGain);
+      chimeGain.connect(ctx.destination);
+      chime.start(now + 0.12);
+      chime.stop(now + 0.52);
+    });
+  } catch (e) {
+    console.warn('Audio error:', e);
+  }
+};
+
+// 12. 고질라 발자국 스탬프 쿵! 타격음 (Stamp Thud & Fanfare)
+export const playStampThudSound = () => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+
+    // 1) 묵직한 발자국 저음 쿵! (Heavy Thud Impact)
+    const thud = ctx.createOscillator();
+    const thudGain = ctx.createGain();
+    thud.type = 'triangle';
+    thud.frequency.setValueAtTime(140, now);
+    thud.frequency.exponentialRampToValueAtTime(32, now + 0.3);
+
+    thudGain.gain.setValueAtTime(0.5, now);
+    thudGain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+
+    thud.connect(thudGain);
+    thudGain.connect(ctx.destination);
+    thud.start(now);
+    thud.stop(now + 0.36);
+
+    // 2) 경쾌한 스탬프 획득 차임 (Success Chime)
+    [587.33, 880, 1174.66].forEach((freq, i) => {
+      const chime = ctx.createOscillator();
+      const chimeGain = ctx.createGain();
+      chime.type = 'sine';
+      chime.frequency.setValueAtTime(freq, now + 0.1 + i * 0.07);
+
+      chimeGain.gain.setValueAtTime(0.2, now + 0.1 + i * 0.07);
+      chimeGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5 + i * 0.07);
+
+      chime.connect(chimeGain);
+      chimeGain.connect(ctx.destination);
+      chime.start(now + 0.1 + i * 0.07);
+      chime.stop(now + 0.55 + i * 0.07);
+    });
+  } catch (e) {
+    console.warn('Audio error:', e);
+  }
+};

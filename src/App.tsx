@@ -1,21 +1,30 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { WordItem, GameState } from './types';
+import type { WordItem, GameState, UnlockedMonsterRecord } from './types';
 import { DEFAULT_WORDS } from './data/defaultWords';
 import { Header } from './components/Header';
 import { GodzillaStage } from './components/GodzillaStage';
 import { TriMatchingBoard } from './components/TriMatchingBoard';
 import { ParentModal } from './components/ParentModal';
 import { ReviewModal } from './components/ReviewModal';
+import { EggGachaModal } from './components/EggGachaModal';
+import { MonsterBookModal } from './components/MonsterBookModal';
+import { VoiceAttackModal } from './components/VoiceAttackModal';
+import { AttendanceModal } from './components/AttendanceModal';
+import { LuckyEggGachaModal } from './components/LuckyEggGachaModal';
+import { useAttendance } from './hooks/useAttendance';
+import { getStoredUnlockedMonsters, MONSTER_CARDS } from './data/monsterData';
 
-const STORAGE_KEY_WORDS = 'godzilla_language_words_v2';
+const STORAGE_KEY_WORDS = 'godzilla_language_words_v3';
 const STORAGE_KEY_STATE = 'godzilla_language_state_v6';
 const STORAGE_KEY_WRONG_WORDS = 'godzilla_wrong_words';
+const STORAGE_KEY_VOICE_ENABLED = 'godzilla_voice_attack_enabled';
+const STORAGE_KEY_EGG_COUNT = 'godzilla_egg_count';
 
 // 한 스테이지(배틀)당 출제 단어 수
-const STAGE_SIZE = 6;
+const WORDS_PER_ROUND = 6;
 
 const dedupeWordsById = (items: WordItem[]) => {
-  const uniqueById = new Map<number, WordItem>();
+  const uniqueById = new Map<string | number, WordItem>();
   items.forEach((word) => {
     if (!uniqueById.has(word.id)) {
       uniqueById.set(word.id, word);
@@ -33,7 +42,14 @@ export function App() {
       const saved = localStorage.getItem(STORAGE_KEY_WORDS);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // 구버전 단어 52개 캐시가 남아있는 경우 신규 200개 어휘 세트로 자동 갱신
+          if (parsed.length === 52) {
+            localStorage.setItem(STORAGE_KEY_WORDS, JSON.stringify(DEFAULT_WORDS));
+            return DEFAULT_WORDS;
+          }
+          return parsed;
+        }
       }
     } catch (e) {
       console.error('Failed to load words:', e);
@@ -43,31 +59,28 @@ export function App() {
 
   // ─────────────────────────────────────────────
   // 2. 스테이지(라운드) 인덱스 – 0부터 시작
-  //    부모가 직접 단어를 입력한 경우 항상 스테이지 0 고정
   // ─────────────────────────────────────────────
   const [stageIndex, setStageIndex] = useState(0);
 
-  // 부모 입력 단어인지 여부: DEFAULT_WORDS의 id 집합과 다르면 "커스텀 모드"
+  // 부모 입력 단어인지 여부: DEFAULT_WORDS의 id 집합과 다르면 "커스텀(숙제) 모드"
   const isCustomWords = useMemo(() => {
     const defaultIds = new Set(DEFAULT_WORDS.map((w) => w.id));
     return words.some((w) => !defaultIds.has(w.id)) || words.length !== DEFAULT_WORDS.length;
   }, [words]);
 
-  // 현재 스테이지에서 출제할 단어 슬라이스
-  // - 커스텀 단어: 전체 사용 (부모 입력 우선)
-  // - 기본 단어:   6개씩 순환
-  const stageWords = useMemo<WordItem[]>(() => {
-    if (isCustomWords) return words;
-    const totalStages = Math.ceil(words.length / STAGE_SIZE);
-    const safeIndex = stageIndex % totalStages;
-    return words.slice(safeIndex * STAGE_SIZE, safeIndex * STAGE_SIZE + STAGE_SIZE);
-  }, [words, stageIndex, isCustomWords]);
-
-  // 전체 스테이지 수
-  const totalStages = isCustomWords ? 1 : Math.ceil(words.length / STAGE_SIZE);
+  // 전체 스테이지 수 (숙제 모드나 일반 모드 모두 6개씩 분할)
+  const totalStages = Math.max(1, Math.ceil(words.length / WORDS_PER_ROUND));
 
   // 현재 스테이지 번호 (1-based)
   const currentStageNum = (stageIndex % totalStages) + 1;
+
+  // [중요] 숙제 모드나 일반 모드 모두 현재 라운드/페이지에 맞는 6개만 추출
+  const stageWords = useMemo<WordItem[]>(() => {
+    if (words.length === 0) return [];
+    const safeIndex = stageIndex % totalStages;
+    const startIndex = safeIndex * WORDS_PER_ROUND;
+    return words.slice(startIndex, startIndex + WORDS_PER_ROUND);
+  }, [words, stageIndex, totalStages]);
 
   // ─────────────────────────────────────────────
   // 3. 오답 단어 목록 (localStorage 연동 & 중복 제거)
@@ -94,8 +107,11 @@ export function App() {
   const [reviewWords, setReviewWords] = useState<WordItem[]>([]);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
 
-  // 현재 활성화된 단어 세트
-  const activeWords = isReviewMode ? reviewWords : stageWords;
+  // 현재 활성화된 단어 세트 (복습 모드/일반 모드 모두 정확히 6개만 슬라이스 보장)
+  const activeWords = useMemo<WordItem[]>(() => {
+    const list = isReviewMode ? reviewWords : stageWords;
+    return list.slice(0, WORDS_PER_ROUND);
+  }, [isReviewMode, reviewWords, stageWords]);
 
   // ─────────────────────────────────────────────
   // 5. 레벨 / EXP / 콤보 (GameState)
@@ -105,6 +121,7 @@ export function App() {
       localStorage.removeItem('godzilla_language_state_v2');
       localStorage.removeItem('godzilla_language_state_v3');
       localStorage.removeItem('godzilla_language_state_v5');
+      localStorage.removeItem('godzilla_language_words_v2');
       const saved = localStorage.getItem(STORAGE_KEY_STATE);
       if (saved) {
         const parsed = JSON.parse(saved);
@@ -115,6 +132,141 @@ export function App() {
     }
     return { level: 1, exp: 0, streak: 0 };
   });
+
+  // ─────────────────────────────────────────────
+  // 5-2. 괴수 도감 & 가챠 모달 상태 및 알 보유 수량
+  // ─────────────────────────────────────────────
+  const [unlockedMonsters, setUnlockedMonsters] = useState<Record<string, UnlockedMonsterRecord>>(() =>
+    getStoredUnlockedMonsters()
+  );
+  const [isGachaOpen, setIsGachaOpen] = useState(false);
+  const [isMonsterBookOpen, setIsMonsterBookOpen] = useState(false);
+  // 한 스테이지당 알 깨기 보상 1회 제한 상태
+  const [hasClaimedStageReward, setHasClaimedStageReward] = useState(false);
+
+  // 알 보유 개수 (localStorage 연동, 미설정 시 기본 6개 충전)
+  const [eggCount, setEggCount] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_EGG_COUNT);
+      if (saved !== null) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed)) return parsed;
+      }
+    } catch {}
+    try {
+      localStorage.setItem(STORAGE_KEY_EGG_COUNT, '6');
+    } catch {}
+    return 6;
+  });
+
+  // 알 1개 소모
+  const consumeEgg = useCallback(() => {
+    setEggCount((prev) => {
+      const next = Math.max(0, prev - 1);
+      try {
+        localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  // ─────────────────────────────────────────────
+  // 5-3. 음성 인식 포효 공격 모드 상태
+  // ─────────────────────────────────────────────
+  const [isVoiceAttackEnabled, setIsVoiceAttackEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_VOICE_ENABLED);
+      return saved !== null ? JSON.parse(saved) : true;
+    } catch {
+      return true;
+    }
+  });
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
+  const [targetWord, setTargetWord] = useState<WordItem | null>(null);
+  const [isCriticalHit, setIsCriticalHit] = useState(false);
+
+  // ─────────────────────────────────────────────
+  // 5-4. 주간 출석부 및 스트릭 관리
+  // ─────────────────────────────────────────────
+  const {
+    isTodayAttended,
+    currentStreak: attendanceStreak,
+    maxStreak: maxAttendanceStreak,
+    weekDays,
+    weekAttendedCount,
+    checkTodayAttendance,
+    forceFillWeekAttendance,
+    hasClaimedWeeklyReward,
+    claimWeeklyReward,
+    resetWeeklyReward,
+  } = useAttendance();
+  const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState(false);
+  const [isNewlyAttendedToday, setIsNewlyAttendedToday] = useState(false);
+  const [isLuckyGachaOpen, setIsLuckyGachaOpen] = useState(false);
+
+  // 테스트 편의 기능: 7일 출석 강제 채우기 & 알 6개 충전 (치트 클릭 시에만 수령 초기화)
+  const testRefillSevenDaysAndEggs = useCallback(() => {
+    forceFillWeekAttendance();
+    setEggCount(6);
+    resetWeeklyReward();
+    try {
+      localStorage.setItem(STORAGE_KEY_EGG_COUNT, '6');
+    } catch {}
+  }, [forceFillWeekAttendance, resetWeeklyReward]);
+
+  // 음성 공격 모드 ON/OFF 토글
+  const handleToggleVoiceAttack = useCallback(() => {
+    setIsVoiceAttackEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(STORAGE_KEY_VOICE_ENABLED, JSON.stringify(next));
+      } catch (e) {
+        console.error('Failed to save voice attack setting:', e);
+      }
+      return next;
+    });
+  }, []);
+
+  // 스테이지 번호가 변경되거나 모드가 바뀔 때 보상 수령 상태 초기화
+  useEffect(() => {
+    setHasClaimedStageReward(false);
+  }, [stageIndex, isReviewMode]);
+
+  // 도감 상태 최신화 (Header의 괴수 도감 N/10 카운트 즉시 갱신)
+  const refreshUnlockedMonsters = useCallback(() => {
+    setUnlockedMonsters(getStoredUnlockedMonsters());
+  }, []);
+
+  // 중복 획득 시 보너스 EXP 지급 (+30 EXP)
+  const handleAddBonusExp = useCallback((amount: number) => {
+    setGameState((prev) => {
+      const totalExp = prev.exp + amount;
+      const levelGain = Math.floor(totalExp / 100);
+      return {
+        ...prev,
+        level: prev.level + levelGain,
+        exp: totalExp % 100,
+      };
+    });
+  }, []);
+
+  // 알 깨기 가챠 보상 획득 시 실시간 도감 및 EXP 동기화 & 보상 수령 완료 처리
+  const handleRewardCollected = useCallback(
+    (_monster: unknown, isNew: boolean) => {
+      setHasClaimedStageReward(true);
+      refreshUnlockedMonsters();
+      if (!isNew) {
+        handleAddBonusExp(30);
+      }
+    },
+    [refreshUnlockedMonsters, handleAddBonusExp]
+  );
+
+  // 보상 중복 획득 방어 오픈 핸들러
+  const handleOpenGacha = useCallback(() => {
+    if (hasClaimedStageReward) return;
+    setIsGachaOpen(true);
+  }, [hasClaimedStageReward]);
 
   const handleSetLevel = useCallback((newLevel: number) => {
     const nextState: GameState = { level: Math.max(1, newLevel), exp: 0, streak: 0 };
@@ -139,7 +291,7 @@ export function App() {
   // 6. 배틀 상태
   // ─────────────────────────────────────────────
   const [godzillaHp, setGodzillaHp] = useState(100);
-  const [clearedIds, setClearedIds] = useState<number[]>([]);
+  const [clearedIds, setClearedIds] = useState<(string | number)[]>([]);
   const [isShootingBeam, setIsShootingBeam] = useState(false);
   const [isGhidorahAttacking, setIsGhidorahAttacking] = useState(false);
   const [isParentModalOpen, setIsParentModalOpen] = useState(false);
@@ -169,45 +321,112 @@ export function App() {
   }, []);
 
   // ─────────────────────────────────────────────
-  // 8. 정답 핸들러
+  // 8. 실제 공격 실행 (일반 공격 또는 음성 포효 크리티컬 공격)
   // ─────────────────────────────────────────────
-  const handleMatchSuccess = useCallback((matchedId: number) => {
-    const isFeverHit = gameState.streak >= 2;
-    const expReward = isFeverHit ? 50 : 25;
+  const executeAttack = useCallback(
+    (matchedId: string | number, isCritical: boolean) => {
+      const isFeverHit = gameState.streak >= 2;
+      // 일반 공격: 기본 25 EXP (피버 50 EXP)
+      // 음성 포효 크리티컬 공격: 기본 60 EXP (피버 85 EXP)
+      const expReward = isCritical ? (isFeverHit ? 85 : 60) : isFeverHit ? 50 : 25;
 
-    setIsShootingBeam(true);
-    setTimeout(() => setIsShootingBeam(false), 1200);
+      setIsCriticalHit(isCritical);
+      setIsShootingBeam(true);
+      setTimeout(() => {
+        setIsShootingBeam(false);
+        setIsCriticalHit(false);
+      }, isCritical ? 1500 : 1200);
 
-    setClearedIds((prev) => (prev.includes(matchedId) ? prev : [...prev, matchedId]));
+      setClearedIds((prev) => (prev.includes(matchedId) ? prev : [...prev, matchedId]));
 
-    // 복습 모드에서 정답 단어는 오답노트에서 자동 제거
-    if (isReviewMode) {
-      setWrongWordList((prev) => {
-        const updated = prev.filter((w) => w.id !== matchedId);
-        try {
-          localStorage.setItem(STORAGE_KEY_WRONG_WORDS, JSON.stringify(updated));
-        } catch (e) {
-          console.error('Failed to update wrong words:', e);
-        }
-        return updated;
+      // 복습 모드에서 정답 단어는 오답노트에서 자동 제거
+      if (isReviewMode) {
+        setWrongWordList((prev) => {
+          const updated = prev.filter((w) => w.id !== matchedId);
+          try {
+            localStorage.setItem(STORAGE_KEY_WRONG_WORDS, JSON.stringify(updated));
+          } catch (e) {
+            console.error('Failed to update wrong words:', e);
+          }
+          return updated;
+        });
+      }
+
+      setGameState((prev) => {
+        const totalExp = prev.exp + expReward;
+        const levelGain = Math.floor(totalExp / 100);
+        return {
+          level: prev.level + levelGain,
+          exp: totalExp % 100,
+          streak: prev.streak + 1,
+        };
       });
-    }
+    },
+    [gameState.streak, isReviewMode]
+  );
 
-    setGameState((prev) => {
-      const totalExp = prev.exp + expReward;
-      const levelGain = Math.floor(totalExp / 100);
-      return {
-        level: prev.level + levelGain,
-        exp: totalExp % 100,
-        streak: prev.streak + 1,
-      };
-    });
-  }, [gameState.streak, isReviewMode]);
+  // 일반 데미지 공격 발사
+  const executeNormalAttack = useCallback(
+    (item?: WordItem | null) => {
+      const wordObj = item || targetWord;
+      if (wordObj) {
+        executeAttack(wordObj.id, false);
+      }
+    },
+    [targetWord, executeAttack]
+  );
+
+  // 크리티컬 2배 데미지 및 강화 열선 발사
+  const executeCriticalAttack = useCallback(
+    (item?: WordItem | null) => {
+      const wordObj = item || targetWord;
+      if (wordObj) {
+        executeAttack(wordObj.id, true);
+      }
+    },
+    [targetWord, executeAttack]
+  );
+
+  // ─────────────────────────────────────────────
+  // 8-2. 정답 매칭 완료 핸들러 (음성 공격 모달 분기)
+  // ─────────────────────────────────────────────
+  const handleMatchComplete = useCallback(
+    (matched: WordItem | string | number) => {
+      let wordObj: WordItem | undefined;
+
+      if (typeof matched === 'object' && matched !== null && 'id' in matched) {
+        wordObj = matched as WordItem;
+      } else {
+        const idStr = String(matched);
+        wordObj =
+          activeWords.find((w) => String(w.id) === idStr) ||
+          stageWords.find((w) => String(w.id) === idStr) ||
+          reviewWords.find((w) => String(w.id) === idStr) ||
+          words.find((w) => String(w.id) === idStr);
+      }
+
+      if (!wordObj) {
+        console.warn('Cannot find matched word for', matched);
+        executeAttack(matched as string | number, false);
+        return;
+      }
+
+      if (isVoiceAttackEnabled) {
+        // 포효 ON이면: 공격을 잠시 멈추고 음성인식 모달 오픈
+        setTargetWord(wordObj);
+        setIsVoiceModalOpen(true);
+      } else {
+        // 포효 OFF면: 기존처럼 즉시 일반 공격 실행
+        executeAttack(wordObj.id, false);
+      }
+    },
+    [isVoiceAttackEnabled, activeWords, stageWords, reviewWords, words, executeAttack]
+  );
 
   // ─────────────────────────────────────────────
   // 9. 오답 핸들러 (오답노트 자동 수집)
   // ─────────────────────────────────────────────
-  const handleMatchFail = useCallback((failedIds?: number[]) => {
+  const handleMatchFail = useCallback((failedIds?: (string | number)[]) => {
     setIsGhidorahAttacking(true);
     setTimeout(() => setIsGhidorahAttacking(false), 1200);
 
@@ -246,15 +465,13 @@ export function App() {
     setGameState((prev) => ({ ...prev, streak: 0 }));
   }, []);
 
-  /** 다음 스테이지로 진행 (커스텀 단어면 같은 단어 재도전) */
+  /** 다음 스테이지로 진행 */
   const handleNextStage = useCallback(() => {
     setGodzillaHp(100);
     setClearedIds([]);
     setGameState((prev) => ({ ...prev, streak: 0 }));
-    if (!isCustomWords) {
-      setStageIndex((prev) => prev + 1);
-    }
-  }, [isCustomWords]);
+    setStageIndex((prev) => prev + 1);
+  }, []);
 
   // ─────────────────────────────────────────────
   // 11. 오답 복습 배틀
@@ -309,7 +526,7 @@ export function App() {
     }
   }, []);
 
-  const handleRemoveWrongWord = useCallback((id: number) => {
+  const handleRemoveWrongWord = useCallback((id: string | number) => {
     setWrongWordList((prev) => {
       const updated = prev.filter((w) => w.id !== id);
       try {
@@ -327,18 +544,34 @@ export function App() {
   const isAllCleared = activeWords.length > 0 && clearedIds.length === activeWords.length;
   const isGameOver = godzillaHp <= 0;
 
+  // 스테이지 클리어(승리) 시 오늘의 출석 체크 자동 처리 & 스탬프 모달 연동
+  useEffect(() => {
+    if (isAllCleared && !isGameOver) {
+      const result = checkTodayAttendance();
+      if (result.isNewlyAttended) {
+        setIsNewlyAttendedToday(true);
+        const timer = setTimeout(() => {
+          setIsAttendanceModalOpen(true);
+        }, 650);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isAllCleared, isGameOver, checkTodayAttendance]);
+
   // ─────────────────────────────────────────────
   // 스테이지 레이블 (승리 화면 & HUD에 표시)
   // ─────────────────────────────────────────────
   const stageLabel = isReviewMode
     ? `오답 복습 특훈`
     : isCustomWords
-    ? `숙제 배틀`
+    ? `숙제 배틀 ${currentStageNum}/${totalStages}`
     : `STAGE ${currentStageNum} / ${totalStages}`;
 
-  // 현재 스테이지 단어 범위 표시 (기본 단어 모드)
-  const stageRangeLabel = !isReviewMode && !isCustomWords
-    ? `전체 ${words.length}개 중 ${(stageIndex % totalStages) * STAGE_SIZE + 1}~${Math.min((stageIndex % totalStages + 1) * STAGE_SIZE, words.length)}번 단어`
+  // 현재 스테이지 단어 범위 표시
+  const currentStart = (stageIndex % totalStages) * WORDS_PER_ROUND + 1;
+  const currentEnd = Math.min(currentStart + activeWords.length - 1, words.length);
+  const stageRangeLabel = !isReviewMode
+    ? `전체 ${words.length}개 중 ${currentStart}~${currentEnd}번 단어`
     : undefined;
 
   return (
@@ -365,7 +598,20 @@ export function App() {
         stageLabel={stageLabel}
         onOpenParentModal={() => setIsParentModalOpen(true)}
         onOpenReviewModal={() => setIsReviewModalOpen(true)}
+        onOpenMonsterBook={() => setIsMonsterBookOpen(true)}
+        onOpenAttendanceModal={() => {
+          setIsNewlyAttendedToday(false);
+          setIsAttendanceModalOpen(true);
+        }}
+        attendanceStreak={attendanceStreak}
+        isTodayAttended={isTodayAttended}
+        unlockedMonsterCount={Object.keys(unlockedMonsters).length}
+        totalMonsterCount={MONSTER_CARDS.length}
         onExitReviewMode={isReviewMode ? handleExitReviewMode : undefined}
+        isVoiceAttackEnabled={isVoiceAttackEnabled}
+        onToggleVoiceAttack={handleToggleVoiceAttack}
+        eggCount={eggCount}
+        onOpenGacha={() => setIsGachaOpen(true)}
       />
 
       {/* 2. 메인 게임 영역 */}
@@ -399,8 +645,11 @@ export function App() {
           isReviewMode={isReviewMode}
           onExitReviewMode={handleExitReviewMode}
           stageRangeLabel={stageRangeLabel}
-          currentStageNum={isCustomWords ? undefined : currentStageNum}
-          totalStages={isCustomWords ? undefined : totalStages}
+          currentStageNum={currentStageNum}
+          totalStages={totalStages}
+          onOpenGacha={handleOpenGacha}
+          hasClaimedStageReward={hasClaimedStageReward}
+          isCriticalHit={isCriticalHit}
         />
 
         {/* 3개 국어 카드 보드 */}
@@ -424,7 +673,7 @@ export function App() {
             }
             words={activeWords}
             clearedIds={clearedIds}
-            onMatchSuccess={handleMatchSuccess}
+            onMatchSuccess={handleMatchComplete}
             onMatchFail={handleMatchFail}
             stageLabel={stageLabel}
             stageRangeLabel={stageRangeLabel}
@@ -464,6 +713,78 @@ export function App() {
         onClearWrongWords={handleClearWrongWords}
         onRemoveWord={handleRemoveWrongWord}
         onStartReviewBattle={handleStartReviewBattle}
+      />
+
+      {/* 6. 알 깨기 가챠 모달 */}
+      <EggGachaModal
+        isOpen={isGachaOpen}
+        onClose={() => setIsGachaOpen(false)}
+        eggCount={eggCount}
+        onConsumeEgg={consumeEgg}
+        onBonusExp={handleAddBonusExp}
+        onMonsterUnlocked={refreshUnlockedMonsters}
+        onRewardCollected={handleRewardCollected}
+      />
+
+      {/* 7. 괴수 카드 도감 모달 */}
+      <MonsterBookModal
+        isOpen={isMonsterBookOpen}
+        onClose={() => setIsMonsterBookOpen(false)}
+        unlockedRecords={unlockedMonsters}
+      />
+
+      {/* 8. 음성 인식 포효 공격 모달 */}
+      {isVoiceModalOpen && targetWord && (
+        <VoiceAttackModal
+          isOpen={isVoiceModalOpen}
+          word={targetWord}
+          onClose={() => {
+            setIsVoiceModalOpen(false);
+            setTargetWord(null);
+          }}
+          onAttackSuccess={() => {
+            // 음성 3개 국어 완독 성공 시 -> 크리티컬 2배 데미지 및 강화 열선 발사!
+            setIsVoiceModalOpen(false);
+            executeCriticalAttack(targetWord);
+            setTargetWord(null);
+          }}
+          onSkip={() => {
+            // 그냥 공격하기(건너뛰기) 클릭 시 -> 일반 데미지 공격 발사
+            setIsVoiceModalOpen(false);
+            executeNormalAttack(targetWord);
+            setTargetWord(null);
+          }}
+        />
+      )}
+
+      {/* 9. 주간 캘린더 & 고질라 발자국 스탬프 출석부 모달 */}
+      <AttendanceModal
+        isOpen={isAttendanceModalOpen}
+        onClose={() => {
+          setIsAttendanceModalOpen(false);
+          setIsNewlyAttendedToday(false);
+        }}
+        currentStreak={attendanceStreak}
+        maxStreak={maxAttendanceStreak}
+        weekDays={weekDays}
+        weekAttendedCount={weekAttendedCount}
+        isTodayAttended={isTodayAttended}
+        isNewlyAttended={isNewlyAttendedToday}
+        onOpenLuckyGacha={() => setIsLuckyGachaOpen(true)}
+        onTestRefill={testRefillSevenDaysAndEggs}
+        hasClaimedWeeklyReward={hasClaimedWeeklyReward}
+      />
+
+      {/* 10. 주간 스탬프 7개 달성 럭키 알 깨기 & 쿠폰 보상 가챠 모달 */}
+      <LuckyEggGachaModal
+        isOpen={isLuckyGachaOpen}
+        onClose={() => setIsLuckyGachaOpen(false)}
+        eggCount={eggCount}
+        onConsumeEgg={consumeEgg}
+        onWeeklyRewardClaimed={claimWeeklyReward}
+        onBonusExp={(amount) => {
+          setGameState((prev) => ({ ...prev, exp: prev.exp + amount }));
+        }}
       />
     </div>
   );
