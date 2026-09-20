@@ -3,6 +3,7 @@ import {
   hasClaimedWeeklyReward as checkClaimedWeeklyReward,
   markWeeklyRewardClaimed as saveWeeklyRewardClaimed,
   resetWeeklyRewardClaimed as clearWeeklyRewardClaimed,
+  getCurrentWeekKey,
 } from '../data/gachaRewards';
 import { savePlayerDataToFirestore } from '../firebase';
 
@@ -171,27 +172,18 @@ export const getThisWeekDays = (records: string[]): AttendanceDayInfo[] => {
 
 export const useAttendance = () => {
   const [records, setRecords] = useState<string[]>(() => {
-    const weekDates = getThisWeekDates();
     try {
       const saved = localStorage.getItem(STORAGE_KEY_ATTENDANCE);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          // 출석 7일 달성 테스트를 위해 이번 주 7일 강제 포함
-          const merged = Array.from(new Set([...parsed, ...weekDates]));
-          try {
-            localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(merged));
-          } catch {}
-          return merged;
+          return parsed;
         }
       }
     } catch (e) {
       console.error('Failed to load attendance records:', e);
     }
-    try {
-      localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(weekDates));
-    } catch {}
-    return weekDates;
+    return [];
   });
 
   const todayStr = getTodayDateStr();
@@ -223,10 +215,17 @@ export const useAttendance = () => {
   const checkTodayAttendance = useCallback((): {
     isNewlyAttended: boolean;
     streak: number;
+    isWeekCompleted: boolean;
+    shouldRewardEgg: boolean;
   } => {
     const today = getTodayDateStr();
     if (records.includes(today)) {
-      return { isNewlyAttended: false, streak: calculateCurrentStreak(records) };
+      return {
+        isNewlyAttended: false,
+        streak: calculateCurrentStreak(records),
+        isWeekCompleted: weekAttendedCount === 7,
+        shouldRewardEgg: false,
+      };
     }
 
     const updated = [...records, today];
@@ -238,9 +237,33 @@ export const useAttendance = () => {
     }
 
     const nextStreak = calculateCurrentStreak(updated);
-    savePlayerDataToFirestore({ attendanceRecords: updated });
-    return { isNewlyAttended: true, streak: nextStreak };
-  }, [records]);
+
+    // 이번 주 7일 출석 완료 여부 판정 (오늘 출석 포함)
+    const updatedWeekDays = getThisWeekDays(updated);
+    const updatedWeekCount = updatedWeekDays.filter((d) => d.isAttended).length;
+    const isWeekCompleted = updatedWeekCount === 7;
+
+    // 이번 주 주간 보상을 아직 받지 않았고 7일 완성 시 주간 보상 처리
+    const alreadyClaimed = checkClaimedWeeklyReward();
+    const shouldRewardEgg = isWeekCompleted && !alreadyClaimed;
+
+    if (shouldRewardEgg) {
+      saveWeeklyRewardClaimed();
+      setHasClaimedWeeklyReward(true);
+    }
+
+    savePlayerDataToFirestore({
+      attendanceRecords: updated,
+      ...(shouldRewardEgg ? { weeklyRewardClaimedWeek: getCurrentWeekKey() } : {}),
+    });
+
+    return {
+      isNewlyAttended: true,
+      streak: nextStreak,
+      isWeekCompleted,
+      shouldRewardEgg,
+    };
+  }, [records, weekAttendedCount]);
 
   // 테스트용: 이번 주 7일 출석 강제 완료
   const forceFillWeekAttendance = useCallback(() => {
@@ -256,6 +279,22 @@ export const useAttendance = () => {
     return updated;
   }, [records]);
 
+  // 출석 기록 및 주간 보상 완전 초기화 (Firestore 및 localStorage 동시 반영)
+  const resetAllAttendance = useCallback(() => {
+    setRecords([]);
+    try {
+      localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify([]));
+    } catch (e) {
+      console.error('Failed to reset attendance in storage:', e);
+    }
+    clearWeeklyRewardClaimed();
+    setHasClaimedWeeklyReward(false);
+    savePlayerDataToFirestore({
+      attendanceRecords: [],
+      weeklyRewardClaimedWeek: null,
+    });
+  }, []);
+
   return {
     records,
     setRecords,
@@ -270,5 +309,6 @@ export const useAttendance = () => {
     setHasClaimedWeeklyReward,
     claimWeeklyReward,
     resetWeeklyReward,
+    resetAllAttendance,
   };
 };

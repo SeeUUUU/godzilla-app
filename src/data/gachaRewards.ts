@@ -196,12 +196,21 @@ export const markCouponUsed = (couponId: string): void => {
   savePlayerDataToFirestore({ coupons: updated });
 };
 
-// 이번 주 주차 번호 계산 (YYYY-Www)
+// 이번 주 월요일 날짜 문자열 ('YYYY-MM-DD') 계산
+export const getThisWeekMondayStr = (targetDate: Date = new Date()): string => {
+  const day = targetDate.getDay();
+  const mondayOffset = (day + 6) % 7;
+  const monday = new Date(targetDate);
+  monday.setDate(targetDate.getDate() - mondayOffset);
+  const y = monday.getFullYear();
+  const m = String(monday.getMonth() + 1).padStart(2, '0');
+  const d = String(monday.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+// 이번 주 주차 고유 키 ('week-YYYY-MM-DD', 월요일 00시 기준 정확히 갱신)
 export const getCurrentWeekKey = (): string => {
-  const now = new Date();
-  const jan1 = new Date(now.getFullYear(), 0, 1);
-  const weekNum = Math.ceil(((now.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7);
-  return `${now.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+  return `week-${getThisWeekMondayStr()}`;
 };
 
 export const hasClaimedWeeklyReward = (): boolean => {

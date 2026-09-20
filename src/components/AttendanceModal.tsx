@@ -20,8 +20,9 @@ interface AttendanceModalProps {
   isTodayAttended: boolean;
   isNewlyAttended?: boolean;
   onOpenLuckyGacha?: () => void;
-  onTestRefill?: () => void;
   hasClaimedWeeklyReward?: boolean;
+  initialShowCoupons?: boolean;
+  onCouponsChanged?: () => void;
 }
 
 // 귀여운 고질라 발자국 스탬프 SVG
@@ -84,11 +85,12 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
   isTodayAttended,
   isNewlyAttended = false,
   onOpenLuckyGacha,
-  onTestRefill,
   hasClaimedWeeklyReward: hasClaimedWeeklyRewardProp,
+  initialShowCoupons = false,
+  onCouponsChanged,
 }) => {
   const [shouldAnimateStamp, setShouldAnimateStamp] = useState(false);
-  const [showCoupons, setShowCoupons] = useState(false);
+  const [showCoupons, setShowCoupons] = useState(initialShowCoupons);
   const [coupons, setCoupons] = useState<EarnedCoupon[]>([]);
   const [claimedWeekly, setClaimedWeekly] = useState(() => hasClaimedWeeklyReward());
 
@@ -117,13 +119,14 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
 
     if (isOpen) {
       setCoupons(loadCoupons());
-      setShowCoupons(false);
+      setShowCoupons(initialShowCoupons);
     }
-  }, [isOpen, isNewlyAttended]);
+  }, [isOpen, isNewlyAttended, initialShowCoupons]);
 
   const handleMarkUsed = (couponId: string) => {
     markCouponUsed(couponId);
     setCoupons(loadCoupons());
+    onCouponsChanged?.();
   };
 
   if (!isOpen) return null;
@@ -163,36 +166,6 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
           alignItems: 'center',
         }}
       >
-        {/* 상단 테스트 디버그 버튼 */}
-        <button
-          type="button"
-          onClick={() => {
-            if (onTestRefill) {
-              onTestRefill();
-            }
-            setClaimedWeekly(false);
-          }}
-          title="출석 7일 채우기 및 괴수 알 6개 충전"
-          style={{
-            position: 'absolute',
-            top: '12px',
-            right: '50px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-            padding: '4px 10px',
-            borderRadius: '9999px',
-            backgroundColor: 'rgba(239, 68, 68, 0.2)',
-            border: '1.5px dashed #f87171',
-            color: '#fca5a5',
-            fontSize: '11px',
-            fontWeight: 900,
-            cursor: 'pointer',
-            boxShadow: '0 0 10px rgba(239, 68, 68, 0.3)',
-          }}
-        >
-          <span>🛠️ 7일 출석&알 6개</span>
-        </button>
 
         {/* 닫기 버튼 */}
         <button
@@ -737,7 +710,7 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                       opacity: 0.85,
                     }}
                   >
-                    <span>✅ 이번 주 럭키 알 보상 수령 완료! (다음 주에 만나요)</span>
+                    <span>🎉 이번 주 7일 출석 완료! 보너스 알 지급 완료 (월요일에 새 출석 시작)</span>
                   </button>
                 ) : onOpenLuckyGacha ? (
                   <button

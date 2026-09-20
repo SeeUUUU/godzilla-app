@@ -22,7 +22,7 @@ export const LuckyEggGachaModal: React.FC<LuckyEggGachaModalProps> = ({
   isOpen,
   onClose,
   eggCount,
-  onConsumeEgg,
+  onConsumeEgg: _onConsumeEgg,
   onBonusExp,
   onWeeklyRewardClaimed,
 }) => {
@@ -44,7 +44,7 @@ export const LuckyEggGachaModal: React.FC<LuckyEggGachaModalProps> = ({
   }, [isOpen]);
 
   const handleEggTap = () => {
-    if (isHatched || tapCount >= 3 || (eggCount !== undefined && eggCount <= 0)) return;
+    if (isHatched || tapCount >= 3) return;
 
     const next = tapCount + 1;
     setTapCount(next);
@@ -70,10 +70,7 @@ export const LuckyEggGachaModal: React.FC<LuckyEggGachaModalProps> = ({
           onBonusExp(rolled.bonusExp);
         }
 
-        // 알 보유 수량 1개 차감
-        if (onConsumeEgg) {
-          onConsumeEgg();
-        }
+        // 주간 럭키 알은 7일 출석 선물로 일반 알을 차감하지 않음
 
         // 주간 보상 수령 기록 및 콜백 통지
         markWeeklyRewardClaimed();
@@ -228,51 +225,7 @@ export const LuckyEggGachaModal: React.FC<LuckyEggGachaModalProps> = ({
         </div>
 
         {/* ─── 알 깨기 뷰 ─── */}
-        {!isHatched && (eggCount !== undefined && eggCount <= 0 ? (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              width: '100%',
-              padding: '24px 8px 12px',
-              textAlign: 'center',
-            }}
-          >
-            <div style={{ fontSize: '48px', marginBottom: '12px' }}>🥚❌</div>
-            <h3 style={{ fontSize: '18px', fontWeight: 900, color: '#f87171', margin: '0 0 8px 0' }}>
-              보유 중인 알이 없습니다!
-            </h3>
-            <p
-              style={{
-                fontSize: '13px',
-                color: '#94a3b8',
-                fontWeight: 700,
-                lineHeight: 1.6,
-                margin: '0 0 20px 0',
-              }}
-            >
-              단어 배틀이나 출석 미션을 완료해 알을 모아보세요.
-            </p>
-            <button
-              type="button"
-              onClick={handleClose}
-              style={{
-                width: '100%',
-                padding: '12px',
-                borderRadius: '14px',
-                background: 'linear-gradient(90deg, #334155, #475569)',
-                color: '#ffffff',
-                fontWeight: 900,
-                fontSize: '14px',
-                border: '1.5px solid #64748b',
-                cursor: 'pointer',
-              }}
-            >
-              확인하고 닫기
-            </button>
-          </div>
-        ) : (
+        {!isHatched && (
           <div
             style={{
               display: 'flex',
@@ -475,7 +428,7 @@ export const LuckyEggGachaModal: React.FC<LuckyEggGachaModalProps> = ({
               <span>👆 황금 알 두드리기! ({3 - tapCount}번 남음)</span>
             </button>
           </div>
-        ))}
+        )}
 
         {/* ─── 결과 카드 뷰 ─── */}
         {isHatched && reward && (

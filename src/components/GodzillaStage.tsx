@@ -191,24 +191,15 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
 
   return (
     <div
-      className="w-full max-w-5xl mx-auto flex-none px-1.5 sm:px-2 my-1"
-      style={{
-        width: '100%',
-        maxWidth: '1024px',
-        margin: '2px auto',
-        flexShrink: 0,
-        height: '27vh',
-        maxHeight: '210px',
-        minHeight: '150px',
-      }}
+      className="w-full flex-none px-1 sm:px-2 md:px-3 my-0.5 sm:my-1 md:my-1.5 h-[110px] xs:h-[125px] sm:h-[155px] md:h-[210px] lg:h-[235px] landscape-short:h-full landscape-short:my-0"
     >
       <div
-        className={`relative overflow-hidden rounded-2xl bg-slate-900 p-2 sm:p-2.5 flex flex-col justify-between h-full ${
+        className={`relative overflow-hidden rounded-xl sm:rounded-2xl bg-slate-900 p-1.5 sm:p-2 md:p-3 flex flex-col justify-between h-full ${
           isFever ? 'animate-fever-pulse' : ''
         }`}
         style={{
           backgroundColor: '#0f172a',
-          borderRadius: '18px',
+          borderRadius: '16px',
           border: frameBorder,
           height: '100%',
           boxShadow: frameShadow,
@@ -236,39 +227,23 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
 
         {/* 1. 상단 대칭형 대전 격투 HUD (5단계 진화 연동) */}
         <div
-          className="w-full flex items-center justify-between flex-none z-10"
-          style={{
-            width: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            zIndex: 10,
-            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-            paddingBottom: '4px',
-            marginBottom: '2px',
-          }}
+          className="w-full flex items-center justify-between flex-none z-10 border-b border-white/10 pb-0.5 sm:pb-1 mb-0.5"
         >
           {/* [좌측] 고질라 5단계 진화 라벨 & HP */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '1px' }}>
-              <Heart style={{ width: '11px', height: '11px', color: evo.themeColor, fill: evo.themeColor }} />
-              <span style={{ fontSize: '11px', fontWeight: 900, color: evo.themeColor }}>
-                {evo.icon} {evo.label}
+          <div className="flex flex-col items-start min-w-0">
+            <div className="flex items-center gap-1 mb-0.5">
+              <Heart className="w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5" style={{ color: evo.themeColor, fill: evo.themeColor }} />
+              <span className="text-[10px] sm:text-xs md:text-sm font-black truncate max-w-[85px] xs:max-w-none" style={{ color: evo.themeColor }}>
+                {evo.icon} {evo.shortName}
               </span>
-              <span style={{ fontSize: '10px', fontWeight: 900, color: godzillaHp <= 25 ? '#ef4444' : '#a5f3fc' }}>
+              <span className="text-[9px] sm:text-[11px] md:text-xs font-black" style={{ color: godzillaHp <= 25 ? '#ef4444' : '#a5f3fc' }}>
                 {godzillaHp}%
               </span>
             </div>
             {/* 고질라 체력 트랙 */}
             <div
-              style={{
-                width: '120px',
-                height: '8px',
-                backgroundColor: '#020617',
-                borderRadius: '9999px',
-                overflow: 'hidden',
-                border: `1px solid ${evo.themeColor}99`,
-              }}
+              className="w-16 xs:w-20 sm:w-28 md:w-36 lg:w-44 h-1.5 sm:h-2 md:h-2.5 rounded-full overflow-hidden bg-slate-950 border"
+              style={{ borderColor: `${evo.themeColor}99` }}
             >
               <div
                 style={{
@@ -283,152 +258,80 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
           </div>
 
           {/* [중앙] VS 배지 & 피버 모드 팝업 & 콤보 & 격파 진행도 */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+          <div className="flex flex-col items-center gap-0.5 mx-1 flex-shrink-0">
             {isReviewMode ? (
               <div
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] sm:text-[11px] md:text-xs font-black text-white border border-amber-300 shadow-sm"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '2px 8px',
-                  borderRadius: '8px',
                   background: 'linear-gradient(90deg, #b45309 0%, #ea580c 100%)',
-                  color: '#ffffff',
-                  fontSize: '11px',
-                  fontWeight: 900,
-                  border: '1.5px solid #fde047',
-                  boxShadow: '0 0 12px rgba(245, 158, 11, 0.6)',
                   whiteSpace: 'nowrap',
                 }}
               >
-                <span>🔥 특훈! 오답 격파 배틀</span>
+                <span>🔥 특훈 배틀</span>
               </div>
             ) : isFever ? (
               <div
-                className="animate-bounce"
+                className="animate-bounce px-1.5 sm:px-2.5 py-0.2 sm:py-0.5 rounded-full text-[9px] sm:text-[11px] md:text-xs font-black text-white border border-yellow-200 shadow-md whitespace-nowrap"
                 style={{
-                  padding: '2px 10px',
-                  borderRadius: '9999px',
                   background: 'linear-gradient(90deg, #ef4444 0%, #f97316 50%, #eab308 100%)',
-                  color: '#ffffff',
-                  fontSize: '11px',
-                  fontWeight: 900,
-                  border: '1.5px solid #fef08a',
-                  boxShadow: '0 0 16px rgba(239, 68, 68, 0.9), 0 0 25px rgba(234, 179, 8, 0.7)',
-                  letterSpacing: '0.04em',
-                  whiteSpace: 'nowrap',
-                  textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
                 }}
               >
-                🔥 FEVER x2 EXP! 🔥
+                🔥 FEVER x2! 🔥
               </div>
             ) : combo > 1 ? (
               <div
-                className="animate-bounce"
-                style={{
-                  padding: '1px 8px',
-                  borderRadius: '8px',
-                  backgroundColor: '#f59e0b',
-                  color: '#020617',
-                  fontSize: '11px',
-                  fontWeight: 900,
-                  border: '1.5px solid #fde047',
-                  boxShadow: '0 0 10px rgba(245, 158, 11, 0.5)',
-                }}
+                className="animate-bounce px-1.5 py-0.2 rounded-md bg-amber-500 text-slate-950 text-[9px] sm:text-[11px] md:text-xs font-black border border-amber-300 shadow-sm whitespace-nowrap"
               >
                 🔥 {combo} COMBO!
               </div>
             ) : (
               <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '3px',
-                  color: '#ef4444',
-                  fontWeight: 900,
-                  fontSize: '11px',
-                  padding: '1px 6px',
-                  borderRadius: '6px',
-                  backgroundColor: '#450a0a',
-                  border: '1px solid #dc2626',
-                }}
+                className="flex items-center gap-0.5 text-rose-500 font-black text-[9px] sm:text-[11px] md:text-xs px-1.5 py-0.2 rounded bg-rose-950/60 border border-rose-600/60"
               >
-                <Swords style={{ width: '11px', height: '11px' }} />
+                <Swords className="w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5" />
                 <span>VS</span>
               </div>
             )}
             <div
-              style={{
-                fontSize: '9px',
-                fontWeight: 800,
-                color: isFever || isReviewMode ? '#fde047' : '#94a3b8',
-                letterSpacing: '0.02em',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
+              className="text-[8px] sm:text-[9px] md:text-xs font-extrabold flex items-center gap-1 tracking-tight"
+              style={{ color: isFever || isReviewMode ? '#fde047' : '#94a3b8' }}
             >
               <span>
                 {isReviewMode
-                  ? `오답 격파 ${clearedCount}/${totalCount}`
-                  : `${isFever ? `${combo}연속 정답! EXP 2배 ` : ''}격파 ${clearedCount}/${totalCount}`}
+                  ? `오답 ${clearedCount}/${totalCount}`
+                  : `격파 ${clearedCount}/${totalCount}`}
               </span>
               {isReviewMode && onExitReviewMode && (
                 <button
                   type="button"
                   onClick={onExitReviewMode}
-                  style={{
-                    fontSize: '9px',
-                    fontWeight: 700,
-                    color: '#94a3b8',
-                    textDecoration: 'underline',
-                    cursor: 'pointer',
-                    background: 'none',
-                    border: 'none',
-                    padding: '0 2px',
-                  }}
+                  className="text-[8px] sm:text-[9px] md:text-xs text-slate-400 underline cursor-pointer hover:text-white"
                 >
-                  (일반 모드로)
+                  (일반)
                 </button>
               )}
             </div>
-            {/* 스테이지 범위 라벨 */}
             {stageRangeLabel && !isReviewMode && (
-              <div
-                style={{
-                  fontSize: '8px',
-                  fontWeight: 700,
-                  color: '#475569',
-                  letterSpacing: '0.02em',
-                  whiteSpace: 'nowrap',
-                }}
-              >
+              <div className="hidden xs:block text-[7px] sm:text-[8px] md:text-[10px] font-bold text-slate-500 whitespace-nowrap">
                 {stageRangeLabel}
               </div>
             )}
           </div>
 
           {/* [우측] 👑 킹 기도라 HP */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '1px' }}>
-              <ShieldAlert style={{ width: '11px', height: '11px', color: '#facc15' }} />
-              <span style={{ fontSize: '11px', fontWeight: 900, color: '#fef08a' }}>
+          <div className="flex flex-col items-end min-w-0">
+            <div className="flex items-center gap-1 mb-0.5">
+              <ShieldAlert className="w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5 text-amber-400" />
+              <span className="text-[10px] sm:text-xs md:text-sm font-black text-amber-200 truncate max-w-[85px] xs:max-w-none">
                 👑 킹 기도라
               </span>
-              <span style={{ fontSize: '10px', fontWeight: 900, color: ghidorahHp <= 25 ? '#ef4444' : '#fef08a' }}>
+              <span className="text-[9px] sm:text-[11px] md:text-xs font-black" style={{ color: ghidorahHp <= 25 ? '#ef4444' : '#fef08a' }}>
                 {ghidorahHp}%
               </span>
             </div>
             {/* 킹 기도라 체력 트랙 */}
             <div
-              style={{
-                width: '120px',
-                height: '8px',
-                backgroundColor: '#020617',
-                borderRadius: '9999px',
-                overflow: 'hidden',
-                border: '1px solid #ca8a04',
-              }}
+              className="w-16 xs:w-20 sm:w-28 md:w-36 lg:w-44 h-1.5 sm:h-2 md:h-2.5 rounded-full overflow-hidden bg-slate-950 border border-amber-600/70"
             >
               <div
                 style={{
@@ -878,7 +781,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
         {/* 3. 승리 화면 오버레이 (모든 단어 100% 클리어 시에만 표시) */}
         {isGhidorahDefeated && (
           <div
-            className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm flex flex-col items-center justify-center text-center p-3 z-50 animate-fadeIn"
+            className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm flex flex-col items-center justify-center text-center p-3 z-50 animate-fadeIn overflow-y-auto"
             style={{
               position: 'absolute',
               inset: 0,
@@ -1042,7 +945,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
         {/* 4. 패배 모달 오버레이 */}
         {isGameOver && (
           <div
-            className="absolute inset-0 bg-slate-950/92 backdrop-blur-md flex flex-col items-center justify-center text-center p-3 z-50 animate-fadeIn"
+            className="absolute inset-0 bg-slate-950/92 backdrop-blur-md flex flex-col items-center justify-center text-center p-3 z-50 animate-fadeIn overflow-y-auto"
             style={{
               position: 'absolute',
               inset: 0,

@@ -206,13 +206,18 @@ export function App() {
     weekDays,
     weekAttendedCount,
     checkTodayAttendance,
-    forceFillWeekAttendance,
     hasClaimedWeeklyReward,
     setHasClaimedWeeklyReward,
     claimWeeklyReward,
-    resetWeeklyReward,
   } = useAttendance();
   const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState(false);
+  const [attendanceInitialShowCoupons, setAttendanceInitialShowCoupons] = useState(false);
+  const [unusedCouponCount, setUnusedCouponCount] = useState(() => {
+    return loadCoupons().filter((c) => !c.isUsed && c.minutes > 0).length;
+  });
+  const refreshCouponCount = useCallback(() => {
+    setUnusedCouponCount(loadCoupons().filter((c) => !c.isUsed && c.minutes > 0).length);
+  }, []);
   const [isNewlyAttendedToday, setIsNewlyAttendedToday] = useState(false);
   const [isLuckyGachaOpen, setIsLuckyGachaOpen] = useState(false);
 
@@ -225,6 +230,9 @@ export function App() {
     let isMounted = true;
 
     const initFirestore = async () => {
+      if (isFirestoreInitialized.current) return;
+      isFirestoreInitialized.current = true;
+
       try {
         const remoteData = await fetchPlayerDataFromFirestore();
         if (!isMounted) return;
@@ -237,28 +245,27 @@ export function App() {
               localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(remoteData.gameState));
             } catch {}
           }
-          // 2. 알 보유 개수 반영
+          // 3. 알 개수 반영
           if (typeof remoteData.eggCount === 'number') {
             setEggCount(remoteData.eggCount);
             try {
               localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(remoteData.eggCount));
             } catch {}
           }
-          // 3. 괴수 도감 반영 (기존 로컬 도감과 안전하게 병합)
+          // 4. 출석 체크 기록 반영 (로컬과 병합)
+          if (Array.isArray(remoteData.attendanceRecords)) {
+            setRecords(remoteData.attendanceRecords);
+            setStoredAttendanceRecords(remoteData.attendanceRecords);
+          }
+          // 4-1. 괴수 도감 반영 (기존 로컬 도감과 안전하게 병합)
           if (remoteData.unlockedMonsters && typeof remoteData.unlockedMonsters === 'object') {
             const localMonsters = getStoredUnlockedMonsters();
             const mergedMonsters = { ...localMonsters, ...remoteData.unlockedMonsters };
             setStoredUnlockedMonsters(mergedMonsters);
             setUnlockedMonsters(mergedMonsters);
           }
-          // 4. 출석 기록 반영 (중복 제거 병합)
-          if (Array.isArray(remoteData.attendanceRecords)) {
-            const mergedAttendance = Array.from(new Set([...records, ...remoteData.attendanceRecords]));
-            setStoredAttendanceRecords(mergedAttendance);
-            setRecords(mergedAttendance);
-          }
-          // 5. 주간 보상 수령 상태 반영
-          if (remoteData.weeklyRewardClaimedWeek !== undefined) {
+          // 5. 이번 주 주간 보상 수령 상태 반영
+          if (remoteData.weeklyRewardClaimedWeek) {
             setStoredWeeklyRewardClaimed(remoteData.weeklyRewardClaimedWeek);
             const currentWeek = getCurrentWeekKey();
             setHasClaimedWeeklyReward(remoteData.weeklyRewardClaimedWeek === currentWeek);
@@ -271,6 +278,7 @@ export function App() {
             remoteData.coupons.forEach((c) => couponMap.set(c.id, c));
             const mergedCoupons = Array.from(couponMap.values());
             setStoredCoupons(mergedCoupons);
+            refreshCouponCount();
           }
         } else {
           // Firestore 문서가 아직 없으면 현재 로컬스토리지 데이터를 최초 백업
@@ -302,16 +310,6 @@ export function App() {
     };
   }, []);
 
-  // 테스트 편의 기능: 7일 출석 강제 채우기 & 알 6개 충전 (치트 클릭 시에만 수령 초기화)
-  const testRefillSevenDaysAndEggs = useCallback(() => {
-    forceFillWeekAttendance();
-    setEggCount(6);
-    resetWeeklyReward();
-    try {
-      localStorage.setItem(STORAGE_KEY_EGG_COUNT, '6');
-    } catch {}
-    savePlayerDataToFirestore({ eggCount: 6 });
-  }, [forceFillWeekAttendance, resetWeeklyReward]);
 
   // 음성 공격 모드 ON/OFF 토글
   const handleToggleVoiceAttack = useCallback(() => {
@@ -657,6 +655,19 @@ export function App() {
       const result = checkTodayAttendance();
       if (result.isNewlyAttended) {
         setIsNewlyAttendedToday(true);
+
+        // 7일 출석 완료 시 황금 럭키 알(보너스 알) 1개 즉시 자동 지급
+        if (result.shouldRewardEgg) {
+          setEggCount((prev) => {
+            const next = prev + 1;
+            try {
+              localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(next));
+            } catch {}
+            savePlayerDataToFirestore({ eggCount: next });
+            return next;
+          });
+        }
+
         const timer = setTimeout(() => {
           setIsAttendanceModalOpen(true);
         }, 650);
@@ -683,11 +694,11 @@ export function App() {
 
   return (
     <div
-      className="h-screen h-[100dvh] max-h-screen w-screen overflow-hidden flex flex-col p-1 sm:p-1.5 select-none bg-slate-900 text-white font-sans"
+      className="h-[100dvh] max-h-[100dvh] w-full overflow-hidden flex flex-col select-none bg-slate-900 text-white font-sans"
       style={{
         height: '100dvh',
-        maxHeight: '100vh',
-        width: '100vw',
+        maxHeight: '100dvh',
+        width: '100%',
         overflow: 'hidden',
         backgroundColor: '#0f172a',
         color: '#ffffff',
@@ -708,8 +719,15 @@ export function App() {
         onOpenMonsterBook={() => setIsMonsterBookOpen(true)}
         onOpenAttendanceModal={() => {
           setIsNewlyAttendedToday(false);
+          setAttendanceInitialShowCoupons(false);
           setIsAttendanceModalOpen(true);
         }}
+        onOpenCouponModal={() => {
+          setIsNewlyAttendedToday(false);
+          setAttendanceInitialShowCoupons(true);
+          setIsAttendanceModalOpen(true);
+        }}
+        unusedCouponCount={unusedCouponCount}
         attendanceStreak={attendanceStreak}
         isTodayAttended={isTodayAttended}
         unlockedMonsterCount={Object.keys(unlockedMonsters).length}
@@ -721,54 +739,40 @@ export function App() {
         onOpenGacha={() => setIsGachaOpen(true)}
       />
 
-      {/* 2. 메인 게임 영역 */}
+      {/* 2. 메인 게임 영역 (가로 모드에서는 좌우 2단 분할, 세로 모드에서는 상하 배치) */}
       <main
-        className="flex-1 min-h-0 flex flex-col items-center w-full max-w-5xl mx-auto overflow-hidden"
-        style={{
-          flex: 1,
-          minHeight: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          width: '100%',
-          maxWidth: '1024px',
-          overflow: 'hidden',
-        }}
+        className="flex-1 min-h-0 w-full max-w-5xl lg:max-w-6xl mx-auto px-1.5 sm:px-3 md:px-4 flex flex-col landscape-short:flex-row landscape-short:items-stretch overflow-hidden gap-1 sm:gap-1.5 md:gap-2"
       >
-        {/* 배틀 스테이지 */}
-        <GodzillaStage
-          level={gameState.level}
-          isShootingBeam={isShootingBeam}
-          isGhidorahAttacking={isGhidorahAttacking}
-          godzillaHp={godzillaHp}
-          ghidorahHp={ghidorahHp}
-          combo={gameState.streak}
-          isAllCleared={isAllCleared}
-          isGameOver={isGameOver}
-          onResetGame={isReviewMode ? handleReviewComplete : handleNextStage}
-          onReviveGame={handleReviveGame}
-          clearedCount={clearedIds.length}
-          totalCount={activeWords.length}
-          isReviewMode={isReviewMode}
-          onExitReviewMode={handleExitReviewMode}
-          stageRangeLabel={stageRangeLabel}
-          currentStageNum={currentStageNum}
-          totalStages={totalStages}
-          onOpenGacha={handleOpenGacha}
-          hasClaimedStageReward={hasClaimedStageReward}
-          isCriticalHit={isCriticalHit}
-        />
+        {/* 배틀 스테이지 (세로 모드: 상단, 가로 단축 모드: 좌측 42%) */}
+        <div className="w-full landscape-short:w-[42%] flex-none landscape-short:flex-1 min-h-0 flex flex-col justify-center">
+          <GodzillaStage
+            level={gameState.level}
+            isShootingBeam={isShootingBeam}
+            isGhidorahAttacking={isGhidorahAttacking}
+            godzillaHp={godzillaHp}
+            ghidorahHp={ghidorahHp}
+            combo={gameState.streak}
+            isAllCleared={isAllCleared}
+            isGameOver={isGameOver}
+            onResetGame={isReviewMode ? handleReviewComplete : handleNextStage}
+            onReviveGame={handleReviveGame}
+            clearedCount={clearedIds.length}
+            totalCount={activeWords.length}
+            isReviewMode={isReviewMode}
+            onExitReviewMode={handleExitReviewMode}
+            stageRangeLabel={stageRangeLabel}
+            currentStageNum={currentStageNum}
+            totalStages={totalStages}
+            onOpenGacha={handleOpenGacha}
+            hasClaimedStageReward={hasClaimedStageReward}
+            isCriticalHit={isCriticalHit}
+          />
+        </div>
 
-        {/* 3개 국어 카드 보드 */}
+        {/* 3개 국어 카드 보드 (세로 모드: 하단, 가로 단축 모드: 우측 58%) */}
         <div
-          className="flex-1 min-h-0 w-full flex flex-col overflow-hidden"
+          className="flex-1 min-h-0 w-full landscape-short:w-[58%] flex flex-col overflow-hidden"
           style={{
-            flex: 1,
-            minHeight: 0,
-            width: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
             pointerEvents: isGameOver ? 'none' : 'auto',
           }}
         >
@@ -788,16 +792,9 @@ export function App() {
         </div>
       </main>
 
-      {/* 3. 하단 푸터 */}
+      {/* 3. 하단 푸터 (가로 단축 모드에서는 공간 확보를 위해 숨김) */}
       <footer
-        className="w-full text-center py-0.5 text-[10px] text-slate-500 flex-none"
-        style={{
-          textAlign: 'center',
-          padding: '2px',
-          color: '#64748b',
-          fontSize: '10px',
-          flexShrink: 0,
-        }}
+        className="w-full text-center py-0.5 text-[9px] sm:text-[10px] text-slate-500 flex-none landscape-short:hidden"
       >
         🦖 고질라 3개 국어 배틀 모험 (초등 2학년 맞춤) · 한국어 🇰🇷 / 영어 🇺🇸 / 일본어 🇯🇵
       </footer>
@@ -870,6 +867,7 @@ export function App() {
         onClose={() => {
           setIsAttendanceModalOpen(false);
           setIsNewlyAttendedToday(false);
+          refreshCouponCount();
         }}
         currentStreak={attendanceStreak}
         maxStreak={maxAttendanceStreak}
@@ -878,14 +876,18 @@ export function App() {
         isTodayAttended={isTodayAttended}
         isNewlyAttended={isNewlyAttendedToday}
         onOpenLuckyGacha={() => setIsLuckyGachaOpen(true)}
-        onTestRefill={testRefillSevenDaysAndEggs}
         hasClaimedWeeklyReward={hasClaimedWeeklyReward}
+        initialShowCoupons={attendanceInitialShowCoupons}
+        onCouponsChanged={refreshCouponCount}
       />
 
       {/* 10. 주간 스탬프 7개 달성 럭키 알 깨기 & 쿠폰 보상 가챠 모달 */}
       <LuckyEggGachaModal
         isOpen={isLuckyGachaOpen}
-        onClose={() => setIsLuckyGachaOpen(false)}
+        onClose={() => {
+          setIsLuckyGachaOpen(false);
+          refreshCouponCount();
+        }}
         eggCount={eggCount}
         onConsumeEgg={consumeEgg}
         onWeeklyRewardClaimed={claimWeeklyReward}
