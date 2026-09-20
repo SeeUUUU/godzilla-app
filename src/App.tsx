@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { WordItem, GameState, UnlockedMonsterRecord } from './types';
 import { DEFAULT_WORDS } from './data/defaultWords';
 import { Header } from './components/Header';
@@ -11,8 +11,16 @@ import { MonsterBookModal } from './components/MonsterBookModal';
 import { VoiceAttackModal } from './components/VoiceAttackModal';
 import { AttendanceModal } from './components/AttendanceModal';
 import { LuckyEggGachaModal } from './components/LuckyEggGachaModal';
-import { useAttendance } from './hooks/useAttendance';
-import { getStoredUnlockedMonsters, MONSTER_CARDS } from './data/monsterData';
+import { useAttendance, setStoredAttendanceRecords } from './hooks/useAttendance';
+import { getStoredUnlockedMonsters, setStoredUnlockedMonsters, MONSTER_CARDS } from './data/monsterData';
+import {
+  loadCoupons,
+  setStoredCoupons,
+  setStoredWeeklyRewardClaimed,
+  hasClaimedWeeklyReward as checkClaimedWeeklyReward,
+  getCurrentWeekKey,
+} from './data/gachaRewards';
+import { fetchPlayerDataFromFirestore, savePlayerDataToFirestore } from './firebase';
 
 const STORAGE_KEY_WORDS = 'godzilla_language_words_v3';
 const STORAGE_KEY_STATE = 'godzilla_language_state_v6';
@@ -166,6 +174,7 @@ export function App() {
       try {
         localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(next));
       } catch {}
+      savePlayerDataToFirestore({ eggCount: next });
       return next;
     });
   }, []);
@@ -189,6 +198,8 @@ export function App() {
   // 5-4. 주간 출석부 및 스트릭 관리
   // ─────────────────────────────────────────────
   const {
+    records,
+    setRecords,
     isTodayAttended,
     currentStreak: attendanceStreak,
     maxStreak: maxAttendanceStreak,
@@ -197,12 +208,99 @@ export function App() {
     checkTodayAttendance,
     forceFillWeekAttendance,
     hasClaimedWeeklyReward,
+    setHasClaimedWeeklyReward,
     claimWeeklyReward,
     resetWeeklyReward,
   } = useAttendance();
   const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState(false);
   const [isNewlyAttendedToday, setIsNewlyAttendedToday] = useState(false);
   const [isLuckyGachaOpen, setIsLuckyGachaOpen] = useState(false);
+
+  // ─────────────────────────────────────────────
+  // 5-5. Firebase Firestore 연동 & 초기 동기화
+  // ─────────────────────────────────────────────
+  const isFirestoreInitialized = useRef(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const initFirestore = async () => {
+      try {
+        const remoteData = await fetchPlayerDataFromFirestore();
+        if (!isMounted) return;
+
+        if (remoteData) {
+          // 1. 레벨 / 경험치 반영
+          if (remoteData.gameState && typeof remoteData.gameState.level === 'number') {
+            setGameState(remoteData.gameState);
+            try {
+              localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(remoteData.gameState));
+            } catch {}
+          }
+          // 2. 알 보유 개수 반영
+          if (typeof remoteData.eggCount === 'number') {
+            setEggCount(remoteData.eggCount);
+            try {
+              localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(remoteData.eggCount));
+            } catch {}
+          }
+          // 3. 괴수 도감 반영 (기존 로컬 도감과 안전하게 병합)
+          if (remoteData.unlockedMonsters && typeof remoteData.unlockedMonsters === 'object') {
+            const localMonsters = getStoredUnlockedMonsters();
+            const mergedMonsters = { ...localMonsters, ...remoteData.unlockedMonsters };
+            setStoredUnlockedMonsters(mergedMonsters);
+            setUnlockedMonsters(mergedMonsters);
+          }
+          // 4. 출석 기록 반영 (중복 제거 병합)
+          if (Array.isArray(remoteData.attendanceRecords)) {
+            const mergedAttendance = Array.from(new Set([...records, ...remoteData.attendanceRecords]));
+            setStoredAttendanceRecords(mergedAttendance);
+            setRecords(mergedAttendance);
+          }
+          // 5. 주간 보상 수령 상태 반영
+          if (remoteData.weeklyRewardClaimedWeek !== undefined) {
+            setStoredWeeklyRewardClaimed(remoteData.weeklyRewardClaimedWeek);
+            const currentWeek = getCurrentWeekKey();
+            setHasClaimedWeeklyReward(remoteData.weeklyRewardClaimedWeek === currentWeek);
+          }
+          // 6. 획득 쿠폰 목록 반영 (ID 기준 병합)
+          if (Array.isArray(remoteData.coupons)) {
+            const localCoupons = loadCoupons();
+            const couponMap = new Map();
+            localCoupons.forEach((c) => couponMap.set(c.id, c));
+            remoteData.coupons.forEach((c) => couponMap.set(c.id, c));
+            const mergedCoupons = Array.from(couponMap.values());
+            setStoredCoupons(mergedCoupons);
+          }
+        } else {
+          // Firestore 문서가 아직 없으면 현재 로컬스토리지 데이터를 최초 백업
+          const localMonsters = getStoredUnlockedMonsters();
+          const localCoupons = loadCoupons();
+          const currentWeekClaimed = checkClaimedWeeklyReward() ? getCurrentWeekKey() : null;
+          await savePlayerDataToFirestore({
+            gameState,
+            eggCount,
+            attendanceRecords: records,
+            weeklyRewardClaimedWeek: currentWeekClaimed,
+            unlockedMonsters: localMonsters,
+            coupons: localCoupons,
+          });
+        }
+      } catch (err) {
+        console.warn('[Firestore] Sync initialization error (fallback to localStorage):', err);
+      } finally {
+        if (isMounted) {
+          isFirestoreInitialized.current = true;
+        }
+      }
+    };
+
+    initFirestore();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // 테스트 편의 기능: 7일 출석 강제 채우기 & 알 6개 충전 (치트 클릭 시에만 수령 초기화)
   const testRefillSevenDaysAndEggs = useCallback(() => {
@@ -212,6 +310,7 @@ export function App() {
     try {
       localStorage.setItem(STORAGE_KEY_EGG_COUNT, '6');
     } catch {}
+    savePlayerDataToFirestore({ eggCount: 6 });
   }, [forceFillWeekAttendance, resetWeeklyReward]);
 
   // 음성 공격 모드 ON/OFF 토글
@@ -242,11 +341,15 @@ export function App() {
     setGameState((prev) => {
       const totalExp = prev.exp + amount;
       const levelGain = Math.floor(totalExp / 100);
-      return {
+      const nextState = {
         ...prev,
         level: prev.level + levelGain,
         exp: totalExp % 100,
       };
+      if (isFirestoreInitialized.current) {
+        savePlayerDataToFirestore({ gameState: nextState });
+      }
+      return nextState;
     });
   }, []);
 
@@ -276,14 +379,18 @@ export function App() {
     } catch (e) {
       console.error('Failed to save gameState:', e);
     }
+    savePlayerDataToFirestore({ gameState: nextState });
   }, []);
 
-  // gameState → localStorage 동기화
+  // gameState → localStorage 및 Firestore 동기화
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(gameState));
     } catch (e) {
       console.error('Failed to save gameState:', e);
+    }
+    if (isFirestoreInitialized.current) {
+      savePlayerDataToFirestore({ gameState });
     }
   }, [gameState]);
 

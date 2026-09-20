@@ -4,8 +4,17 @@ import {
   markWeeklyRewardClaimed as saveWeeklyRewardClaimed,
   resetWeeklyRewardClaimed as clearWeeklyRewardClaimed,
 } from '../data/gachaRewards';
+import { savePlayerDataToFirestore } from '../firebase';
 
-const STORAGE_KEY_ATTENDANCE = 'godzilla_attendance_records';
+export const STORAGE_KEY_ATTENDANCE = 'godzilla_attendance_records';
+
+export const setStoredAttendanceRecords = (records: string[]): void => {
+  try {
+    localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(records));
+  } catch (e) {
+    console.error('Failed to save attendance records:', e);
+  }
+};
 
 export interface AttendanceDayInfo {
   dateStr: string;
@@ -229,6 +238,7 @@ export const useAttendance = () => {
     }
 
     const nextStreak = calculateCurrentStreak(updated);
+    savePlayerDataToFirestore({ attendanceRecords: updated });
     return { isNewlyAttended: true, streak: nextStreak };
   }, [records]);
 
@@ -242,11 +252,13 @@ export const useAttendance = () => {
     } catch (e) {
       console.error('Failed to force fill attendance:', e);
     }
+    savePlayerDataToFirestore({ attendanceRecords: updated });
     return updated;
   }, [records]);
 
   return {
     records,
+    setRecords,
     isTodayAttended,
     currentStreak,
     maxStreak,
@@ -255,6 +267,7 @@ export const useAttendance = () => {
     checkTodayAttendance,
     forceFillWeekAttendance,
     hasClaimedWeeklyReward,
+    setHasClaimedWeeklyReward,
     claimWeeklyReward,
     resetWeeklyReward,
   };

@@ -1,4 +1,5 @@
 import type { MonsterCardData, MonsterRarity, UnlockedMonsterRecord } from '../types';
+import { savePlayerDataToFirestore } from '../firebase';
 
 export const STORAGE_KEY_UNLOCKED_MONSTERS = 'godzilla_unlocked_monsters';
 
@@ -297,6 +298,15 @@ export const getStoredUnlockedMonsters = (): Record<string, UnlockedMonsterRecor
   return {};
 };
 
+export const setStoredUnlockedMonsters = (records: Record<string, UnlockedMonsterRecord>): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(STORAGE_KEY_UNLOCKED_MONSTERS, JSON.stringify(records));
+  } catch (e) {
+    console.error('Failed to set unlocked monsters in storage:', e);
+  }
+};
+
 export const saveMonsterToStorage = (
   monsterId: string
 ): { isNew: boolean; updatedRecords: Record<string, UnlockedMonsterRecord> } => {
@@ -321,6 +331,9 @@ export const saveMonsterToStorage = (
   } catch (e) {
     console.error('Failed to save monster to storage:', e);
   }
+
+  // Firestore에 자동 백업 (비동기)
+  savePlayerDataToFirestore({ unlockedMonsters: records });
 
   return { isNew, updatedRecords: records };
 };

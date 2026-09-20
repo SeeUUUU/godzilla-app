@@ -1,3 +1,5 @@
+import { savePlayerDataToFirestore } from '../firebase';
+
 // 게임 보너스 시간 쿠폰 가챠 보상 테이블 (가중치 기반 확률 시스템)
 
 export type GachaRewardRarity = 'legendary' | 'special' | 'regular' | 'basic' | 'miss';
@@ -133,6 +135,28 @@ export const loadCoupons = (): EarnedCoupon[] => {
   return [];
 };
 
+export const setStoredCoupons = (coupons: EarnedCoupon[]): void => {
+  try {
+    localStorage.setItem(STORAGE_KEY_COUPONS, JSON.stringify(coupons));
+  } catch {
+    // ignore
+  }
+};
+
+export const setStoredWeeklyRewardClaimed = (weekKey: string | null): void => {
+  try {
+    if (weekKey) {
+      localStorage.setItem(STORAGE_KEY_WEEKLY_REWARD, JSON.stringify(weekKey));
+      localStorage.setItem('godzilla_weekly_reward_claimed', JSON.stringify(weekKey));
+    } else {
+      localStorage.removeItem(STORAGE_KEY_WEEKLY_REWARD);
+      localStorage.removeItem('godzilla_weekly_reward_claimed');
+    }
+  } catch {
+    // ignore
+  }
+};
+
 export const saveCoupon = (reward: GachaReward): EarnedCoupon => {
   const newCoupon: EarnedCoupon = {
     id: `coupon-${Date.now()}`,
@@ -153,6 +177,9 @@ export const saveCoupon = (reward: GachaReward): EarnedCoupon => {
     // ignore
   }
 
+  // Firestore 자동 백업 (비동기)
+  savePlayerDataToFirestore({ coupons: updated });
+
   return newCoupon;
 };
 
@@ -164,6 +191,9 @@ export const markCouponUsed = (couponId: string): void => {
   } catch {
     // ignore
   }
+
+  // Firestore 자동 백업 (비동기)
+  savePlayerDataToFirestore({ coupons: updated });
 };
 
 // 이번 주 주차 번호 계산 (YYYY-Www)
@@ -192,6 +222,7 @@ export const markWeeklyRewardClaimed = (): void => {
     const weekKey = getCurrentWeekKey();
     localStorage.setItem(STORAGE_KEY_WEEKLY_REWARD, JSON.stringify(weekKey));
     localStorage.setItem('godzilla_weekly_reward_claimed', JSON.stringify(weekKey));
+    savePlayerDataToFirestore({ weeklyRewardClaimedWeek: weekKey });
   } catch {
     // ignore
   }
@@ -201,6 +232,7 @@ export const resetWeeklyRewardClaimed = (): void => {
   try {
     localStorage.removeItem(STORAGE_KEY_WEEKLY_REWARD);
     localStorage.removeItem('godzilla_weekly_reward_claimed');
+    savePlayerDataToFirestore({ weeklyRewardClaimedWeek: null });
   } catch {
     // ignore
   }
