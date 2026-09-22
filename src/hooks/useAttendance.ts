@@ -3,7 +3,6 @@ import {
   hasClaimedWeeklyReward as checkClaimedWeeklyReward,
   markWeeklyRewardClaimed as saveWeeklyRewardClaimed,
   resetWeeklyRewardClaimed as clearWeeklyRewardClaimed,
-  getCurrentWeekKey,
 } from '../data/gachaRewards';
 import { savePlayerDataToFirestore } from '../firebase';
 
@@ -196,7 +195,7 @@ export const useAttendance = () => {
     [weekDays]
   );
 
-  // 이번 주 럭키 알 수령 상태 관리
+  // 이번 주 7일 출석 최고 보상(황금 보물상자) 수령 상태 관리
   const [hasClaimedWeeklyReward, setHasClaimedWeeklyReward] = useState<boolean>(() =>
     checkClaimedWeeklyReward()
   );
@@ -217,6 +216,7 @@ export const useAttendance = () => {
     streak: number;
     isWeekCompleted: boolean;
     shouldRewardEgg: boolean;
+    shouldRewardChest?: boolean;
   } => {
     const today = getTodayDateStr();
     if (records.includes(today)) {
@@ -225,6 +225,7 @@ export const useAttendance = () => {
         streak: calculateCurrentStreak(records),
         isWeekCompleted: weekAttendedCount === 7,
         shouldRewardEgg: false,
+        shouldRewardChest: false,
       };
     }
 
@@ -243,25 +244,20 @@ export const useAttendance = () => {
     const updatedWeekCount = updatedWeekDays.filter((d) => d.isAttended).length;
     const isWeekCompleted = updatedWeekCount === 7;
 
-    // 이번 주 주간 보상을 아직 받지 않았고 7일 완성 시 주간 보상 처리
+    // 이번 주 7일 완성 여부 판정 (주간 황금 보물상자 개봉 자격 획득)
     const alreadyClaimed = checkClaimedWeeklyReward();
-    const shouldRewardEgg = isWeekCompleted && !alreadyClaimed;
-
-    if (shouldRewardEgg) {
-      saveWeeklyRewardClaimed();
-      setHasClaimedWeeklyReward(true);
-    }
+    const shouldRewardChest = isWeekCompleted && !alreadyClaimed;
 
     savePlayerDataToFirestore({
       attendanceRecords: updated,
-      ...(shouldRewardEgg ? { weeklyRewardClaimedWeek: getCurrentWeekKey() } : {}),
     });
 
     return {
       isNewlyAttended: true,
       streak: nextStreak,
       isWeekCompleted,
-      shouldRewardEgg,
+      shouldRewardEgg: shouldRewardChest,
+      shouldRewardChest,
     };
   }, [records, weekAttendedCount]);
 

@@ -565,3 +565,98 @@ export const playStampThudSound = () => {
     console.warn('Audio error:', e);
   }
 };
+
+// 13. 승리 클리어 팡파레 축하음 (Victory Fanfare)
+export const playVictoryFanfare = () => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+    const notes = [
+      { freq: 523.25, time: 0, dur: 0.15 },    // C5
+      { freq: 659.25, time: 0.15, dur: 0.15 }, // E5
+      { freq: 783.99, time: 0.3, dur: 0.2 },   // G5
+      { freq: 1046.5, time: 0.5, dur: 0.6 },   // C6
+    ];
+
+    notes.forEach(({ freq, time, dur }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, now + time);
+
+      gain.gain.setValueAtTime(0.25, now + time);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + time + dur);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now + time);
+      osc.stop(now + time + dur + 0.05);
+    });
+  } catch (e) {
+    console.warn('Audio error:', e);
+  }
+};
+
+// 12. 황금 보물상자 자물쇠 풀림음
+export const playChestUnlockSound = () => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(550, now);
+    osc.frequency.exponentialRampToValueAtTime(1100, now + 0.12);
+    gain.gain.setValueAtTime(0.25, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.13);
+  } catch (e) {
+    console.warn('Audio error:', e);
+  }
+};
+
+// 13. 황금 보물상자 오픈 팡파레 & 샤인음
+export const playChestOpenSound = () => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    // 웅장한 황금빛 저음 럼블
+    const bass = ctx.createOscillator();
+    const bassGain = ctx.createGain();
+    bass.type = 'triangle';
+    bass.frequency.setValueAtTime(120, now);
+    bass.frequency.exponentialRampToValueAtTime(45, now + 0.5);
+    bassGain.gain.setValueAtTime(0.35, now);
+    bassGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+    bass.connect(bassGain);
+    bassGain.connect(ctx.destination);
+    bass.start(now);
+    bass.stop(now + 0.52);
+
+    // 찬란한 황금빛 글리산도 벨
+    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.51, 1567.98, 2093.0];
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + i * 0.06);
+      gain.gain.setValueAtTime(0.2, now + i * 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.06 + 0.4);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + i * 0.06);
+      osc.stop(now + i * 0.06 + 0.42);
+    });
+  } catch (e) {
+    console.warn('Audio error:', e);
+  }
+};
+

@@ -22,10 +22,10 @@ export interface GachaReward {
 export const GACHA_REWARDS: GachaReward[] = [
   {
     id: 'legendary',
-    label: '30분 보너스',
+    label: '30분 게임 & 유튜브 보너스 쿠폰',
     minutes: 30,
     emoji: '👑',
-    description: '대박! 오늘은 30분 더 즐길 수 있어요!',
+    description: '대박! 게임 또는 유튜브를 30분 더 즐길 수 있는 최고 보상 쿠폰 당첨!',
     color: '#fbbf24',
     bgGradient: 'linear-gradient(135deg, #92400e 0%, #78350f 40%, #451a03 100%)',
     borderColor: '#fbbf24',
@@ -245,4 +245,48 @@ export const resetWeeklyRewardClaimed = (): void => {
   } catch {
     // ignore
   }
+};
+
+// ───────────────────────────────────────────────────────────
+// 도감 10종 완성 최고 보상 (황금 보물상자) 영구 저장소
+// ───────────────────────────────────────────────────────────
+export const STORAGE_KEY_CODEX_REWARD = 'godzilla_codex_reward_claimed';
+
+export const hasClaimedCodexReward = (): boolean => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_CODEX_REWARD);
+    return saved === 'true';
+  } catch {
+    return false;
+  }
+};
+
+export const markCodexRewardClaimed = (): void => {
+  try {
+    localStorage.setItem(STORAGE_KEY_CODEX_REWARD, 'true');
+    savePlayerDataToFirestore({ hasClaimedCodexReward: true });
+  } catch (e) {
+    console.error('Failed to mark codex reward claimed:', e);
+  }
+};
+
+// 황금 보물상자 최고 보상 쿠폰 (30분 게임 & 유튜브 보너스 쿠폰) 생성
+export const createGoldenChestReward = (source: 'attendance' | 'codex'): GachaReward => {
+  return {
+    id: 'legendary',
+    label: '30분 게임 & 유튜브 보너스 쿠폰',
+    minutes: 30,
+    emoji: '👑',
+    description:
+      source === 'codex'
+        ? '🎉 10종 괴수 도감 완전 정복 최고 보상! 게임 또는 유튜브 30분 자유 이용권!'
+        : '🎉 7일 연속 출석 달성 최고 보상! 게임 또는 유튜브 30분 자유 이용권!',
+    color: '#fbbf24',
+    bgGradient: 'linear-gradient(135deg, #92400e 0%, #78350f 40%, #451a03 100%)',
+    borderColor: '#fbbf24',
+    shadowColor: 'rgba(251, 191, 36, 0.85)',
+    badgeLabel: '🎁 최고 등급 전설 쿠폰!',
+    weight: 100,
+    bonusExp: 100,
+  };
 };

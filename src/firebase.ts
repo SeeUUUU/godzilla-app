@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
-import type { GameState, UnlockedMonsterRecord } from "./types";
+import type { GameState, UnlockedMonsterRecord, WordItem } from "./types";
 import type { EarnedCoupon } from "./data/gachaRewards";
 
 const firebaseConfig = {
@@ -26,6 +26,9 @@ export interface PlayerFirestoreData {
   weeklyRewardClaimedWeek?: string | null;
   unlockedMonsters?: Record<string, UnlockedMonsterRecord>;
   coupons?: EarnedCoupon[];
+  wrongWordList?: WordItem[];
+  hasClaimedCodexReward?: boolean;
+  treasureBoxCount?: number;
   updatedAt?: string;
 }
 

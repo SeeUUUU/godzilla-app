@@ -12,12 +12,17 @@ interface MonsterBookModalProps {
   isOpen: boolean;
   onClose: () => void;
   unlockedRecords?: Record<string, UnlockedMonsterRecord>;
+  hasClaimedCodexReward?: boolean;
+  onOpenCodexChest?: () => void;
+  onClaimCodexReward?: () => void;
 }
 
 export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
   isOpen,
   onClose,
   unlockedRecords: propRecords,
+  onOpenCodexChest,
+  onClaimCodexReward,
 }) => {
   const [records, setRecords] = useState<Record<string, UnlockedMonsterRecord>>({});
   const [selectedMonster, setSelectedMonster] = useState<MonsterCardData | null>(null);
@@ -104,6 +109,7 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
     MONSTER_CARDS.some((m) => m.id === id)
   ).length;
   const progressPercent = Math.round((unlockedCount / totalCount) * 100);
+  const isAllCollected = unlockedCount >= totalCount;
 
   const selectedMeta = selectedMonster ? RARITY_METADATA[selectedMonster.rarity] : null;
   const selectedRecord = selectedMonster ? records[selectedMonster.id] : null;
@@ -247,6 +253,67 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
             />
           </div>
         </div>
+
+        {/* 10종 괴수 전원 수집 완료 시 황금 보물상자 교환 배너 */}
+        {isAllCollected && (
+          <div
+            style={{
+              margin: '12px 20px 0 20px',
+              padding: '12px 16px',
+              borderRadius: '16px',
+              background: 'linear-gradient(90deg, #78350f 0%, #b45309 40%, #d97706 70%, #f59e0b 100%)',
+              border: '2px solid #fde047',
+              boxShadow: '0 0 24px rgba(251, 191, 36, 0.65)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '8px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '24px' }}>🏆</span>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 900, color: '#fef08a' }}>
+                  🎉 10종 괴수 전원 수집 완료! (도감 마스터 달성)
+                </div>
+                <div style={{ fontSize: '11px', color: '#fef3c7', fontWeight: 700 }}>
+                  최고 보상인 🎁 황금 보물상자(30분 쿠폰)로 교환할 수 있어요!
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (onClaimCodexReward) {
+                  onClaimCodexReward();
+                } else {
+                  onOpenCodexChest?.();
+                }
+              }}
+              className="animate-bounce"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '10px 18px',
+                borderRadius: '14px',
+                background: 'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)',
+                border: '2px solid #ffffff',
+                color: '#ffffff',
+                fontSize: '13px',
+                fontWeight: 900,
+                cursor: 'pointer',
+                boxShadow: '0 0 20px rgba(245, 158, 11, 0.85)',
+              }}
+            >
+              <span style={{ fontSize: '18px' }}>🎁</span>
+              <span>황금 보물상자로 교환하기!</span>
+              <Sparkles size={16} color="#ffffff" />
+            </button>
+          </div>
+        )}
 
         {/* 메인 10종 괴수 그리드 스크롤 영역 */}
         <div
@@ -447,16 +514,49 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
           </div>
         </div>
 
-        {/* 하단 닫기 버튼 */}
+        {/* 하단 버튼 영역 */}
         <div
           style={{
             padding: '12px 20px',
             borderTop: '1px solid rgba(255, 255, 255, 0.08)',
             backgroundColor: '#1e293b',
             display: 'flex',
-            justifyContent: 'flex-end',
+            alignItems: 'center',
+            justifyContent: isAllCollected ? 'space-between' : 'flex-end',
+            gap: '8px',
           }}
         >
+          {isAllCollected && (
+            <button
+              type="button"
+              onClick={() => {
+                if (onClaimCodexReward) {
+                  onClaimCodexReward();
+                } else {
+                  onOpenCodexChest?.();
+                }
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 16px',
+                borderRadius: '12px',
+                background: 'linear-gradient(90deg, #d97706, #f59e0b)',
+                border: '1.5px solid #fde047',
+                color: '#ffffff',
+                fontSize: '12px',
+                fontWeight: 900,
+                cursor: 'pointer',
+                boxShadow: '0 0 12px rgba(245, 158, 11, 0.5)',
+              }}
+            >
+              <span>🎁</span>
+              <span>황금 보물상자로 교환하기!</span>
+              <Sparkles size={14} />
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onClose}

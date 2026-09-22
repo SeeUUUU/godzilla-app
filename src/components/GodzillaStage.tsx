@@ -2,10 +2,12 @@ import React, { useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import { GodzillaCharacter } from './GodzillaCharacter';
 import { KingGhidorah } from './KingGhidorah';
+import { RaidBossRenderer } from './RaidBossRenderer';
+import type { RaidBossInfo } from '../data/raidBosses';
 import {
   playEvolutionBeamSound,
-  playDingDongSuccess,
   playElectricShockSound,
+  playVictoryFanfare,
 } from '../utils/soundEffects';
 import { getGodzillaEvolution } from '../types';
 import { Trophy, RotateCcw, Swords, ShieldAlert, Zap, Heart } from 'lucide-react';
@@ -31,6 +33,7 @@ interface GodzillaStageProps {
   onOpenGacha?: () => void;
   hasClaimedStageReward?: boolean;
   isCriticalHit?: boolean;
+  raidBoss?: RaidBossInfo;
 }
 
 export const GodzillaStage: React.FC<GodzillaStageProps> = ({
@@ -54,9 +57,14 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
   onOpenGacha,
   hasClaimedStageReward = false,
   isCriticalHit = false,
+  raidBoss,
 }) => {
-  // 오직 모든 단어를 100% 클리어했을 때만 적 격퇴 및 승리 화면 트리거 (HP 조건 완전 배제)
-  const isGhidorahDefeated = isAllCleared && !isGameOver;
+  // 레이드 모드 보스 HP 계산 (남은 오답 단어 수에 맞춰 정확히 타격당 감소, 0개 남으면 0%)
+  const raidBossHp = totalCount > 0
+    ? Math.max(0, Math.round(((totalCount - clearedCount) / totalCount) * 100))
+    : 0;
+  const effectiveBossHp = isReviewMode ? raidBossHp : ghidorahHp;
+  const isBossDefeated = isAllCleared && !isGameOver;
 
   // 1. 공식 파워 랭킹에 따른 고질라 5단계 진화 정보
   // LV.1 ~ 2: 치비 고질라 (Chibi)
@@ -83,29 +91,27 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
     }
   }, [isGhidorahAttacking]);
 
-  // 승리 팡파레 & 폭죽
+  // 승리(클리어) 시 축하 효과음 및 폭죽 연출 (오버레이가 열릴 때 1회 재생)
   useEffect(() => {
-    if (isGhidorahDefeated && !isGameOver) {
-      playDingDongSuccess();
+    if (isBossDefeated) {
+      playVictoryFanfare();
 
-      const end = Date.now() + 2500;
+      // 화려한 컨페티 폭죽 팡팡 연출
       const interval = setInterval(() => {
-        if (Date.now() > end) {
-          clearInterval(interval);
-          return;
-        }
         confetti({
-          startVelocity: 30,
-          spread: 360,
+          particleCount: 50,
+          spread: 80,
           ticks: 60,
           origin: { x: Math.random(), y: Math.random() * 0.5 },
-          colors: ['#00f2ff', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'],
+          colors: isReviewMode
+            ? ['#a855f7', '#ec4899', '#f59e0b', '#10b981', '#00f2ff']
+            : ['#00f2ff', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'],
         });
       }, 300);
 
       return () => clearInterval(interval);
     }
-  }, [isGhidorahDefeated, isGameOver]);
+  }, [isBossDefeated, isReviewMode]);
 
   // 고질라 체력 바 색상
   let gzHpColor = 'linear-gradient(90deg, #06b6d4 0%, #22c55e 100%)';
@@ -115,12 +121,23 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
     gzHpColor = 'linear-gradient(90deg, #f59e0b 0%, #d97706 100%)';
   }
 
-  // 킹 기도라 체력 바 색상
-  let kgHpColor = 'linear-gradient(90deg, #22c55e 0%, #84cc16 100%)';
-  if (ghidorahHp <= 25) {
-    kgHpColor = 'linear-gradient(90deg, #ef4444 0%, #b91c1c 100%)';
-  } else if (ghidorahHp <= 50) {
-    kgHpColor = 'linear-gradient(90deg, #f59e0b 0%, #d97706 100%)';
+  // 보스 체력 바 색상 (일반: 킹 기도라, 복습 레이드: 5대 랜덤 보스)
+  let bossHpColor = 'linear-gradient(90deg, #22c55e 0%, #84cc16 100%)';
+  if (isReviewMode) {
+    const primary = raidBoss?.themeColor || '#9333ea';
+    const accent = raidBoss?.accentColor || '#c084fc';
+    bossHpColor = `linear-gradient(90deg, ${accent} 0%, ${primary} 100%)`;
+    if (effectiveBossHp <= 25) {
+      bossHpColor = 'linear-gradient(90deg, #ef4444 0%, #991b1b 100%)';
+    } else if (effectiveBossHp <= 50) {
+      bossHpColor = `linear-gradient(90deg, #f59e0b 0%, ${primary} 100%)`;
+    }
+  } else {
+    if (effectiveBossHp <= 25) {
+      bossHpColor = 'linear-gradient(90deg, #ef4444 0%, #b91c1c 100%)';
+    } else if (effectiveBossHp <= 50) {
+      bossHpColor = 'linear-gradient(90deg, #f59e0b 0%, #d97706 100%)';
+    }
   }
 
   // 스테이지 프레임 테두리 & 네온 펄스 효과
@@ -191,15 +208,15 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
 
   return (
     <div
-      className="w-full flex-none px-1 sm:px-2 md:px-3 my-0.5 sm:my-1 md:my-1.5 h-[110px] xs:h-[125px] sm:h-[155px] md:h-[210px] lg:h-[235px] landscape-short:h-full landscape-short:my-0"
+      className="w-full flex-none px-1 sm:px-2 md:px-3 my-1 sm:my-1.5 md:my-2 h-48 xs:h-52 sm:h-56 md:h-60 lg:h-64 landscape-short:h-full landscape-short:my-0"
     >
       <div
-        className={`relative overflow-hidden rounded-xl sm:rounded-2xl bg-slate-900 p-1.5 sm:p-2 md:p-3 flex flex-col justify-between h-full ${
+        className={`relative overflow-hidden rounded-2xl bg-slate-900 p-2 sm:p-2.5 md:p-3 flex flex-col justify-between h-full ${
           isFever ? 'animate-fever-pulse' : ''
         }`}
         style={{
           backgroundColor: '#0f172a',
-          borderRadius: '16px',
+          borderRadius: '18px',
           border: frameBorder,
           height: '100%',
           boxShadow: frameShadow,
@@ -227,22 +244,22 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
 
         {/* 1. 상단 대칭형 대전 격투 HUD (5단계 진화 연동) */}
         <div
-          className="w-full flex items-center justify-between flex-none z-10 border-b border-white/10 pb-0.5 sm:pb-1 mb-0.5"
+          className="w-full flex items-center justify-between flex-none z-10 border-b border-white/10 pb-1 sm:pb-1.5 mb-1 px-0.5 sm:px-1"
         >
           {/* [좌측] 고질라 5단계 진화 라벨 & HP */}
           <div className="flex flex-col items-start min-w-0">
-            <div className="flex items-center gap-1 mb-0.5">
-              <Heart className="w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5" style={{ color: evo.themeColor, fill: evo.themeColor }} />
-              <span className="text-[10px] sm:text-xs md:text-sm font-black truncate max-w-[85px] xs:max-w-none" style={{ color: evo.themeColor }}>
+            <div className="flex items-center gap-1 sm:gap-1.5 mb-0.5 sm:mb-1">
+              <Heart className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4" style={{ color: evo.themeColor, fill: evo.themeColor }} />
+              <span className="text-xs sm:text-sm font-black truncate max-w-[100px] xs:max-w-none" style={{ color: evo.themeColor }}>
                 {evo.icon} {evo.shortName}
               </span>
-              <span className="text-[9px] sm:text-[11px] md:text-xs font-black" style={{ color: godzillaHp <= 25 ? '#ef4444' : '#a5f3fc' }}>
+              <span className="text-xs sm:text-sm font-black" style={{ color: godzillaHp <= 25 ? '#ef4444' : '#a5f3fc' }}>
                 {godzillaHp}%
               </span>
             </div>
             {/* 고질라 체력 트랙 */}
             <div
-              className="w-16 xs:w-20 sm:w-28 md:w-36 lg:w-44 h-1.5 sm:h-2 md:h-2.5 rounded-full overflow-hidden bg-slate-950 border"
+              className="w-24 xs:w-28 sm:w-36 md:w-44 lg:w-52 h-2 sm:h-2.5 md:h-3 rounded-full overflow-hidden bg-slate-950 border"
               style={{ borderColor: `${evo.themeColor}99` }}
             >
               <div
@@ -258,20 +275,19 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
           </div>
 
           {/* [중앙] VS 배지 & 피버 모드 팝업 & 콤보 & 격파 진행도 */}
-          <div className="flex flex-col items-center gap-0.5 mx-1 flex-shrink-0">
+          <div className="flex flex-col items-center gap-0.5 sm:gap-1 mx-1 flex-shrink-0">
             {isReviewMode ? (
               <div
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] sm:text-[11px] md:text-xs font-black text-white border border-amber-300 shadow-sm"
+                className="flex items-center gap-1 px-2 sm:px-2.5 py-0.5 rounded-md text-[10px] sm:text-xs md:text-sm font-black text-white border border-amber-300 shadow-sm whitespace-nowrap"
                 style={{
                   background: 'linear-gradient(90deg, #b45309 0%, #ea580c 100%)',
-                  whiteSpace: 'nowrap',
                 }}
               >
                 <span>🔥 특훈 배틀</span>
               </div>
             ) : isFever ? (
               <div
-                className="animate-bounce px-1.5 sm:px-2.5 py-0.2 sm:py-0.5 rounded-full text-[9px] sm:text-[11px] md:text-xs font-black text-white border border-yellow-200 shadow-md whitespace-nowrap"
+                className="animate-bounce px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs md:text-sm font-black text-white border border-yellow-200 shadow-md whitespace-nowrap"
                 style={{
                   background: 'linear-gradient(90deg, #ef4444 0%, #f97316 50%, #eab308 100%)',
                 }}
@@ -280,20 +296,20 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
               </div>
             ) : combo > 1 ? (
               <div
-                className="animate-bounce px-1.5 py-0.2 rounded-md bg-amber-500 text-slate-950 text-[9px] sm:text-[11px] md:text-xs font-black border border-amber-300 shadow-sm whitespace-nowrap"
+                className="animate-bounce px-2 sm:px-2.5 py-0.5 rounded-md bg-amber-500 text-slate-950 text-[10px] sm:text-xs md:text-sm font-black border border-amber-300 shadow-sm whitespace-nowrap"
               >
                 🔥 {combo} COMBO!
               </div>
             ) : (
               <div
-                className="flex items-center gap-0.5 text-rose-500 font-black text-[9px] sm:text-[11px] md:text-xs px-1.5 py-0.2 rounded bg-rose-950/60 border border-rose-600/60"
+                className="flex items-center gap-1 text-rose-500 font-black text-[10px] sm:text-xs md:text-sm px-2 py-0.5 rounded bg-rose-950/60 border border-rose-600/60"
               >
-                <Swords className="w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5" />
+                <Swords className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                 <span>VS</span>
               </div>
             )}
             <div
-              className="text-[8px] sm:text-[9px] md:text-xs font-extrabold flex items-center gap-1 tracking-tight"
+              className="text-[9px] sm:text-[11px] md:text-xs font-extrabold flex items-center gap-1 tracking-tight"
               style={{ color: isFever || isReviewMode ? '#fde047' : '#94a3b8' }}
             >
               <span>
@@ -305,39 +321,64 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                 <button
                   type="button"
                   onClick={onExitReviewMode}
-                  className="text-[8px] sm:text-[9px] md:text-xs text-slate-400 underline cursor-pointer hover:text-white"
+                  className="text-[9px] sm:text-[11px] md:text-xs text-slate-400 underline cursor-pointer hover:text-white"
                 >
                   (일반)
                 </button>
               )}
             </div>
             {stageRangeLabel && !isReviewMode && (
-              <div className="hidden xs:block text-[7px] sm:text-[8px] md:text-[10px] font-bold text-slate-500 whitespace-nowrap">
+              <div className="hidden xs:block text-[8px] sm:text-[9px] md:text-[10px] font-bold text-slate-500 whitespace-nowrap">
                 {stageRangeLabel}
               </div>
             )}
           </div>
 
-          {/* [우측] 👑 킹 기도라 HP */}
+          {/* [우측] 보스 HP (일반: 👑 킹 기도라, 복습 레이드: 5대 랜덤 보스) */}
           <div className="flex flex-col items-end min-w-0">
-            <div className="flex items-center gap-1 mb-0.5">
-              <ShieldAlert className="w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5 text-amber-400" />
-              <span className="text-[10px] sm:text-xs md:text-sm font-black text-amber-200 truncate max-w-[85px] xs:max-w-none">
-                👑 킹 기도라
+            <div className="flex items-center gap-1 sm:gap-1.5 mb-0.5 sm:mb-1">
+              <ShieldAlert
+                className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4"
+                style={{
+                  color: isReviewMode ? (raidBoss?.themeColor || '#a855f7') : '#f59e0b',
+                }}
+              />
+              <span
+                className="text-xs sm:text-sm font-black truncate max-w-[140px] xs:max-w-none"
+                style={{
+                  color: isReviewMode ? (raidBoss?.themeColor || '#d8b4fe') : '#fef08a',
+                }}
+              >
+                {isReviewMode ? `${raidBoss?.icon || '👾'} ${raidBoss?.title || '스모그 괴수 헤도라'}` : '👑 킹 기도라'}
               </span>
-              <span className="text-[9px] sm:text-[11px] md:text-xs font-black" style={{ color: ghidorahHp <= 25 ? '#ef4444' : '#fef08a' }}>
-                {ghidorahHp}%
+              <span
+                className="text-xs sm:text-sm font-black"
+                style={{
+                  color:
+                    effectiveBossHp <= 25
+                      ? '#ef4444'
+                      : isReviewMode
+                      ? (raidBoss?.accentColor || '#d8b4fe')
+                      : '#fef08a',
+                }}
+              >
+                {effectiveBossHp}%
               </span>
             </div>
-            {/* 킹 기도라 체력 트랙 */}
+            {/* 보스 체력 트랙 */}
             <div
-              className="w-16 xs:w-20 sm:w-28 md:w-36 lg:w-44 h-1.5 sm:h-2 md:h-2.5 rounded-full overflow-hidden bg-slate-950 border border-amber-600/70"
+              className="w-24 xs:w-28 sm:w-36 md:w-44 lg:w-52 h-2 sm:h-2.5 md:h-3 rounded-full overflow-hidden bg-slate-950 border"
+              style={{
+                borderColor: isReviewMode
+                  ? `${raidBoss?.themeColor || '#a855f7'}99`
+                  : 'rgba(217, 119, 6, 0.7)',
+              }}
             >
               <div
                 style={{
-                  width: `${ghidorahHp}%`,
+                  width: `${effectiveBossHp}%`,
                   height: '100%',
-                  background: kgHpColor,
+                  background: bossHpColor,
                   borderRadius: '9999px',
                   transition: 'width 0.35s ease, background 0.35s ease',
                 }}
@@ -348,7 +389,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
 
         {/* 2. 대전 격투 아레나 (유연한 flex 3단 구조: 고질라 - 빔 공간 - 킹 기도라) */}
         <div
-          className="relative w-full flex-1 min-h-0 flex items-end justify-between overflow-hidden"
+          className="relative w-full flex-1 min-h-0 flex items-end justify-between overflow-hidden pt-1"
           style={{
             position: 'relative',
             width: '100%',
@@ -363,10 +404,10 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
           <div
             style={{
               position: 'absolute',
-              bottom: '1px',
-              left: '5px',
-              right: '5px',
-              height: '2.5px',
+              bottom: '2px',
+              left: '6px',
+              right: '6px',
+              height: '3px',
               background: `linear-gradient(90deg, transparent, ${evo.themeColor}88 15%, rgba(245, 158, 11, 0.5) 85%, transparent)`,
               borderRadius: '9999px',
               pointerEvents: 'none',
@@ -765,23 +806,32 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
             )}
           </div>
 
-          {/* 우측: 킹 기도라 (높이 100% 비례 축소, 접지) */}
+          {/* 우측: 보스 괴수 (일반: 킹 기도라, 레이드: 5대 랜덤 보스) */}
           <div
             className="relative h-full flex-shrink-0 flex items-end"
             style={{ height: '100%', position: 'relative', zIndex: 10 }}
           >
-            <KingGhidorah
-              isHit={isShootingBeam}
-              isDefeated={isGhidorahDefeated}
-              hp={ghidorahHp}
-            />
+            {isReviewMode ? (
+              <RaidBossRenderer
+                bossId={raidBoss?.id || 'hedorah'}
+                isHit={isShootingBeam}
+                isDefeated={isBossDefeated}
+                hp={effectiveBossHp}
+              />
+            ) : (
+              <KingGhidorah
+                isHit={isShootingBeam}
+                isDefeated={isBossDefeated}
+                hp={effectiveBossHp}
+              />
+            )}
           </div>
         </div>
 
         {/* 3. 승리 화면 오버레이 (모든 단어 100% 클리어 시에만 표시) */}
-        {isGhidorahDefeated && (
+        {isBossDefeated && (
           <div
-            className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm flex flex-col items-center justify-center text-center p-3 z-50 animate-fadeIn overflow-y-auto"
+            className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm flex flex-col items-center justify-center text-center p-2 z-50 animate-fadeIn"
             style={{
               position: 'absolute',
               inset: 0,
@@ -794,35 +844,44 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
               zIndex: 50,
             }}
           >
-            <Trophy className="w-12 h-12 text-amber-400 mb-1 animate-bounce" />
-            <h2 className="text-xl sm:text-2xl font-black text-amber-300 mb-0.5">
-              {isReviewMode
-                ? '🎉 오답 격파 완료!'
-                : `🎉 킹 기도라 격퇴! ${evo.name} 승리!`}
-            </h2>
-            {/* 복습 모드: 마스터 완료 뱃지 */}
+            <div className="flex items-center gap-1.5 mb-1">
+              <Trophy className="w-5 h-5 sm:w-6 sm:h-6 text-amber-400 animate-bounce shrink-0" />
+              <h2 className="text-sm sm:text-base md:text-lg font-black text-amber-300">
+                {isReviewMode
+                  ? `🎉 약점 극복 완료! ${raidBoss?.name || '오답 괴수'} 격파!`
+                  : `🎉 킹 기도라 격퇴! ${evo.name} 승리!`}
+              </h2>
+            </div>
+            {/* 복습 모드: 마스터 완료 뱃지 & 레이드 보상 */}
             {isReviewMode && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  marginBottom: '4px',
-                }}
-              >
+              <div className="flex flex-wrap items-center justify-center gap-1.5 mb-1.5">
                 <span
                   style={{
-                    padding: '2px 10px',
+                    padding: '1px 8px',
                     borderRadius: '9999px',
-                    background: 'linear-gradient(90deg, #b45309, #ea580c)',
+                    background: 'linear-gradient(90deg, #9333ea, #c026d3, #ea580c)',
                     color: '#ffffff',
                     fontSize: '11px',
                     fontWeight: 900,
                     border: '1.5px solid #fde047',
-                    boxShadow: '0 0 8px rgba(245, 158, 11, 0.5)',
+                    boxShadow: '0 0 8px rgba(168, 85, 247, 0.6)',
                   }}
                 >
-                  🏆 모든 오답 단어 완전 정복!
+                  🏆 {raidBoss?.title || '오답 괴수'} 완전 퇴치!
+                </span>
+                <span
+                  style={{
+                    padding: '1px 8px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                    color: '#34d399',
+                    fontSize: '10px',
+                    fontWeight: 800,
+                    border: '1px solid #10b981',
+                    boxShadow: '0 0 6px rgba(16, 185, 129, 0.3)',
+                  }}
+                >
+                  🎁 레이드 토벌 보너스: 🥚 괴수 알 1개 + ⚡ 100 EXP 획득!
                 </span>
               </div>
             )}
@@ -833,20 +892,20 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px',
-                  marginBottom: '4px',
+                  marginBottom: '2px',
                 }}
               >
                 <span
                   style={{
-                    padding: '2px 10px',
+                    padding: '1px 8px',
                     borderRadius: '9999px',
                     background: currentStageNum < totalStages
                       ? 'linear-gradient(90deg, #0369a1, #06b6d4)'
                       : 'linear-gradient(90deg, #d97706, #f59e0b)',
                     color: '#ffffff',
-                    fontSize: '11px',
+                    fontSize: '10px',
                     fontWeight: 900,
-                    border: '1.5px solid rgba(255,255,255,0.4)',
+                    border: '1px solid rgba(255,255,255,0.4)',
                   }}
                 >
                   {currentStageNum < totalStages
@@ -855,48 +914,55 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                 </span>
               </div>
             )}
-            <p className="text-slate-300 text-xs sm:text-sm font-bold mb-3">
+            <p className="text-slate-300 text-[11px] sm:text-xs font-bold mb-1.5">
               {isReviewMode
-                 ? `틀렸던 단어 ${totalCount}개를 모두 마스터했어요! 대단해요! 🌟`
-                 : currentStageNum !== undefined && totalStages !== undefined && currentStageNum < totalStages
-                   ? `단어 ${totalCount}개 격파! 다음 스테이지로 고고!`
-                   : `단어 ${totalCount}개(${totalCount}/${totalCount})를 모두 격파했어요! 대단해요!`}
+                ? `틀렸던 약점 단어 ${totalCount}개를 모두 마스터했어요! 약점 완전 극복! 🌟`
+                : currentStageNum !== undefined && totalStages !== undefined && currentStageNum < totalStages
+                  ? `단어 ${totalCount}개 격파! 다음 스테이지로 고고!`
+                  : `단어 ${totalCount}개(${totalCount}/${totalCount})를 모두 격파했어요! 대단해요!`}
             </p>
 
-            {/* 알 깨기 가챠 보상 버튼 (한 스테이지당 1회 수령 제한) */}
-            {onOpenGacha && (
+            {/* 승리 보상 괴수 알 지급 완료 안내 배지 */}
+            {!isReviewMode && (
+              <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-950/60 border border-amber-500/60 text-amber-300 text-[10px] sm:text-[11px] font-black mb-1.5 shadow-sm">
+                <span>🎁 승리 보상:</span>
+                <span className="text-yellow-400 font-black">🥚 괴수 알 +1 획득 완료!</span>
+              </div>
+            )}
+
+            {/* 알 깨기 가챠 보상 버튼 (일반 스테이지 전용) */}
+            {!isReviewMode && onOpenGacha && (
               hasClaimedStageReward ? (
                 <button
                   type="button"
                   disabled
-                  className="bg-slate-700/60 text-slate-400 font-bold text-xs sm:text-sm px-6 py-2.5 sm:py-3 rounded-xl cursor-not-allowed border border-slate-600 flex items-center gap-2 mb-2.5 select-none shadow-sm"
+                  className="bg-slate-700/60 text-slate-400 font-bold text-[11px] sm:text-xs px-4 py-1.5 rounded-lg cursor-not-allowed border border-slate-600 flex items-center gap-1.5 mb-1.5 select-none shadow-sm"
                 >
-                  <span className="text-base">✅</span>
-                  <span>이번 스테이지 괴수 알 보상 획득 완료!</span>
+                  <span className="text-xs">✅</span>
+                  <span>이번 스테이지 괴수 알 부화 완료!</span>
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={onOpenGacha}
-                  className="bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-white font-black text-sm sm:text-base px-6 py-2.5 sm:py-3 rounded-xl shadow-xl animate-bounce flex items-center gap-2 cursor-pointer border-2 border-yellow-300 mb-2.5 active:scale-95"
+                  className="bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-white font-black text-xs sm:text-sm px-4 py-1.5 rounded-lg shadow-lg animate-bounce flex items-center gap-1.5 cursor-pointer border border-yellow-300 mb-1.5 active:scale-95"
                   style={{
-                    boxShadow: '0 0 25px rgba(245, 158, 11, 0.7), 0 0 12px rgba(244, 63, 94, 0.6)',
+                    boxShadow: '0 0 15px rgba(245, 158, 11, 0.6), 0 0 8px rgba(244, 63, 94, 0.5)',
                   }}
                 >
-                  <span className="text-xl">🥚</span>
-                  <span>승리 보상 괴수 알 깨러 가기!</span>
+                  <span className="text-sm">🥚</span>
+                  <span>획득한 괴수 알 부화하러 가기!</span>
                   <span
                     style={{
-                      fontSize: '11px',
+                      fontSize: '10px',
                       backgroundColor: '#facc15',
                       color: '#0f172a',
-                      padding: '2px 8px',
-                      borderRadius: '9999px',
                       fontWeight: 900,
-                      boxShadow: '0 0 6px rgba(250, 204, 21, 0.8)',
+                      padding: '1px 6px',
+                      borderRadius: '9999px',
                     }}
                   >
-                    보상 획득!
+                    부화하기
                   </span>
                 </button>
               )
@@ -906,15 +972,15 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
             <button
               type="button"
               onClick={onResetGame}
-              className={`flex items-center gap-1.5 px-5 py-2 rounded-xl text-slate-950 font-black text-xs sm:text-sm border border-white shadow-lg transition-all cursor-pointer ${
+              className={`flex items-center gap-1 px-4 py-1.5 rounded-lg text-slate-950 font-black text-xs sm:text-sm border border-white shadow-md transition-all cursor-pointer ${
                 isReviewMode
-                  ? 'bg-gradient-to-r from-amber-400 via-orange-500 to-red-500 hover:brightness-110 active:scale-95'
+                  ? 'bg-gradient-to-r from-amber-400 via-orange-500 to-emerald-400 hover:brightness-110 active:scale-95'
                   : 'bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 active:scale-95'
               }`}
             >
-              <RotateCcw className="w-4 h-4" />
+              <RotateCcw className="w-3.5 h-3.5" />
               {isReviewMode
-                ? '✅ 일반 모드로 나가기'
+                ? '✅ 레이드 보상 수령 & 일반 모드 복귀'
                 : currentStageNum !== undefined && totalStages !== undefined && currentStageNum < totalStages
                   ? `⚔️ STAGE ${currentStageNum + 1} 시작하기!`
                   : '🔄 처음부터 다시 시작하기!'}
@@ -925,14 +991,14 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                 type="button"
                 onClick={onExitReviewMode}
                 style={{
-                  marginTop: '8px',
+                  marginTop: '4px',
                   background: 'none',
                   border: '1px solid #475569',
-                  borderRadius: '8px',
+                  borderRadius: '6px',
                   color: '#94a3b8',
-                  fontSize: '11px',
+                  fontSize: '10px',
                   fontWeight: 700,
-                  padding: '4px 12px',
+                  padding: '2px 8px',
                   cursor: 'pointer',
                 }}
               >

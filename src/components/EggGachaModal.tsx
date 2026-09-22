@@ -282,7 +282,7 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
                 margin: '0 0 20px 0',
               }}
             >
-              단어 배틀이나 출석 미션을 완료해 알을 모아보세요.
+              단어 배틀이나 오답 괴수 레이드를 완료해 알을 모아보세요!
             </p>
             <button
               type="button"

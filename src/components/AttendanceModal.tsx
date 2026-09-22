@@ -255,7 +255,7 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                 }}
               >
                 아직 보너스 쿠폰이 없어요!
-                <br />7일 출석을 달성하면 럭키 알을 깰 수 있어요 🥚
+                <br />7일 출석 또는 도감 10종 완성을 달성하면 🎁 황금 보물상자를 열 수 있어요!
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -650,7 +650,7 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#fef08a' }}>
                   <Gift size={15} color="#facc15" />
-                  <span>주간 미션: 7일 출석 완료 시 럭키 알 획득!</span>
+                  <span>주간 미션: 7일 출석 완료 시 🎁 황금 보물상자(실물 쿠폰 당첨) 획득!</span>
                 </div>
                 <span
                   style={{
@@ -687,7 +687,7 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                 />
               </div>
 
-              {/* 7일 달성 시: 럭키 알 버튼 분기 */}
+              {/* 7일 달성 시: 황금 보물상자 버튼 분기 */}
               {isWeekComplete && (
                 isAlreadyClaimed ? (
                   <button
@@ -710,7 +710,7 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                       opacity: 0.85,
                     }}
                   >
-                    <span>🎉 이번 주 7일 출석 완료! 보너스 알 지급 완료 (월요일에 새 출석 시작)</span>
+                    <span>🎉 이번 주 7일 출석 완료! 🎁 황금 보물상자 수령 완료 (다음 주 월요일에 새로 시작)</span>
                   </button>
                 ) : onOpenLuckyGacha ? (
                   <button
@@ -724,7 +724,7 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                       padding: '12px',
                       borderRadius: '14px',
                       background: 'linear-gradient(90deg, #92400e 0%, #d97706 40%, #f59e0b 70%, #fbbf24 100%)',
-                      color: '#000000',
+                      color: '#ffffff',
                       fontWeight: 900,
                       fontSize: '15px',
                       border: '2px solid #fde047',
@@ -737,9 +737,9 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                       animation: 'weeklyGlowPulse 2s infinite',
                     }}
                   >
-                    <span style={{ fontSize: '18px' }}>🥚</span>
-                    <span>🎁 황금 럭키 알 깨러 가기!</span>
-                    <Sparkles size={16} />
+                    <span style={{ fontSize: '20px' }}>🎁</span>
+                    <span>황금 보물상자 열러 가기! (실물 쿠폰 당첨)</span>
+                    <Sparkles size={16} color="#fde047" />
                   </button>
                 ) : null
               )}

@@ -282,16 +282,32 @@ export const rollRandomMonster = (): MonsterCardData => {
   return candidateMonsters[pickedIndex];
 };
 
+// 10종 전체 해금 테스트용 레코드 생성기
+export const createAllUnlockedMonstersRecord = (): Record<string, UnlockedMonsterRecord> => {
+  const records: Record<string, UnlockedMonsterRecord> = {};
+  const todayStr = new Date().toISOString().slice(0, 10);
+  MONSTER_CARDS.forEach((m) => {
+    records[m.id] = {
+      unlockedAt: todayStr,
+      count: 1,
+    };
+  });
+  return records;
+};
+
 // localStorage 연동 헬퍼
 export const getStoredUnlockedMonsters = (): Record<string, UnlockedMonsterRecord> => {
   if (typeof window === 'undefined') return {};
   try {
     const raw = localStorage.getItem(STORAGE_KEY_UNLOCKED_MONSTERS);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (typeof parsed === 'object' && parsed !== null) {
-      return parsed;
+    let records: Record<string, UnlockedMonsterRecord> = {};
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === 'object' && parsed !== null) {
+        records = parsed;
+      }
     }
+    return records;
   } catch (e) {
     console.error('Failed to load unlocked monsters:', e);
   }
@@ -305,6 +321,32 @@ export const setStoredUnlockedMonsters = (records: Record<string, UnlockedMonste
   } catch (e) {
     console.error('Failed to set unlocked monsters in storage:', e);
   }
+};
+
+// 도감 10종 완성 후 황금 보물상자 교환 시 10종 괴수 카드를 각 1장씩 차감 (0장이 되면 도감에서 제거/미발견 처리)
+export const deductOneEachForCodexExchange = (): Record<string, UnlockedMonsterRecord> => {
+  const current = getStoredUnlockedMonsters();
+  const next: Record<string, UnlockedMonsterRecord> = {};
+
+  MONSTER_CARDS.forEach((monster) => {
+    const rec = current[monster.id];
+    if (rec) {
+      const newCount = (rec.count || 1) - 1;
+      if (newCount > 0) {
+        next[monster.id] = {
+          ...rec,
+          count: newCount,
+        };
+      }
+      // newCount <= 0 이면 next에 넣지 않음 -> 자동으로 미발견(?) 상태로 복귀
+    }
+  });
+
+  // 로컬스토리지 및 Firestore에 영구 동기화
+  setStoredUnlockedMonsters(next);
+  savePlayerDataToFirestore({ unlockedMonsters: next });
+
+  return next;
 };
 
 export const saveMonsterToStorage = (

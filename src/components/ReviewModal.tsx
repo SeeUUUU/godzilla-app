@@ -255,10 +255,10 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
               <button
                 type="button"
                 onClick={handleStartBattle}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-black text-slate-950 bg-gradient-to-r from-amber-400 via-orange-500 to-red-500 hover:brightness-110 active:scale-95 shadow-lg shadow-orange-500/25 border border-amber-200 transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-black text-slate-950 bg-gradient-to-r from-purple-400 via-pink-400 to-amber-400 hover:brightness-110 active:scale-95 shadow-lg shadow-purple-500/25 border border-yellow-200 transition-all cursor-pointer"
               >
                 <Swords className="w-4 h-4 fill-slate-950" />
-                <span>⚡ 오답 복습 배틀 시작! ({wrongWords.length}단어)</span>
+                <span>⚔️ 오답 괴수 레이드 출격! ({wrongWords.length}단어)</span>
               </button>
             )}
           </div>
