@@ -120,6 +120,7 @@ export interface EarnedCoupon {
   emoji: string;
   earnedAt: string;       // ISO timestamp
   isUsed: boolean;
+  usedAt?: string;        // ISO timestamp (사용 완료 일시)
 }
 
 export const loadCoupons = (): EarnedCoupon[] => {
@@ -183,9 +184,10 @@ export const saveCoupon = (reward: GachaReward): EarnedCoupon => {
   return newCoupon;
 };
 
-export const markCouponUsed = (couponId: string): void => {
+export const markCouponUsed = (couponId: string, usedAtDate?: string): void => {
   const existing = loadCoupons();
-  const updated = existing.map((c) => (c.id === couponId ? { ...c, isUsed: true } : c));
+  const nowIso = usedAtDate || new Date().toISOString();
+  const updated = existing.map((c) => (c.id === couponId ? { ...c, isUsed: true, usedAt: nowIso } : c));
   try {
     localStorage.setItem(STORAGE_KEY_COUPONS, JSON.stringify(updated));
   } catch {

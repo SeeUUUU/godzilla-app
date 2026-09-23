@@ -21,13 +21,86 @@ interface ShuffledCard {
   lang: Language;
 }
 
-const shuffleArray = <T,>(array: T[]): T[] => {
+// 1. 순수 Fisher-Yates 무작위 셔플 함수
+export const fisherYatesShuffle = <T,>(array: T[]): T[] => {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   return shuffled;
+};
+
+// 2. 언어별 독립 랜덤 셔플 & 동일 행(수평 정렬) 일치 최소화 디얼라인먼트
+export const createIndependentShuffledColumns = (words: WordItem[]): {
+  ko: ShuffledCard[];
+  en: ShuffledCard[];
+  ja: ShuffledCard[];
+} => {
+  if (!words || words.length === 0) {
+    return { ko: [], en: [], ja: [] };
+  }
+
+  const baseKo: ShuffledCard[] = words.map((w) => ({
+    id: w.id,
+    text: w.ko || '',
+    lang: 'ko',
+  }));
+
+  const baseEn: ShuffledCard[] = words.map((w) => ({
+    id: w.id,
+    text: w.en || '',
+    lang: 'en',
+  }));
+
+  const baseJa: ShuffledCard[] = words.map((w) => ({
+    id: w.id,
+    text: w.ja || '',
+    subText: w.jaKana || '',
+    lang: 'ja',
+  }));
+
+  // 1) 🇰🇷 한국어 열: 순수 Fisher-Yates 독립 셔플
+  const ko = fisherYatesShuffle(baseKo);
+
+  // 2) 🇺🇸 영어 열: 독립 Fisher-Yates 셔플 + 한국어와 같은 행(수평 정렬) 중복 배치 최소화
+  const en = fisherYatesShuffle(baseEn);
+  if (en.length > 1) {
+    for (let i = 0; i < en.length; i++) {
+      if (en[i].id === ko[i].id) {
+        // 같은 행에 배치된 경우, 충돌하지 않는 다른 인덱스와 위치 스왑
+        const swapIdx = en.findIndex(
+          (item, idx) => idx !== i && item.id !== ko[i].id && en[i].id !== ko[idx].id
+        );
+        if (swapIdx !== -1) {
+          [en[i], en[swapIdx]] = [en[swapIdx], en[i]];
+        }
+      }
+    }
+  }
+
+  // 3) 🇯🇵 일본어 열: 독립 Fisher-Yates 셔플 + 한국어/영어와 같은 행 중복 배치 최소화
+  const ja = fisherYatesShuffle(baseJa);
+  if (ja.length > 1) {
+    for (let i = 0; i < ja.length; i++) {
+      if (ja[i].id === ko[i].id || ja[i].id === en[i].id) {
+        // ko, en 둘 다와 겹치지 않는 슬롯과 위치 스왑
+        const swapIdx = ja.findIndex(
+          (item, idx) =>
+            idx !== i &&
+            item.id !== ko[i].id &&
+            item.id !== en[i].id &&
+            ja[i].id !== ko[idx].id &&
+            ja[i].id !== en[idx].id
+        );
+        if (swapIdx !== -1) {
+          [ja[i], ja[swapIdx]] = [ja[swapIdx], ja[i]];
+        }
+      }
+    }
+  }
+
+  return { ko, en, ja };
 };
 
 export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
@@ -46,42 +119,38 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
     return words.filter((w): w is WordItem => !!w && typeof w === 'object' && 'id' in w).slice(0, 6);
   }, [words]);
 
-  const koList = useMemo(
-    () =>
-      shuffleArray(
-        displayWords.map((w) => ({
-          id: w.id,
-          text: w.ko || '',
-          lang: 'ko' as Language,
-        }))
-      ),
-    [displayWords]
+  // 셔플된 카드 열 상태 (State로 관리하여 단어 매칭/선택 시 카드 위치가 변하지 않도록 고정 유지)
+  const [shuffledColumns, setShuffledColumns] = useState(() =>
+    createIndependentShuffledColumns(displayWords)
   );
 
-  const enList = useMemo(
-    () =>
-      shuffleArray(
-        displayWords.map((w) => ({
-          id: w.id,
-          text: w.en || '',
-          lang: 'en' as Language,
-        }))
-      ),
+  const wordsSignature = useMemo(
+    () => displayWords.map((w) => w.id).join('-'),
     [displayWords]
   );
+  const prevWordsSigRef = React.useRef(wordsSignature);
+  const hadClearedCardsRef = React.useRef(false);
 
-  const jaList = useMemo(
-    () =>
-      shuffleArray(
-        displayWords.map((w) => ({
-          id: w.id,
-          text: w.ja || '',
-          subText: w.jaKana || '',
-          lang: 'ja' as Language,
-        }))
-      ),
-    [displayWords]
-  );
+  // 1) 단어 세트 자체가 달라지면 새로운 독립 셔플 생성
+  React.useEffect(() => {
+    if (prevWordsSigRef.current !== wordsSignature) {
+      prevWordsSigRef.current = wordsSignature;
+      setShuffledColumns(createIndependentShuffledColumns(displayWords));
+      hadClearedCardsRef.current = false;
+    }
+  }, [wordsSignature, displayWords]);
+
+  // 2) 이미 맞춘 카드가 있던 상태에서 clearedIds가 0으로 리셋된 경우 ([다시하기]/재도전) 새 셔플 갱신
+  React.useEffect(() => {
+    if (clearedIds.length > 0) {
+      hadClearedCardsRef.current = true;
+    } else if (hadClearedCardsRef.current) {
+      hadClearedCardsRef.current = false;
+      setShuffledColumns(createIndependentShuffledColumns(displayWords));
+    }
+  }, [clearedIds.length, displayWords]);
+
+  const { ko: koList, en: enList, ja: jaList } = shuffledColumns;
 
   const [selected, setSelected] = useState<SelectedCards>({
     ko: null,

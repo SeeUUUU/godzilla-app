@@ -29,6 +29,9 @@ export interface PlayerFirestoreData {
   wrongWordList?: WordItem[];
   hasClaimedCodexReward?: boolean;
   treasureBoxCount?: number;
+  cycleCount?: number;
+  isInfiniteMode?: boolean;
+  stageIndex?: number;
   updatedAt?: string;
 }
 
@@ -70,3 +73,22 @@ export const savePlayerDataToFirestore = async (
     return false;
   }
 };
+
+// Firestore 플레이어 데이터 전체 초기화 (setDoc으로 문서 완전 덮어쓰기)
+export const resetAllPlayerDataToFirestore = async (
+  initialData: PlayerFirestoreData,
+  playerId: string = DEFAULT_PLAYER_ID
+): Promise<boolean> => {
+  try {
+    const docRef = doc(db, PLAYER_COLLECTION, playerId);
+    await setDoc(docRef, {
+      ...initialData,
+      updatedAt: new Date().toISOString(),
+    });
+    return true;
+  } catch (error) {
+    console.warn("[Firestore] Failed to reset player data:", error);
+    return false;
+  }
+};
+

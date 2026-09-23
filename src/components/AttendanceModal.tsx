@@ -4,11 +4,13 @@ import { X, Flame, Award, Sparkles, CheckCircle2, Lock, Gift, Ticket } from 'luc
 import type { AttendanceDayInfo } from '../hooks/useAttendance';
 import {
   loadCoupons,
-  markCouponUsed,
   hasClaimedWeeklyReward,
   type EarnedCoupon,
 } from '../data/gachaRewards';
 import { playStampThudSound } from '../utils/soundEffects';
+import { CouponModal } from './CouponModal';
+
+export { CouponModal };
 
 interface AttendanceModalProps {
   isOpen: boolean;
@@ -123,17 +125,10 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
     }
   }, [isOpen, isNewlyAttended, initialShowCoupons]);
 
-  const handleMarkUsed = (couponId: string) => {
-    markCouponUsed(couponId);
-    setCoupons(loadCoupons());
-    onCouponsChanged?.();
-  };
-
   if (!isOpen) return null;
 
   const weeklyProgressPercent = Math.round((weekAttendedCount / 7) * 100);
   const unusedCoupons = coupons.filter((c) => !c.isUsed && c.minutes > 0);
-  const usedCoupons = coupons.filter((c) => c.isUsed && c.minutes > 0);
 
   return (
     <div
@@ -231,171 +226,14 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
 
         {/* ─── 쿠폰함 뷰 ─── */}
         {showCoupons ? (
-          <div style={{ width: '100%', paddingTop: '36px' }}>
-            <h3
-              style={{
-                fontSize: '16px',
-                fontWeight: 900,
-                color: '#fde047',
-                textAlign: 'center',
-                margin: '0 0 14px 0',
-              }}
-            >
-              🎟️ 내 보너스 쿠폰함
-            </h3>
-
-            {coupons.filter((c) => c.minutes > 0).length === 0 ? (
-              <div
-                style={{
-                  textAlign: 'center',
-                  color: '#64748b',
-                  fontSize: '13px',
-                  fontWeight: 700,
-                  padding: '24px 0',
-                }}
-              >
-                아직 보너스 쿠폰이 없어요!
-                <br />7일 출석 또는 도감 10종 완성을 달성하면 🎁 황금 보물상자를 열 수 있어요!
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {/* 미사용 쿠폰 */}
-                {unusedCoupons.length > 0 && (
-                  <>
-                    <div
-                      style={{
-                        fontSize: '11px',
-                        color: '#4ade80',
-                        fontWeight: 800,
-                        marginBottom: '2px',
-                      }}
-                    >
-                      ✅ 사용 가능한 쿠폰 ({unusedCoupons.length}개)
-                    </div>
-                    {unusedCoupons.map((coupon) => (
-                      <div
-                        key={coupon.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          backgroundColor: 'rgba(245, 158, 11, 0.12)',
-                          border: '1.5px solid #f59e0b',
-                          borderRadius: '12px',
-                          padding: '10px 14px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '20px' }}>{coupon.emoji}</span>
-                          <div>
-                            <div
-                              style={{
-                                fontSize: '14px',
-                                fontWeight: 900,
-                                color: '#fde047',
-                              }}
-                            >
-                              게임 {coupon.minutes}분 보너스
-                            </div>
-                            <div
-                              style={{
-                                fontSize: '10px',
-                                color: '#94a3b8',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {new Date(coupon.earnedAt).toLocaleDateString('ko-KR')} 획득
-                            </div>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleMarkUsed(coupon.id)}
-                          style={{
-                            padding: '5px 10px',
-                            borderRadius: '8px',
-                            backgroundColor: '#10b981',
-                            border: '1px solid #6ee7b7',
-                            color: '#ffffff',
-                            fontSize: '11px',
-                            fontWeight: 900,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          ✅ 사용 완료
-                        </button>
-                      </div>
-                    ))}
-                  </>
-                )}
-
-                {/* 사용 완료 쿠폰 */}
-                {usedCoupons.length > 0 && (
-                  <>
-                    <div
-                      style={{
-                        fontSize: '11px',
-                        color: '#475569',
-                        fontWeight: 800,
-                        marginTop: '6px',
-                        marginBottom: '2px',
-                      }}
-                    >
-                      🔒 사용 완료 ({usedCoupons.length}개)
-                    </div>
-                    {usedCoupons.map((coupon) => (
-                      <div
-                        key={coupon.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          backgroundColor: 'rgba(30, 41, 59, 0.5)',
-                          border: '1px solid #334155',
-                          borderRadius: '12px',
-                          padding: '8px 14px',
-                          opacity: 0.55,
-                        }}
-                      >
-                        <span style={{ fontSize: '16px' }}>{coupon.emoji}</span>
-                        <div>
-                          <div
-                            style={{
-                              fontSize: '12px',
-                              fontWeight: 700,
-                              color: '#64748b',
-                              textDecoration: 'line-through',
-                            }}
-                          >
-                            게임 {coupon.minutes}분 보너스 (사용 완료)
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setShowCoupons(false)}
-              style={{
-                marginTop: '16px',
-                width: '100%',
-                padding: '10px',
-                borderRadius: '12px',
-                backgroundColor: '#1e293b',
-                border: '1px solid #475569',
-                color: '#cbd5e1',
-                fontWeight: 800,
-                fontSize: '13px',
-                cursor: 'pointer',
-              }}
-            >
-              ← 출석부로 돌아가기
-            </button>
-          </div>
+          <CouponModal
+            embedded={true}
+            onBackToAttendance={() => setShowCoupons(false)}
+            onCouponsChanged={() => {
+              setCoupons(loadCoupons());
+              onCouponsChanged?.();
+            }}
+          />
         ) : (
           /* ─── 메인 출석부 뷰 ─── */
           <>

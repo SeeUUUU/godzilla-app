@@ -1,9 +1,21 @@
+export interface WordSentenceData {
+  krSentence: string;
+  enSentence: string;
+  jpSentence: string;
+  jpFurigana?: string;
+  word?: WordItem;
+}
+
 export interface WordItem {
   id: string | number;
   ko: string;
   en: string;
   ja: string;
   jaKana?: string;
+  krSentence?: string;
+  enSentence?: string;
+  jpSentence?: string;
+  jpFurigana?: string;
 }
 
 export interface GameState {

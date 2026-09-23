@@ -566,6 +566,61 @@ export const playStampThudSound = () => {
   }
 };
 
+// 12-2. 아빠 도장 쾅! 스탬프 타격음 (Heavy Dad Stamp Slam)
+export const playDadStampSlamSound = () => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+
+    // 1) 묵직한 도장 물리 타격 쿵! (Heavy Low-frequency Slam)
+    const subBass = ctx.createOscillator();
+    const subGain = ctx.createGain();
+    subBass.type = 'triangle';
+    subBass.frequency.setValueAtTime(170, now);
+    subBass.frequency.exponentialRampToValueAtTime(26, now + 0.35);
+
+    subGain.gain.setValueAtTime(0.75, now);
+    subGain.gain.exponentialRampToValueAtTime(0.005, now + 0.38);
+
+    subBass.connect(subGain);
+    subGain.connect(ctx.destination);
+    subBass.start(now);
+    subBass.stop(now + 0.4);
+
+    // 2) 인감 도장 인주 찍히는 '찰싹/탁!' 고음 노이즈 임팩트
+    const snapOsc = ctx.createOscillator();
+    const snapGain = ctx.createGain();
+    snapOsc.type = 'square';
+    snapOsc.frequency.setValueAtTime(340, now);
+    snapOsc.frequency.exponentialRampToValueAtTime(70, now + 0.08);
+
+    snapGain.gain.setValueAtTime(0.35, now);
+    snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+
+    snapOsc.connect(snapGain);
+    snapGain.connect(ctx.destination);
+    snapOsc.start(now);
+    snapOsc.stop(now + 0.095);
+
+    // 3) 도장 완성을 알리는 묵직하고 따뜻한 완료 벨음 (딩~)
+    const bell = ctx.createOscillator();
+    const bellGain = ctx.createGain();
+    bell.type = 'sine';
+    bell.frequency.setValueAtTime(523.25, now + 0.08); // C5
+    bellGain.gain.setValueAtTime(0.28, now + 0.08);
+    bellGain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+
+    bell.connect(bellGain);
+    bellGain.connect(ctx.destination);
+    bell.start(now + 0.08);
+    bell.stop(now + 0.62);
+  } catch (e) {
+    console.warn('Audio error:', e);
+  }
+};
+
 // 13. 승리 클리어 팡파레 축하음 (Victory Fanfare)
 export const playVictoryFanfare = () => {
   const ctx = getAudioContext();

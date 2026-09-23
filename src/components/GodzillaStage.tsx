@@ -34,6 +34,9 @@ interface GodzillaStageProps {
   hasClaimedStageReward?: boolean;
   isCriticalHit?: boolean;
   raidBoss?: RaidBossInfo;
+  isStageClearReady?: boolean;
+  isInfiniteMode?: boolean;
+  cycleCount?: number;
 }
 
 export const GodzillaStage: React.FC<GodzillaStageProps> = ({
@@ -58,6 +61,9 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
   hasClaimedStageReward = false,
   isCriticalHit = false,
   raidBoss,
+  isStageClearReady = true,
+  isInfiniteMode = false,
+  cycleCount = 1,
 }) => {
   // 레이드 모드 보스 HP 계산 (남은 오답 단어 수에 맞춰 정확히 타격당 감소, 0개 남으면 0%)
   const raidBossHp = totalCount > 0
@@ -65,6 +71,8 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
     : 0;
   const effectiveBossHp = isReviewMode ? raidBossHp : ghidorahHp;
   const isBossDefeated = isAllCleared && !isGameOver;
+  // 마지막 6번째 단어 격파 시 1.8초 배틀 연출(열선 발사, 보스 HP 0% 감소, 격파 연출)이 완전히 끝난 뒤에만 결과창 오버레이 오픈
+  const shouldShowClearOverlay = isBossDefeated && isStageClearReady;
 
   // 1. 공식 파워 랭킹에 따른 고질라 5단계 진화 정보
   // LV.1 ~ 2: 치비 고질라 (Chibi)
@@ -91,9 +99,9 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
     }
   }, [isGhidorahAttacking]);
 
-  // 승리(클리어) 시 축하 효과음 및 폭죽 연출 (오버레이가 열릴 때 1회 재생)
+  // 승리(클리어) 시 축하 효과음 및 폭죽 연출 (1.8초 배틀 연출 후 오버레이가 열릴 때 재생)
   useEffect(() => {
-    if (isBossDefeated) {
+    if (shouldShowClearOverlay) {
       playVictoryFanfare();
 
       // 화려한 컨페티 폭죽 팡팡 연출
@@ -111,7 +119,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
 
       return () => clearInterval(interval);
     }
-  }, [isBossDefeated, isReviewMode]);
+  }, [shouldShowClearOverlay, isReviewMode]);
 
   // 고질라 체력 바 색상
   let gzHpColor = 'linear-gradient(90deg, #06b6d4 0%, #22c55e 100%)';
@@ -828,8 +836,8 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
           </div>
         </div>
 
-        {/* 3. 승리 화면 오버레이 (모든 단어 100% 클리어 시에만 표시) */}
-        {isBossDefeated && (
+        {/* 3. 승리 화면 오버레이 (모든 단어 100% 클리어 및 1.8초 배틀 연출 완료 시에만 표시) */}
+        {shouldShowClearOverlay && (
           <div
             className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm flex flex-col items-center justify-center text-center p-2 z-50 animate-fadeIn"
             style={{
@@ -899,7 +907,9 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                   style={{
                     padding: '1px 8px',
                     borderRadius: '9999px',
-                    background: currentStageNum < totalStages
+                    background: isInfiniteMode
+                      ? 'linear-gradient(90deg, #9333ea, #c026d3, #f59e0b)'
+                      : currentStageNum < totalStages
                       ? 'linear-gradient(90deg, #0369a1, #06b6d4)'
                       : 'linear-gradient(90deg, #d97706, #f59e0b)',
                     color: '#ffffff',
@@ -908,7 +918,9 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                     border: '1px solid rgba(255,255,255,0.4)',
                   }}
                 >
-                  {currentStageNum < totalStages
+                  {isInfiniteMode
+                    ? `👑 마스터 배틀 ${cycleCount}회독 (STAGE ${currentStageNum}) 클리어!`
+                    : currentStageNum < totalStages
                     ? `STAGE ${currentStageNum} / ${totalStages} 클리어!`
                     : `🏆 전체 ${totalStages} 스테이지 완전 정복!`}
                 </span>
@@ -917,6 +929,8 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
             <p className="text-slate-300 text-[11px] sm:text-xs font-bold mb-1.5">
               {isReviewMode
                 ? `틀렸던 약점 단어 ${totalCount}개를 모두 마스터했어요! 약점 완전 극복! 🌟`
+                : isInfiniteMode
+                ? `무작위 200단어 중 ${totalCount}개 격파! 계속해서 마스터 칭호에 도전하세요! 🔥`
                 : currentStageNum !== undefined && totalStages !== undefined && currentStageNum < totalStages
                   ? `단어 ${totalCount}개 격파! 다음 스테이지로 고고!`
                   : `단어 ${totalCount}개(${totalCount}/${totalCount})를 모두 격파했어요! 대단해요!`}
@@ -981,9 +995,11 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
               <RotateCcw className="w-3.5 h-3.5" />
               {isReviewMode
                 ? '✅ 레이드 보상 수령 & 일반 모드 복귀'
+                : isInfiniteMode
+                ? `⚔️ 다음 마스터 스테이지 (${(currentStageNum ?? 1) % (totalStages ?? 34) + 1}) 시작하기!`
                 : currentStageNum !== undefined && totalStages !== undefined && currentStageNum < totalStages
                   ? `⚔️ STAGE ${currentStageNum + 1} 시작하기!`
-                  : '🔄 처음부터 다시 시작하기!'}
+                  : '🏆 200단어 완주 세리머니 & 마스터 보상!'}
             </button>
             {/* 복습 모드: 추가 나가기 버튼 (배틀 중단) */}
             {isReviewMode && onExitReviewMode && (

@@ -84,6 +84,8 @@ export const Header: React.FC<HeaderProps> = ({
                   className={`inline-flex items-center text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-full whitespace-nowrap shadow-sm border shrink-0 ${
                     isReviewMode
                       ? 'bg-amber-900/40 text-amber-300 border-amber-500/60'
+                      : stageLabel.includes('마스터') || stageLabel.includes('👑')
+                      ? 'bg-gradient-to-r from-amber-950/80 via-purple-950/80 to-amber-950/80 text-yellow-300 border-amber-400 shadow-amber-500/20'
                       : 'bg-cyan-950/60 text-cyan-300 border-cyan-500/50'
                   }`}
                 >

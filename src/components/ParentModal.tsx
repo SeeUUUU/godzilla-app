@@ -10,6 +10,7 @@ interface ParentModalProps {
   onSaveWords: (newWords: WordItem[]) => void;
   currentLevel?: number;
   onSetLevel?: (newLevel: number) => void;
+  onResetAllData?: () => void;
 }
 
 export const ParentModal: React.FC<ParentModalProps> = ({
@@ -19,6 +20,7 @@ export const ParentModal: React.FC<ParentModalProps> = ({
   onSaveWords,
   currentLevel = 1,
   onSetLevel,
+  onResetAllData,
 }) => {
   // 모달 마운트 시 현재 단어 목록으로 초기화 (setState in effect 방지)
   const [inputText, setInputText] = useState(() =>
@@ -303,6 +305,54 @@ export const ParentModal: React.FC<ParentModalProps> = ({
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* 전체 데이터 초기화 (Ground Zero 리셋) */}
+        {onResetAllData && (
+          <div
+            style={{
+              marginBottom: '14px',
+              padding: '10px 12px',
+              backgroundColor: 'rgba(239, 68, 68, 0.08)',
+              borderRadius: '14px',
+              border: '1px dashed #ef4444',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+            }}
+          >
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 900, color: '#f87171' }}>
+                ⚠️ 데이터 전체 초기화 (Ground Zero)
+              </div>
+              <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                레벨·스테이지·재화(알/상자)·도감·쿠폰·오답·출석을 모두 초기화합니다.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onResetAllData}
+              style={{
+                flexShrink: 0,
+                padding: '6px 12px',
+                borderRadius: '10px',
+                backgroundColor: '#dc2626',
+                border: '1px solid #ef4444',
+                color: '#ffffff',
+                fontSize: '11px',
+                fontWeight: 900,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                boxShadow: '0 0 10px rgba(239, 68, 68, 0.4)',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              ⚠️ 데이터 전체 초기화
+            </button>
           </div>
         )}
 
