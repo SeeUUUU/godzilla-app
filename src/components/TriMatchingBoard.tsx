@@ -347,7 +347,7 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
               >
                 {/* 슬림 열 헤더 */}
                 <div
-                  className="flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 md:px-3 md:py-1.5 rounded-lg sm:rounded-xl mb-1 sm:mb-1 flex-none"
+                  className="flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 md:px-3 md:py-1.5 rounded-lg sm:rounded-xl mb-1.5 sm:mb-2 md:mb-2.5 flex-none"
                   style={{
                     backgroundColor: headerBg,
                     border: `1px solid ${borderColor}66`,
@@ -370,9 +370,9 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                   </div>
                 </div>
 
-                {/* 카드 리스트: 6개 카드가 잔여 높이를 균등 배분 (큼직한 폰트 유지, 세로 패딩 미세 축소) */}
+                {/* 카드 리스트: 6개 카드가 잔여 높이를 균등 배분 (여유 간격 확보 및 오버플로우 방지) */}
                 <div
-                  className="flex-1 min-h-0 flex flex-col justify-between gap-1 sm:gap-1.5 md:gap-1.5"
+                  className="flex-1 min-h-0 flex flex-col justify-between gap-1.5 sm:gap-2 md:gap-2.5"
                 >
                   {list.map((card) => {
                     const isCleared = clearedIds.includes(card.id);
@@ -396,13 +396,31 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                       colorStyle = '#ffffff';
                     }
 
+                    // 텍스트 길이 및 일본어 여부에 따른 반응형 최적 폰트 크기 계산
+                    const textLen = (card.text || '').length;
+                    const isLongText = textLen >= 9;
+                    const isMediumText = textLen >= 7;
+
+                    let mainTextSizeClass = 'text-base sm:text-lg md:text-xl font-bold sm:font-black';
+                    if (card.lang === 'ja') {
+                      mainTextSizeClass = card.subText
+                        ? 'text-sm sm:text-base md:text-lg font-bold sm:font-black'
+                        : isLongText
+                        ? 'text-xs sm:text-sm md:text-base font-bold sm:font-black'
+                        : 'text-sm sm:text-base md:text-lg font-bold sm:font-black';
+                    } else if (isLongText) {
+                      mainTextSizeClass = 'text-xs sm:text-sm md:text-base font-bold sm:font-black';
+                    } else if (isMediumText) {
+                      mainTextSizeClass = 'text-sm sm:text-base md:text-lg font-bold sm:font-black';
+                    }
+
                     return (
                       <button
                         key={`${card.lang}-${card.id}`}
                         type="button"
                         onClick={() => handleCardClick(card)}
                         disabled={isCleared}
-                        className={`w-full flex-1 min-h-[34px] sm:min-h-[40px] md:min-h-[46px] rounded-xl sm:rounded-2xl px-2 sm:px-3 md:px-3.5 py-0.5 sm:py-1 flex items-center justify-between transition-all duration-150 relative overflow-hidden group select-none ${
+                        className={`w-full flex-1 min-h-[36px] sm:min-h-[46px] md:min-h-[52px] rounded-xl sm:rounded-2xl px-2 sm:px-2.5 md:px-3 py-1.5 sm:py-2 flex items-center justify-between transition-all duration-150 relative overflow-hidden group select-none ${
                           isCleared
                             ? 'cursor-default'
                             : 'cursor-pointer hover:brightness-110 active:scale-[0.98]'
@@ -414,17 +432,17 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                           opacity: opacityStyle,
                         }}
                       >
-                        {/* 큼직하고 시원시원한 단어 텍스트 (초등 2학년 맞춤) */}
-                        <div className="flex flex-col min-w-0 flex-1 text-left py-0.5 justify-center">
+                        {/* 큼직하고 시원시원한 단어 텍스트 (수직 중앙 정렬 및 일본어 2줄 밸런스 유지) */}
+                        <div className="flex flex-col min-w-0 flex-1 text-left justify-center pr-1 overflow-hidden">
                           <span
-                            className="font-bold sm:font-black text-base sm:text-lg md:text-xl lg:text-2xl leading-tight sm:leading-snug truncate tracking-tight"
+                            className={`${mainTextSizeClass} leading-tight sm:leading-snug truncate tracking-tight`}
                             style={{ textDecoration: textDeco }}
                           >
                             {card.text}
                           </span>
                           {card.subText && (
                             <span
-                              className="text-xs sm:text-sm font-bold text-emerald-400 leading-tight truncate mt-0.5"
+                              className="text-[10px] sm:text-xs md:text-sm font-semibold text-emerald-400 leading-tight truncate mt-0.5"
                               style={{ textDecoration: textDeco }}
                             >
                               {card.subText}
@@ -432,11 +450,11 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                           )}
                         </div>
 
-                        {/* 스피커 발음 청취 아이콘 (중앙 정렬 및 적정 크기) */}
-                        <div className="ml-1 sm:ml-2 md:ml-2.5 flex-shrink-0 flex items-center justify-center">
+                        {/* 스피커 발음 청취 아이콘 (수직 중앙 정렬 및 여유 크기) */}
+                        <div className="ml-1 sm:ml-1.5 md:ml-2 flex-shrink-0 flex items-center justify-center">
                           {isCleared ? (
-                            <div className="w-5 h-5 sm:w-7 sm:h-7 md:w-8 md:h-8 flex items-center justify-center">
-                              <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 text-emerald-400" />
+                            <div className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 flex items-center justify-center">
+                              <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5 text-emerald-400" />
                             </div>
                           ) : (
                             <div
@@ -451,7 +469,7 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                                 };
                                 speak(card.text, langMap[card.lang]);
                               }}
-                              className={`w-6 h-6 xs:w-7 xs:h-7 sm:w-8 sm:h-8 md:w-9 md:h-9 lg:w-10 lg:h-10 rounded-lg sm:rounded-xl flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm hover:scale-110 active:scale-90 ${
+                              className={`w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-lg sm:rounded-xl flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm hover:scale-110 active:scale-90 ${
                                 isSelected
                                   ? 'bg-cyan-400 text-slate-950 shadow-cyan-400/50'
                                   : 'bg-slate-950/70 text-slate-300 border border-slate-700/60 hover:bg-slate-800 hover:text-white'
@@ -459,7 +477,7 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                               title="발음 듣기"
                               aria-label={`${card.text} 발음 듣기`}
                             >
-                              <Volume2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5 text-current transition-transform group-hover:scale-105" />
+                              <Volume2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 text-current transition-transform group-hover:scale-105" />
                             </div>
                           )}
                         </div>

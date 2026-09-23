@@ -216,7 +216,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
 
   return (
     <div
-      className="w-full flex-none px-1 sm:px-2 md:px-3 my-1 sm:my-1.5 md:my-2 h-48 xs:h-52 sm:h-56 md:h-60 lg:h-64 landscape-short:h-full landscape-short:my-0"
+      className="w-full flex-none px-1 sm:px-2 md:px-3 my-0.5 sm:my-1 h-[175px] xs:h-[185px] sm:h-[210px] md:h-[220px] landscape-short:h-full landscape-short:my-0"
     >
       <div
         className={`relative overflow-hidden rounded-2xl bg-slate-900 p-2 sm:p-2.5 md:p-3 flex flex-col justify-between h-full ${

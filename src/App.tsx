@@ -316,24 +316,19 @@ export function App() {
     });
   }, []);
 
-  // 황금 보물상자 보유 개수 (확률 테스트용 +5개 추가 충전)
+  // 황금 보물상자 보유 개수 (localStorage 연동, 기본값: 1개)
   const [treasureBoxCount, setTreasureBoxCount] = useState<number>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_TREASURE_BOX);
-      let count = saved !== null ? parseInt(saved, 10) : 0;
-      if (isNaN(count) || count < 0) count = 0;
-
-      // 테스트용 +5개 일회성 추가 충전
-      const bonusGranted = localStorage.getItem('godzilla_add_5_boxes_prob_test_v1');
-      if (!bonusGranted) {
-        count = Math.max(5, count + 5);
-        localStorage.setItem('godzilla_add_5_boxes_prob_test_v1', 'true');
-        localStorage.setItem(STORAGE_KEY_TREASURE_BOX, String(count));
-        savePlayerDataToFirestore({ treasureBoxCount: count });
+      if (saved !== null) {
+        const count = parseInt(saved, 10);
+        if (!isNaN(count) && count >= 0) return count;
       }
-      return count;
     } catch {}
-    return 5;
+    try {
+      localStorage.setItem(STORAGE_KEY_TREASURE_BOX, '1');
+    } catch {}
+    return 1;
   });
 
   // 황금 보물상자 1개 소모
@@ -457,14 +452,14 @@ export function App() {
               localStorage.setItem(STORAGE_KEY_CODEX_REWARD, String(finalClaimed));
             } catch {}
           }
-          // 8. 황금 보물상자 보유량 반영 (원격 동기화 시 +5개 테스트 보너스 체크)
+          // 8. 황금 보물상자 보유량 반영 (기존 테스트로 비정상 부풀려진 6개 이상 등 비정상 값을 1개로 1회 강제 교정)
           if (typeof remoteData.treasureBoxCount === 'number') {
             let count = remoteData.treasureBoxCount;
-            const remoteBonusGranted = localStorage.getItem('godzilla_add_5_boxes_prob_test_remote_v1');
-            if (!remoteBonusGranted) {
-              count = Math.max(5, count + 5);
-              localStorage.setItem('godzilla_add_5_boxes_prob_test_remote_v1', 'true');
-              savePlayerDataToFirestore({ treasureBoxCount: count });
+            const fixApplied = localStorage.getItem('godzilla_force_fix_1_box_welcome_v1');
+            if (!fixApplied) {
+              count = 1;
+              localStorage.setItem('godzilla_force_fix_1_box_welcome_v1', 'true');
+              savePlayerDataToFirestore({ treasureBoxCount: 1 });
             }
             setTreasureBoxCount(count);
             try {
@@ -498,7 +493,7 @@ export function App() {
           await savePlayerDataToFirestore({
             gameState,
             eggCount,
-            treasureBoxCount: 5,
+            treasureBoxCount: 1,
             attendanceRecords: records,
             weeklyRewardClaimedWeek: currentWeekClaimed,
             unlockedMonsters: localMonsters,
@@ -693,9 +688,9 @@ export function App() {
       ];
       keysToRemove.forEach((key) => localStorage.removeItem(key));
 
-      // 알(0개), 상자(0개), 사이클(1), 스테이지(0) 기본값 보장
+      // 알(0개), 황금 보물상자(1개 웰컴 선물), 사이클(1), 스테이지(0) 기본값 보장
       localStorage.setItem(STORAGE_KEY_EGG_COUNT, '0');
-      localStorage.setItem(STORAGE_KEY_TREASURE_BOX, '0');
+      localStorage.setItem(STORAGE_KEY_TREASURE_BOX, '1');
       localStorage.setItem(STORAGE_KEY_CYCLE_COUNT, '1');
       localStorage.setItem(STORAGE_KEY_INFINITE_MODE, 'false');
       localStorage.setItem(STORAGE_KEY_STAGE_INDEX, '0');
@@ -713,7 +708,7 @@ export function App() {
       await resetAllPlayerDataToFirestore({
         gameState: { level: 1, exp: 0, streak: 0 },
         eggCount: 0,
-        treasureBoxCount: 0,
+        treasureBoxCount: 1,
         attendanceRecords: [],
         weeklyRewardClaimedWeek: null,
         unlockedMonsters: {},
@@ -731,7 +726,7 @@ export function App() {
     // 3) 앱의 모든 React State를 기본값으로 갱신 후 화면 자동 새로고침
     setGameState({ level: 1, exp: 0, streak: 0 });
     setEggCount(0);
-    setTreasureBoxCount(0);
+    setTreasureBoxCount(1);
     setUnlockedMonsters({});
     setWrongWordList([]);
     setRecords([]);

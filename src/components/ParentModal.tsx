@@ -328,7 +328,7 @@ export const ParentModal: React.FC<ParentModalProps> = ({
                 ⚠️ 데이터 전체 초기화 (Ground Zero)
               </div>
               <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
-                레벨·스테이지·재화(알/상자)·도감·쿠폰·오답·출석을 모두 초기화합니다.
+                모든 학습·도감·쿠폰을 초기화합니다. (웰컴 선물: 🎁 황금 보물상자 1개 지급)
               </div>
             </div>
             <button

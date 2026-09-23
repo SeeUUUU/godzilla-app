@@ -253,8 +253,25 @@ export const MONSTER_MAP = new Map<string, MonsterCardData>(
   MONSTER_CARDS.map((m) => [m.id, m])
 );
 
-// 가챠 확률 테이블 및 랜덤 뽑기 함수
-export const rollRandomMonster = (): MonsterCardData => {
+// 가챠 확률 테이블 및 랜덤 뽑기 함수 (10종 모으기 전까지 미보유 괴수 100% 우선 추첨)
+export const rollRandomMonster = (
+  unlockedRecords?: Record<string, UnlockedMonsterRecord>
+): MonsterCardData => {
+  const records = unlockedRecords !== undefined ? unlockedRecords : getStoredUnlockedMonsters();
+
+  // 1) 전체 10종 괴수 중 플레이어가 아직 보유하지 않은(수량 0장 또는 미발견 상태인) 괴수 목록 필터링
+  const uncollectedMonsters = MONSTER_CARDS.filter((m) => {
+    const rec = records[m.id];
+    return !rec || (rec.count || 0) <= 0;
+  });
+
+  // 2) 미보유 괴수가 남아있다면, 미보유 목록 내에서만 랜덤 1종 추첨 (중복 방지 100% 보장)
+  if (uncollectedMonsters.length > 0) {
+    const pickedIndex = Math.floor(Math.random() * uncollectedMonsters.length);
+    return uncollectedMonsters[pickedIndex];
+  }
+
+  // 3) 10종이 이미 다 모인 상태(10/10)에서 추가로 알을 까는 경우: 전체 10종 풀에서 가중치/희귀도 기반 자유 추첨
   const rand = Math.random() * 100;
   // mythic: 3% (97~100)
   // legendary: 7% (90~97)
