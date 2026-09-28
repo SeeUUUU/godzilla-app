@@ -161,7 +161,6 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
           alignItems: 'center',
         }}
       >
-
         {/* 닫기 버튼 */}
         <button
           type="button"

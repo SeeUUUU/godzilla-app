@@ -22,7 +22,10 @@ export interface GameState {
   level: number;
   exp: number;
   streak: number;
+  cycleCount?: number;
 }
+
+export type BattleStatus = 'PLAYING' | 'FINISHING' | 'CLEARED';
 
 export type Language = 'ko' | 'en' | 'ja';
 
@@ -142,4 +145,9 @@ export interface MonsterCardData {
 export interface UnlockedMonsterRecord {
   unlockedAt: string;
   count: number;
+}
+
+export interface MonsterCollectionState {
+  monsters: Record<string, UnlockedMonsterRecord>;
+  treasureBoxes: number;
 }

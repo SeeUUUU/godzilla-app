@@ -57,10 +57,10 @@ export const ParentModal: React.FC<ParentModalProps> = ({
     const newWords: WordItem[] = [];
 
     for (let i = 0; i < lines.length; i++) {
-      const parts = lines[i].split(/[,/|\t]/).map((p) => p.trim());
-      if (parts.length < 3) {
+      const parts = lines[i].split(/[,|\t]/).map((p) => p.trim());
+      if (parts.length < 3 || parts.length > 4 || parts.slice(0, 3).some((part) => !part)) {
         setErrorMessage(
-          `${i + 1}번째 줄의 형식이 올바르지 않습니다.\n'한국어, 영어, 일본어' 3단어를 쉼표(,)로 구분해 주세요.`
+          `${i + 1}번째 줄을 확인해 주세요. 한국어, 영어, 일본어는 모두 입력하고 쉼표(,), 탭 또는 |로 구분해 주세요. 일본어 읽기는 선택 사항입니다.`
         );
         return;
       }

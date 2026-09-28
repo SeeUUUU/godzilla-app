@@ -19,8 +19,6 @@ interface EggGachaModalProps {
   onClose: () => void;
   eggCount?: number;
   onConsumeEgg?: () => void;
-  onBonusExp?: (amount: number) => void;
-  onMonsterUnlocked?: () => void;
   onRewardCollected?: (monster: MonsterCardData, isNew: boolean) => void;
 }
 
@@ -29,8 +27,6 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
   onClose,
   eggCount,
   onConsumeEgg,
-  onBonusExp,
-  onMonsterUnlocked,
   onRewardCollected,
 }) => {
   const [tapCount, setTapCount] = useState(0); // 0, 1, 2, 3(깨짐)
@@ -40,7 +36,10 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
   const [pulledMonster, setPulledMonster] = useState<MonsterCardData | null>(null);
   const [isNewMonster, setIsNewMonster] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [hatchError, setHatchError] = useState('');
   const speechTimeoutRef = useRef<number | null>(null);
+  const hatchTimerRef = useRef<number | null>(null);
+  const shakeTimerRef = useRef<number | null>(null);
 
   // 모달 열릴 때 상태 초기화 및 닫힐 때 음성 취소
   useEffect(() => {
@@ -52,6 +51,7 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
       setPulledMonster(null);
       setIsNewMonster(false);
       setIsSpeaking(false);
+      setHatchError('');
     } else {
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
@@ -59,6 +59,8 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
       if (speechTimeoutRef.current) {
         clearTimeout(speechTimeoutRef.current);
       }
+      if (hatchTimerRef.current !== null) window.clearTimeout(hatchTimerRef.current);
+      if (shakeTimerRef.current !== null) window.clearTimeout(shakeTimerRef.current);
       setIsSpeaking(false);
     }
   }, [isOpen]);
@@ -72,6 +74,8 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
       if (speechTimeoutRef.current) {
         clearTimeout(speechTimeoutRef.current);
       }
+      if (hatchTimerRef.current !== null) window.clearTimeout(hatchTimerRef.current);
+      if (shakeTimerRef.current !== null) window.clearTimeout(shakeTimerRef.current);
     };
   }, []);
 
@@ -133,7 +137,12 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
     const nextCount = tapCount + 1;
     setTapCount(nextCount);
     setIsShaking(true);
-    setTimeout(() => setIsShaking(false), 450);
+    setHatchError('');
+    if (shakeTimerRef.current !== null) window.clearTimeout(shakeTimerRef.current);
+    shakeTimerRef.current = window.setTimeout(() => {
+      shakeTimerRef.current = null;
+      setIsShaking(false);
+    }, 450);
 
     playEggTapSound(nextCount);
 
@@ -142,32 +151,32 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
       setShowFlash(true);
       playEggHatchSound();
 
-      setTimeout(() => {
-        const monster = rollRandomMonster();
+      hatchTimerRef.current = window.setTimeout(() => {
+        hatchTimerRef.current = null;
+        let monster: MonsterCardData;
+        let isNew: boolean;
+        try {
+          monster = rollRandomMonster();
+          isNew = saveMonsterToStorage(monster.id).isNew;
+        } catch (error) {
+          console.error('Failed to save hatched monster:', error);
+          setShowFlash(false);
+          setTapCount(0);
+          setHatchError('괴수 저장에 실패했어요. 알을 다시 깨 주세요.');
+          return;
+        }
         setPulledMonster(monster);
         setIsHatched(true);
         setShowFlash(false);
-
-        // 몬스터 저장 및 중복 판별
-        const result = saveMonsterToStorage(monster.id);
-        setIsNewMonster(result.isNew);
+        setIsNewMonster(isNew);
 
         // 알 보유 수량 1개 차감
         if (onConsumeEgg) {
           onConsumeEgg();
         }
 
-        // 도감 갱신 통지
-        if (onMonsterUnlocked) {
-          onMonsterUnlocked();
-        }
         if (onRewardCollected) {
-          onRewardCollected(monster, result.isNew);
-        }
-
-        // 중복 시 보너스 EXP 지급
-        if (!result.isNew && onBonusExp) {
-          onBonusExp(30);
+          onRewardCollected(monster, isNew);
         }
 
         // 카드 등장 사운드 & 콘페티
@@ -376,6 +385,11 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
               {tapCount === 1 && '💥 금이 가기 시작했다! 한 번 더 탭!'}
               {tapCount === 2 && '🔥 거의 다 깨졌어요! 마지막 강력한 탭!'}
             </p>
+            {hatchError && (
+              <p role="alert" style={{ color: '#fca5a5', fontSize: '12px', fontWeight: 800, textAlign: 'center' }}>
+                {hatchError}
+              </p>
+            )}
 
             {/* 알 오브젝트 (클릭 인터랙션) */}
             <div

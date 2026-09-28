@@ -15,6 +15,8 @@ interface MonsterBookModalProps {
   hasClaimedCodexReward?: boolean;
   onOpenCodexChest?: () => void;
   onClaimCodexReward?: () => void;
+  treasureBoxes?: number;
+  onExchange?: () => boolean;
 }
 
 export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
@@ -28,6 +30,19 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
   const [selectedMonster, setSelectedMonster] = useState<MonsterCardData | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const speechTimeoutRef = useRef<number | null>(null);
+  const speechSessionRef = useRef(0);
+
+  const stopSpeech = useCallback(() => {
+    speechSessionRef.current += 1;
+    if (speechTimeoutRef.current !== null) {
+      window.clearTimeout(speechTimeoutRef.current);
+      speechTimeoutRef.current = null;
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+  }, []);
 
   // 모달 열릴 때 최신 도감 데이터 동기화
   useEffect(() => {
@@ -39,15 +54,18 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
     }
   }, [isOpen, propRecords]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      stopSpeech();
+    }
+  }, [isOpen, stopSpeech]);
+
   // 발음 클린업
   useEffect(() => {
     return () => {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
-      if (speechTimeoutRef.current) {
-        clearTimeout(speechTimeoutRef.current);
-      }
+      speechSessionRef.current += 1;
+      if (speechTimeoutRef.current !== null) window.clearTimeout(speechTimeoutRef.current);
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel();
     };
   }, []);
 
@@ -55,6 +73,9 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
   const speakMonsterNames = useCallback((monster: MonsterCardData) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 
+    speechSessionRef.current += 1;
+    const session = speechSessionRef.current;
+    if (speechTimeoutRef.current !== null) window.clearTimeout(speechTimeoutRef.current);
     window.speechSynthesis.cancel();
     setIsSpeaking(true);
 
@@ -80,34 +101,39 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
     if (jaVoice) uttJa.voice = jaVoice;
 
     uttKo.onend = () => {
+      if (session !== speechSessionRef.current) return;
       speechTimeoutRef.current = window.setTimeout(() => {
+        if (session !== speechSessionRef.current) return;
         window.speechSynthesis.speak(uttEn);
       }, 250);
     };
 
     uttEn.onend = () => {
+      if (session !== speechSessionRef.current) return;
       speechTimeoutRef.current = window.setTimeout(() => {
+        if (session !== speechSessionRef.current) return;
         window.speechSynthesis.speak(uttJa);
       }, 250);
     };
 
     uttJa.onend = () => {
-      setIsSpeaking(false);
+      if (session === speechSessionRef.current) setIsSpeaking(false);
     };
 
-    uttJa.onerror = () => setIsSpeaking(false);
-    uttEn.onerror = () => setIsSpeaking(false);
-    uttKo.onerror = () => setIsSpeaking(false);
+    const onSpeechError = () => {
+      if (session === speechSessionRef.current) stopSpeech();
+    };
+    uttJa.onerror = onSpeechError;
+    uttEn.onerror = onSpeechError;
+    uttKo.onerror = onSpeechError;
 
     window.speechSynthesis.speak(uttKo);
-  }, []);
+  }, [stopSpeech]);
 
   if (!isOpen) return null;
 
   const totalCount = MONSTER_CARDS.length;
-  const unlockedCount = Object.keys(records).filter((id) =>
-    MONSTER_CARDS.some((m) => m.id === id)
-  ).length;
+  const unlockedCount = MONSTER_CARDS.filter((monster) => (records[monster.id]?.count ?? 0) >= 1).length;
   const progressPercent = Math.round((unlockedCount / totalCount) * 100);
   const isAllCollected = unlockedCount >= totalCount;
 
@@ -332,7 +358,7 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
           >
             {MONSTER_CARDS.map((monster) => {
               const record = records[monster.id];
-              const isUnlocked = !!record;
+              const isUnlocked = (record?.count ?? 0) >= 1;
               const meta = RARITY_METADATA[monster.rarity];
 
               return (
@@ -493,7 +519,7 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
                           marginTop: '2px',
                         }}
                       >
-                        보유: {record.count || 1}장
+                        보유: {record.count}장
                       </div>
                     ) : (
                       <div
@@ -556,7 +582,6 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
               <Sparkles size={14} />
             </button>
           )}
-
           <button
             type="button"
             onClick={onClose}

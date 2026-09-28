@@ -176,7 +176,18 @@ export const useAttendance = () => {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return parsed;
+          const today = getTodayDateStr();
+          const cleaned = Array.from(new Set(parsed.filter((date): date is string =>
+            typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= today
+          )));
+          if (JSON.stringify(cleaned) !== saved) {
+            try {
+              localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(cleaned));
+            } catch (e) {
+              console.error('Failed to repair attendance records:', e);
+            }
+          }
+          return cleaned;
         }
       }
     } catch (e) {
@@ -203,11 +214,6 @@ export const useAttendance = () => {
   const claimWeeklyReward = useCallback(() => {
     saveWeeklyRewardClaimed();
     setHasClaimedWeeklyReward(true);
-  }, []);
-
-  const resetWeeklyReward = useCallback(() => {
-    clearWeeklyRewardClaimed();
-    setHasClaimedWeeklyReward(false);
   }, []);
 
   // 오늘 출석 체크 실행 함수
@@ -274,6 +280,11 @@ export const useAttendance = () => {
     savePlayerDataToFirestore({ attendanceRecords: updated });
     return updated;
   }, [records]);
+
+  const resetWeeklyReward = useCallback(() => {
+    clearWeeklyRewardClaimed();
+    setHasClaimedWeeklyReward(false);
+  }, []);
 
   // 출석 기록 및 주간 보상 완전 초기화 (Firestore 및 localStorage 동시 반영)
   const resetAllAttendance = useCallback(() => {

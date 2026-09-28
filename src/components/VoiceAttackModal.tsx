@@ -112,9 +112,23 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
   const [secondsElapsed, setSecondsElapsed] = useState(0);
 
   const timerRef = useRef<number | null>(null);
+  const restartTimerRef = useRef<number | null>(null);
+  const attackTimerRef = useRef<number | null>(null);
+  const feedbackTimerRef = useRef<number | null>(null);
+  const isActiveRef = useRef(false);
+  const hasFinishedRef = useRef(false);
   const clearedLangsRef = useRef(clearedLangs);
   const isAllClearedRef = useRef(isAllCleared);
   const selectedVoiceLangRef = useRef(selectedVoiceLang);
+
+  const clearPendingTimers = useCallback(() => {
+    for (const timer of [restartTimerRef, attackTimerRef, feedbackTimerRef]) {
+      if (timer.current !== null) {
+        window.clearTimeout(timer.current);
+        timer.current = null;
+      }
+    }
+  }, []);
 
   // 최신 Ref 동기화
   useEffect(() => {
@@ -144,10 +158,12 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
   // 마이크 청취 시작 헬퍼
   const restartMicForLang = useCallback(
     (targetLang: VoiceLang) => {
-      if (!isSupported) return;
+      if (!isSupported || !isActiveRef.current || hasFinishedRef.current) return;
+      if (restartTimerRef.current !== null) window.clearTimeout(restartTimerRef.current);
       stopListening();
-      window.setTimeout(() => {
-        if (!isAllClearedRef.current) {
+      restartTimerRef.current = window.setTimeout(() => {
+        restartTimerRef.current = null;
+        if (isActiveRef.current && !hasFinishedRef.current && !isAllClearedRef.current) {
           startListening(targetLang, (text) => {
             handleCheckSpokenRef.current?.(text);
           });
@@ -160,7 +176,7 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
   // 음성 매칭 검사 로직
   const handleCheckSpoken = useCallback(
     (spoken: string) => {
-      if (!word || isAllClearedRef.current) return;
+      if (!word || !isActiveRef.current || hasFinishedRef.current || isAllClearedRef.current) return;
 
       const currentCleared = clearedLangsRef.current;
       const activeKey =
@@ -194,7 +210,11 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
       clearedLangsRef.current = nextCleared;
       setClearedLangs(nextCleared);
       setJustClearedLang(matchedLang);
-      window.setTimeout(() => setJustClearedLang(null), 1200);
+      if (feedbackTimerRef.current !== null) window.clearTimeout(feedbackTimerRef.current);
+      feedbackTimerRef.current = window.setTimeout(() => {
+        feedbackTimerRef.current = null;
+        if (isActiveRef.current) setJustClearedLang(null);
+      }, 1200);
 
       const allDone = nextCleared.ko && nextCleared.en && nextCleared.ja;
 
@@ -202,7 +222,12 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
         // 3 / 3 전체 완료! -> 메가 크리티컬 열선 발사
         setIsAllCleared(true);
         isAllClearedRef.current = true;
+        hasFinishedRef.current = true;
         setShowFlash(true);
+        if (restartTimerRef.current !== null) {
+          window.clearTimeout(restartTimerRef.current);
+          restartTimerRef.current = null;
+        }
         stopListening();
 
         playCriticalRoarSound();
@@ -214,7 +239,10 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
         });
 
         // 0.8초 후 크리티컬 공격 발사 및 모달 닫기
-        window.setTimeout(() => {
+        attackTimerRef.current = window.setTimeout(() => {
+          attackTimerRef.current = null;
+          if (!isActiveRef.current) return;
+          isActiveRef.current = false;
           if (onAttackSuccess) {
             onAttackSuccess();
           } else if (onAttack) {
@@ -260,6 +288,9 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
   // 모달 열림 / 닫힘 시 초기화
   useEffect(() => {
     if (isOpen && word) {
+      isActiveRef.current = true;
+      hasFinishedRef.current = false;
+      clearPendingTimers();
       setClearedLangs({ ko: false, en: false, ja: false });
       clearedLangsRef.current = { ko: false, en: false, ja: false };
       setIsAllCleared(false);
@@ -281,6 +312,8 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
         setSecondsElapsed((prev) => prev + 1);
       }, 1000);
     } else {
+      isActiveRef.current = false;
+      clearPendingTimers();
       stopListening();
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -288,12 +321,14 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
     }
 
     return () => {
+      isActiveRef.current = false;
+      clearPendingTimers();
       stopListening();
       if (timerRef.current) {
         clearInterval(timerRef.current);
       }
     };
-  }, [isOpen, word, isSupported, startListening, stopListening]);
+  }, [isOpen, word, isSupported, startListening, stopListening, clearPendingTimers]);
 
   // 상단 탭 수동 선택
   const handleSelectLang = (lang: VoiceLang) => {
@@ -312,6 +347,10 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
 
   // 건너뛰기 (일반 공격)
   const handleSkip = () => {
+    if (!isActiveRef.current || hasFinishedRef.current || isAllClearedRef.current) return;
+    hasFinishedRef.current = true;
+    isActiveRef.current = false;
+    clearPendingTimers();
     stopListening();
     playDingDongSuccess();
     if (onSkip) {
@@ -424,7 +463,7 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
             textAlign: 'center',
           }}
         >
-          3개 언어를 차례대로 외치면{' '}
+          3개 언어를 외친 뒤 미니 콤보 회화를 들으면{' '}
           <span style={{ color: '#f87171', fontWeight: 900 }}>메가 크리티컬 2배 열선</span>이 발사돼요!
         </p>
 
@@ -832,7 +871,7 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
                   animation: 'criticalPop 0.4s ease-out',
                 }}
               >
-                💥 3개 국어 완전 정복! 메가 크리티컬 열선 발사!
+                💥 3개 국어 완전 정복! 회화를 듣고 열선을 발사해요!
               </div>
             ) : !isSupported ? (
               <div style={{ fontSize: '12px', color: '#f87171', fontWeight: 700 }}>
@@ -957,6 +996,7 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
           <button
             type="button"
             onClick={handleSkip}
+            disabled={isAllCleared}
             style={{
               padding: '8px 16px',
               borderRadius: '10px',
@@ -965,7 +1005,8 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
               color: '#ffffff',
               fontSize: '12px',
               fontWeight: 900,
-              cursor: 'pointer',
+              cursor: isAllCleared ? 'default' : 'pointer',
+              opacity: isAllCleared ? 0.5 : 1,
               display: 'flex',
               alignItems: 'center',
               gap: '4px',
@@ -973,7 +1014,7 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
             }}
           >
             <Zap size={14} />
-            <span>⚡ 그냥 공격하기 (건너뛰기)</span>
+            <span>⚡ 포효 건너뛰고 회화 듣기</span>
           </button>
         </div>
       </div>

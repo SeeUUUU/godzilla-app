@@ -1,15 +1,15 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import type { WordItem, GameState, UnlockedMonsterRecord, WordSentenceData } from './types';
+import type { WordItem, GameState, UnlockedMonsterRecord, BattleStatus } from './types';
 import { DEFAULT_WORDS } from './data/defaultWords';
 import { Header } from './components/Header';
 import { GodzillaStage } from './components/GodzillaStage';
 import { TriMatchingBoard } from './components/TriMatchingBoard';
-import { SentenceComboModal } from './components/SentenceComboModal';
 import { ParentModal } from './components/ParentModal';
 import { ReviewModal } from './components/ReviewModal';
 import { EggGachaModal } from './components/EggGachaModal';
 import { MonsterBookModal } from './components/MonsterBookModal';
 import { VoiceAttackModal } from './components/VoiceAttackModal';
+import { MiniComboModal } from './components/MiniComboModal';
 import { AttendanceModal } from './components/AttendanceModal';
 import { GoldenChestModal } from './components/LuckyEggGachaModal';
 import { useAttendance, setStoredAttendanceRecords } from './hooks/useAttendance';
@@ -36,7 +36,6 @@ import {
   resetAllPlayerDataToFirestore,
 } from './firebase';
 import { getRandomRaidBoss, type RaidBossInfo } from './data/raidBosses';
-import { getWordSentenceData } from './utils/sentenceUtils';
 
 const STORAGE_KEY_WORDS = 'godzilla_language_words_v3';
 const STORAGE_KEY_STATE = 'godzilla_language_state_v6';
@@ -47,6 +46,8 @@ const STORAGE_KEY_TREASURE_BOX = 'godzilla_treasure_box_count';
 const STORAGE_KEY_CYCLE_COUNT = 'godzilla_cycle_count';
 const STORAGE_KEY_INFINITE_MODE = 'godzilla_is_infinite_mode';
 const STORAGE_KEY_STAGE_INDEX = 'godzilla_stage_index';
+const STORAGE_KEY_WORDS_VERSION = 'godzilla_language_words_version';
+const STORAGE_VERSION = 'v1.1';
 
 // 한 스테이지(배틀)당 출제 단어 수
 const WORDS_PER_ROUND = 6;
@@ -62,14 +63,41 @@ const getRandomSixWords = (pool: WordItem[]): WordItem[] => {
   return copy.slice(copy.length - WORDS_PER_ROUND);
 };
 
-const dedupeWordsById = (items: WordItem[]) => {
-  const uniqueById = new Map<string | number, WordItem>();
-  items.forEach((word) => {
-    if (!uniqueById.has(word.id)) {
-      uniqueById.set(word.id, word);
-    }
-  });
+const normalizeWords = (items: unknown): WordItem[] => {
+  if (!Array.isArray(items)) return [];
+  const uniqueById = new Map<string, WordItem>();
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    const word = item as Record<string, unknown>;
+    const id = typeof word.id === 'string' ? word.id.trim() : word.id;
+    if (!((typeof id === 'string' && id) || (typeof id === 'number' && Number.isFinite(id)))) continue;
+    if (typeof word.ko !== 'string' || typeof word.en !== 'string' || typeof word.ja !== 'string') continue;
+    const ko = word.ko.trim();
+    const en = word.en.trim();
+    const ja = word.ja.trim();
+    if (!ko || !en || !ja || uniqueById.has(String(id))) continue;
+    const jaKana = typeof word.jaKana === 'string' ? word.jaKana.trim() : undefined;
+    uniqueById.set(String(id), { id, ko, en, ja, jaKana: jaKana || undefined });
+  }
   return Array.from(uniqueById.values());
+};
+
+const dedupeWordsById = (items: WordItem[]) => normalizeWords(items);
+
+const safeNonNegativeInteger = (value: unknown, fallback = 0): number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : fallback;
+
+const normalizeGameState = (value: unknown): GameState => {
+  const saved = value && typeof value === 'object' ? value as Partial<GameState> : {};
+  const storedExp = safeNonNegativeInteger(saved.exp);
+  return {
+    level: Math.max(1, safeNonNegativeInteger(saved.level, 1)) + Math.floor(storedExp / 100),
+    exp: storedExp % 100,
+    streak: safeNonNegativeInteger(saved.streak),
+    cycleCount: safeNonNegativeInteger(saved.cycleCount),
+  };
 };
 
 export function App() {
@@ -77,19 +105,24 @@ export function App() {
   // 1. 전체 단어 풀 (localStorage 우선, 없으면 DEFAULT_WORDS)
   // ─────────────────────────────────────────────
   const [words, setWords] = useState<WordItem[]>(() => {
+    let saved: string | null = null;
     try {
-      const saved = localStorage.getItem(STORAGE_KEY_WORDS);
+      saved = localStorage.getItem(STORAGE_KEY_WORDS);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // 구버전 단어 52개 캐시가 남아있는 경우 신규 200개 어휘 세트로 자동 갱신
-          if (parsed.length === 52) {
-            localStorage.setItem(STORAGE_KEY_WORDS, JSON.stringify(DEFAULT_WORDS));
-            return DEFAULT_WORDS;
+        const normalized = normalizeWords(parsed);
+        if (normalized.length > 0) {
+          try {
+            if (localStorage.getItem(STORAGE_KEY_WORDS_VERSION) !== STORAGE_VERSION || JSON.stringify(normalized) !== saved) {
+              localStorage.setItem(STORAGE_KEY_WORDS, JSON.stringify(normalized));
+              localStorage.setItem(STORAGE_KEY_WORDS_VERSION, STORAGE_VERSION);
+            }
+          } catch (e) {
+            console.error('Failed to migrate words:', e);
           }
           // 기존 캐시 단어에 신규 교정 예문 데이터가 누락되거나 구버전일 수 있으므로 기본 단어의 교정 예문 우선 병합
           const defaultMap = new Map(DEFAULT_WORDS.map((w) => [String(w.id), w]));
-          const merged = parsed.map((item: WordItem) => {
+          const merged = (normalized.length > 0 ? normalized : (parsed as WordItem[])).map((item: WordItem) => {
             const def = defaultMap.get(String(item.id));
             if (def) {
               return {
@@ -108,6 +141,14 @@ export function App() {
       }
     } catch (e) {
       console.error('Failed to load words:', e);
+    }
+    if (saved) {
+      try {
+        localStorage.setItem(STORAGE_KEY_WORDS, JSON.stringify(DEFAULT_WORDS));
+        localStorage.setItem(STORAGE_KEY_WORDS_VERSION, STORAGE_VERSION);
+      } catch (e) {
+        console.error('Failed to repair words:', e);
+      }
     }
     return DEFAULT_WORDS;
   });
@@ -196,7 +237,7 @@ export function App() {
       const saved = localStorage.getItem(STORAGE_KEY_WRONG_WORDS);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return dedupeWordsById(parsed);
+        if (Array.isArray(parsed)) return normalizeWords(parsed);
       }
     } catch (e) {
       console.error('Failed to load wrong words:', e);
@@ -254,12 +295,12 @@ export function App() {
       const saved = localStorage.getItem(STORAGE_KEY_STATE);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (typeof parsed?.level === 'number') return parsed;
+        return normalizeGameState(parsed);
       }
     } catch (e) {
       console.error('Failed to load gameState:', e);
     }
-    return { level: 1, exp: 0, streak: 0 };
+    return normalizeGameState(null);
   });
 
   // ─────────────────────────────────────────────
@@ -294,8 +335,8 @@ export function App() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_EGG_COUNT);
       if (saved !== null) {
-        const parsed = parseInt(saved, 10);
-        if (!isNaN(parsed)) return parsed;
+        const parsed = Number(saved);
+        if (Number.isSafeInteger(parsed) && parsed >= 0) return parsed;
       }
     } catch {}
     try {
@@ -303,6 +344,7 @@ export function App() {
     } catch {}
     return 6;
   });
+  const awardedStageEggsRef = useRef(new Set<number>());
 
   // 알 1개 소모
   const consumeEgg = useCallback(() => {
@@ -343,6 +385,14 @@ export function App() {
     });
   }, []);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(eggCount));
+    } catch (e) {
+      console.error('Failed to save egg count:', e);
+    }
+  }, [eggCount]);
+
   // ─────────────────────────────────────────────
   // 5-3. 음성 인식 포효 공격 모드 상태
   // ─────────────────────────────────────────────
@@ -356,6 +406,8 @@ export function App() {
   });
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
   const [targetWord, setTargetWord] = useState<WordItem | null>(null);
+  const [comboWord, setComboWord] = useState<WordItem | null>(null);
+  const pendingAttackRef = useRef<{ id: string | number; isCritical: boolean } | null>(null);
   const [isCriticalHit, setIsCriticalHit] = useState(false);
 
   // ─────────────────────────────────────────────
@@ -520,7 +572,6 @@ export function App() {
     };
   }, []);
 
-
   // 음성 공격 모드 ON/OFF 토글
   const handleToggleVoiceAttack = useCallback(() => {
     setIsVoiceAttackEnabled((prev) => {
@@ -581,7 +632,7 @@ export function App() {
   }, [hasClaimedStageReward]);
 
   const handleSetLevel = useCallback((newLevel: number) => {
-    const nextState: GameState = { level: Math.max(1, newLevel), exp: 0, streak: 0 };
+    const nextState: GameState = { level: Math.max(1, Math.floor(newLevel)), exp: 0, streak: 0 };
     setGameState(nextState);
     try {
       localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(nextState));
@@ -608,16 +659,36 @@ export function App() {
   // ─────────────────────────────────────────────
   const [godzillaHp, setGodzillaHp] = useState(100);
   const [clearedIds, setClearedIds] = useState<(string | number)[]>([]);
+  const [battleStatus, setBattleStatus] = useState<BattleStatus>('PLAYING');
+  const battleStatusRef = useRef<BattleStatus>('PLAYING');
+  const attackedIdsRef = useRef(new Set<string | number>());
   const [isShootingBeam, setIsShootingBeam] = useState(false);
+  const attackTimerRef = useRef<number | null>(null);
   const [isGhidorahAttacking, setIsGhidorahAttacking] = useState(false);
   const [isParentModalOpen, setIsParentModalOpen] = useState(false);
 
-  // ─────────────────────────────────────────────
-  // 6-2. 한 줄 문장 (미니 콤보 회화) 상태
-  // ─────────────────────────────────────────────
-  const [currentSentenceData, setCurrentSentenceData] = useState<WordSentenceData | null>(null);
-  const [showSentenceCombo, setShowSentenceCombo] = useState<boolean>(false);
-  const [isPendingCritical, setIsPendingCritical] = useState<boolean>(false);
+
+  const resetBattle = useCallback(() => {
+    if (attackTimerRef.current !== null) {
+      window.clearTimeout(attackTimerRef.current);
+      attackTimerRef.current = null;
+    }
+    battleStatusRef.current = 'PLAYING';
+    setBattleStatus('PLAYING');
+    setIsShootingBeam(false);
+    setIsCriticalHit(false);
+    setIsVoiceModalOpen(false);
+    setTargetWord(null);
+    setComboWord(null);
+    pendingAttackRef.current = null;
+    setClearedIds([]);
+    attackedIdsRef.current.clear();
+    setGodzillaHp(100);
+  }, []);
+
+  useEffect(() => () => {
+    if (attackTimerRef.current !== null) window.clearTimeout(attackTimerRef.current);
+  }, []);
 
   // 킹 기도라 HP: 활성 단어 진행률에 1:1 비례
   const ghidorahHp = activeWords.length > 0
@@ -631,17 +702,22 @@ export function App() {
   // 7. 새 단어 저장 (부모 모달)
   // ─────────────────────────────────────────────
   const handleSaveWords = useCallback((newWords: WordItem[]) => {
-    setWords(newWords);
+    const normalized = normalizeWords(newWords);
+    if (normalized.length === 0) return;
+    setWords(normalized);
     setStageIndex(0);
     setCycleCount(1);
     setIsInfiniteMode(false);
     setHasAwardedCycleReward(false);
     setIsReviewMode(false);
+    resetBattle();
+    awardedStageEggsRef.current.clear();
     setClearedIds([]);
     setGodzillaHp(100);
     setBattleSessionId((prev) => prev + 1);
     try {
-      localStorage.setItem(STORAGE_KEY_WORDS, JSON.stringify(newWords));
+      localStorage.setItem(STORAGE_KEY_WORDS, JSON.stringify(normalized));
+      localStorage.setItem(STORAGE_KEY_WORDS_VERSION, STORAGE_VERSION);
       localStorage.setItem(STORAGE_KEY_CYCLE_COUNT, '1');
       localStorage.setItem(STORAGE_KEY_INFINITE_MODE, 'false');
       localStorage.setItem(STORAGE_KEY_STAGE_INDEX, '0');
@@ -653,7 +729,7 @@ export function App() {
       isInfiniteMode: false,
       stageIndex: 0,
     });
-  }, []);
+  }, [resetBattle]);
 
   // ─────────────────────────────────────────────
   // 7-2. 전체 데이터 초기화 (Ground Zero 리셋)
@@ -746,16 +822,26 @@ export function App() {
   // ─────────────────────────────────────────────
   const executeAttack = useCallback(
     (matchedId: string | number, isCritical: boolean) => {
-      const isFeverHit = gameState.streak >= 2;
+      if (battleStatusRef.current !== 'PLAYING' || !activeWords.some((word) => word.id === matchedId) || attackedIdsRef.current.has(matchedId)) return;
+      attackedIdsRef.current.add(matchedId);
+      const isFinalHit = attackedIdsRef.current.size === activeWords.length;
+      if (isFinalHit) {
+        battleStatusRef.current = 'FINISHING';
+        setBattleStatus('FINISHING');
+      }
       // 일반 공격: 기본 25 EXP (피버 50 EXP)
       // 음성 포효 크리티컬 공격: 기본 60 EXP (피버 85 EXP)
-      const expReward = isCritical ? (isFeverHit ? 85 : 60) : isFeverHit ? 50 : 25;
-
       setIsCriticalHit(isCritical);
       setIsShootingBeam(true);
-      setTimeout(() => {
+      if (attackTimerRef.current !== null) window.clearTimeout(attackTimerRef.current);
+      attackTimerRef.current = window.setTimeout(() => {
+        attackTimerRef.current = null;
         setIsShootingBeam(false);
         setIsCriticalHit(false);
+        if (isFinalHit && battleStatusRef.current === 'FINISHING') {
+          battleStatusRef.current = 'CLEARED';
+          setBattleStatus('CLEARED');
+        }
       }, isCritical ? 1500 : 1200);
 
       setClearedIds((prev) => (prev.includes(matchedId) ? prev : [...prev, matchedId]));
@@ -775,34 +861,35 @@ export function App() {
       }
 
       setGameState((prev) => {
+        const isFeverHit = prev.streak >= 2;
+        const expReward = isCritical ? (isFeverHit ? 85 : 60) : isFeverHit ? 50 : 25;
         const totalExp = prev.exp + expReward;
         const levelGain = Math.floor(totalExp / 100);
         return {
+          ...prev,
           level: prev.level + levelGain,
           exp: totalExp % 100,
           streak: prev.streak + 1,
         };
       });
     },
-    [gameState.streak, isReviewMode]
+    [activeWords, isReviewMode]
   );
 
-
-
-  // 미니 콤보 회화 3개 언어 청취 완료 후 실제 공격 발사 (배틀 데미지 & 열선 빔)
-  const handleSentenceComboAttack = useCallback(() => {
-    setShowSentenceCombo(false);
-    if (targetWord) {
-      executeAttack(targetWord.id, isPendingCritical);
-      setTargetWord(null);
-    }
-  }, [targetWord, isPendingCritical, executeAttack]);
+  const handleComboComplete = useCallback(() => {
+    const pending = pendingAttackRef.current;
+    pendingAttackRef.current = null;
+    setComboWord(null);
+    setTargetWord(null);
+    if (pending) executeAttack(pending.id, pending.isCritical);
+  }, [executeAttack]);
 
   // ─────────────────────────────────────────────
   // 8-2. 정답 매칭 완료 핸들러 (음성 공격 모달 분기)
   // ─────────────────────────────────────────────
   const handleMatchComplete = useCallback(
     (matched: WordItem | string | number) => {
+      if (battleStatusRef.current !== 'PLAYING' || pendingAttackRef.current) return;
       let wordObj: WordItem | undefined;
 
       if (typeof matched === 'object' && matched !== null && 'id' in matched) {
@@ -818,36 +905,28 @@ export function App() {
 
       if (!wordObj) {
         console.warn('Cannot find matched word for', matched);
-        executeAttack(matched as string | number, false);
         return;
       }
 
-      // 맞춘 단어 및 3개 국어 문장 데이터 준비
+      pendingAttackRef.current = { id: wordObj.id, isCritical: false };
       setTargetWord(wordObj);
-      const sentenceData = getWordSentenceData(wordObj);
-      setCurrentSentenceData(sentenceData);
 
       if (isVoiceAttackEnabled) {
-        // [포효 ON인 경우]:
-        // 1) 기존 '포효(발음 연습)' 모달을 먼저 실행
-        // 2) 미니 콤보는 포효 완료 후로 대기
-        setShowSentenceCombo(false);
-        setIsPendingCritical(false);
+        // 포효 ON이면: 공격을 잠시 멈추고 음성인식 모달 오픈
         setIsVoiceModalOpen(true);
       } else {
-        // [포효 OFF인 경우]:
-        // 단어 매칭 성공 즉시 '미니 콤보 회화 모달'을 띄움
-        setIsPendingCritical(false);
-        setShowSentenceCombo(true);
+        // 포효 OFF여도 회화 문장을 들은 뒤 일반 공격을 실행한다.
+        setComboWord(wordObj);
       }
     },
-    [isVoiceAttackEnabled, activeWords, stageWords, reviewWords, words, executeAttack]
+    [isVoiceAttackEnabled, activeWords, stageWords, reviewWords, words]
   );
 
   // ─────────────────────────────────────────────
   // 9. 오답 핸들러 (오답노트 자동 수집)
   // ─────────────────────────────────────────────
   const handleMatchFail = useCallback((failedIds?: (string | number)[]) => {
+    if (battleStatusRef.current !== 'PLAYING') return;
     setIsGhidorahAttacking(true);
     setTimeout(() => setIsGhidorahAttacking(false), 1200);
 
@@ -881,12 +960,10 @@ export function App() {
   // 10. 게임 리셋 / 스테이지 진행
   // ─────────────────────────────────────────────
   const handleReviveGame = useCallback(() => {
-    setGodzillaHp(100);
-    setClearedIds([]);
+    resetBattle();
     setGameState((prev) => ({ ...prev, streak: 0 }));
-    setShowSentenceCombo(false);
     setBattleSessionId((prev) => prev + 1);
-  }, []);
+  }, [resetBattle]);
 
   /** 다음 스테이지로 진행 */
   const handleNextStage = useCallback(() => {
@@ -896,10 +973,10 @@ export function App() {
       return;
     }
 
+    resetBattle();
     setGodzillaHp(100);
     setClearedIds([]);
     setGameState((prev) => ({ ...prev, streak: 0 }));
-    setShowSentenceCombo(false);
     setBattleSessionId((prev) => prev + 1);
 
     if (isInfiniteMode) {
@@ -935,7 +1012,7 @@ export function App() {
         return next;
       });
     }
-  }, [isInfiniteMode, cycleCount, currentStageNum, totalStages]);
+  }, [isInfiniteMode, cycleCount, currentStageNum, totalStages, resetBattle]);
 
   // ─────────────────────────────────────────────
   // 11. 오답 복습 레이드 배틀 핸들러
@@ -951,37 +1028,32 @@ export function App() {
     }
     setReviewWords(shuffled);
     setIsReviewMode(true);
-    setClearedIds([]);
-    setGodzillaHp(100);
+    resetBattle();
     setGameState((prev) => ({ ...prev, streak: 0 }));
-    setShowSentenceCombo(false);
     setHasClaimedReviewRaidReward(false);
     setIsReviewModalOpen(false);
     setIsRaidConfirmOpen(false);
     setIsRaidVictoryModalOpen(false);
     setBattleSessionId((prev) => prev + 1);
-  }, [normalizedWrongWords]);
+  }, [normalizedWrongWords, resetBattle]);
 
   const handleExitReviewMode = useCallback(() => {
     setIsReviewMode(false);
     setReviewWords([]);
-    setClearedIds([]);
-    setGodzillaHp(100);
+    resetBattle();
     setGameState((prev) => ({ ...prev, streak: 0 }));
-    setShowSentenceCombo(false);
     setHasClaimedReviewRaidReward(false);
     setIsReviewModalOpen(false);
     setIsRaidConfirmOpen(false);
     setIsRaidVictoryModalOpen(false);
     setBattleSessionId((prev) => prev + 1);
-  }, []);
+  }, [resetBattle]);
 
   // 오답 복습 레이드 완료 후 일반 모드 복귀 (오답노트 클리어 및 Firestore 동기화 포함)
   const handleReviewComplete = useCallback(() => {
     setIsReviewMode(false);
     setReviewWords([]);
-    setClearedIds([]);
-    setGodzillaHp(100);
+    resetBattle();
     setGameState((prev) => ({ ...prev, streak: 0 }));
     setHasClaimedReviewRaidReward(false);
     setIsReviewModalOpen(false);
@@ -1000,7 +1072,7 @@ export function App() {
       savePlayerDataToFirestore({ wrongWordList: deduped });
       return deduped;
     });
-  }, []);
+  }, [resetBattle]);
 
   const handleClearWrongWords = useCallback(() => {
     setWrongWordList([]);
@@ -1028,14 +1100,13 @@ export function App() {
   // ─────────────────────────────────────────────
   // 12. 승리 / 게임오버 판정
   // ─────────────────────────────────────────────
-  const isAllCleared = activeWords.length > 0 && clearedIds.length === activeWords.length;
+  const isAllCleared = activeWords.length > 0 && battleStatus === 'CLEARED';
   const isGameOver = godzillaHp <= 0;
 
   // 마지막 6번째 단어 격파 시 배틀 연출(고질라 열선 발사, 보스 피격, 보스 체력 0% 감소, 격파 쓰러짐)을
   // 약 1.8초 동안 온전히 보여준 뒤 스테이지 클리어 결과창 및 보상 효과를 활성화하기 위한 상태
   const [isStageClearReady, setIsStageClearReady] = useState(false);
   const [isFinishingStage, setIsFinishingStage] = useState(false);
-
   useEffect(() => {
     if (isAllCleared && !isGameOver) {
       setIsFinishingStage(true);
@@ -1183,7 +1254,6 @@ export function App() {
     setGodzillaHp(100);
     setClearedIds([]);
     setGameState((prev) => ({ ...prev, streak: 0 }));
-    setShowSentenceCombo(false);
     setBattleSessionId((prev) => prev + 1);
 
     try {
@@ -1299,6 +1369,7 @@ export function App() {
         color: '#ffffff',
         display: 'flex',
         flexDirection: 'column',
+        pointerEvents: battleStatus === 'FINISHING' ? 'none' : 'auto',
       }}
     >
       {/* 1. 상단 헤더 */}
@@ -1333,7 +1404,7 @@ export function App() {
         unusedCouponCount={unusedCouponCount}
         attendanceStreak={attendanceStreak}
         isTodayAttended={isTodayAttended}
-        unlockedMonsterCount={Object.keys(unlockedMonsters).length}
+        unlockedMonsterCount={MONSTER_CARDS.filter((monster) => (unlockedMonsters[monster.id]?.count ?? 0) >= 1).length}
         totalMonsterCount={MONSTER_CARDS.length}
         onExitReviewMode={isReviewMode ? handleExitReviewMode : undefined}
         isVoiceAttackEnabled={isVoiceAttackEnabled}
@@ -1391,7 +1462,7 @@ export function App() {
         <div
           className="flex-1 min-h-0 w-full landscape-short:w-[58%] flex flex-col overflow-hidden"
           style={{
-            pointerEvents: (isGameOver || isFinishingStage || isStageClearReady) ? 'none' : 'auto',
+            pointerEvents: (isGameOver || battleStatus !== 'PLAYING' || isFinishingStage || isStageClearReady || isVoiceModalOpen || !!comboWord) ? 'none' : 'auto',
           }}
         >
           {activeWords && activeWords.length > 0 ? (
@@ -1434,7 +1505,7 @@ export function App() {
       </footer>
 
       {/* 4. 학부모 단어 숙제 관리 모달 */}
-      <ParentModal
+      {isParentModalOpen && <ParentModal
         isOpen={isParentModalOpen}
         onClose={() => setIsParentModalOpen(false)}
         currentWords={words}
@@ -1442,7 +1513,7 @@ export function App() {
         currentLevel={gameState.level}
         onSetLevel={handleSetLevel}
         onResetAllData={handleResetAllData}
-      />
+      />}
 
       {/* 5-1. 약점 단어 없음 안내 모달 */}
       {isEmptyWrongAlertOpen && (
@@ -1655,8 +1726,6 @@ export function App() {
         onClose={() => setIsGachaOpen(false)}
         eggCount={eggCount}
         onConsumeEgg={consumeEgg}
-        onBonusExp={handleAddBonusExp}
-        onMonsterUnlocked={refreshUnlockedMonsters}
         onRewardCollected={handleRewardCollected}
       />
 
@@ -1815,23 +1884,25 @@ export function App() {
           word={targetWord}
           onClose={() => {
             setIsVoiceModalOpen(false);
-            setIsPendingCritical(false);
-            setShowSentenceCombo(true);
+            if (targetWord) setComboWord(targetWord);
           }}
           onAttackSuccess={() => {
-            // 음성 3개 국어 완독 성공 시 -> 크리티컬 플래그 저장 후 곧바로 미니 콤보 회화 모달 오픈!
+            // 포효 성공 후 회화 듣기까지 마치면 크리티컬 열선을 발사한다.
+            if (!pendingAttackRef.current || !targetWord) return;
+            pendingAttackRef.current.isCritical = true;
             setIsVoiceModalOpen(false);
-            setIsPendingCritical(true);
-            setShowSentenceCombo(true);
+            setComboWord(targetWord);
           }}
           onSkip={() => {
-            // 그냥 공격하기(건너뛰기) 클릭 시 -> 일반 데미지 플래그 저장 후 곧바로 미니 콤보 회화 모달 오픈!
+            // 포효를 건너뛰어도 회화 듣기는 진행한다.
+            if (!pendingAttackRef.current || !targetWord) return;
             setIsVoiceModalOpen(false);
-            setIsPendingCritical(false);
-            setShowSentenceCombo(true);
+            setComboWord(targetWord);
           }}
         />
       )}
+
+      {comboWord && <MiniComboModal key={String(comboWord.id)} word={comboWord} onComplete={handleComboComplete} />}
 
       {/* 9. 주간 캘린더 & 고질라 발자국 스탬프 출석부 모달 */}
       <AttendanceModal
@@ -1897,15 +1968,6 @@ export function App() {
           setIsAttendanceModalOpen(true);
           refreshCouponCount();
         }}
-      />
-
-      {/* 11. 3개 국어 매칭 한 줄 문장 (미니 콤보 회화) 중앙 대형 모달 */}
-      <SentenceComboModal
-        isOpen={showSentenceCombo}
-        sentenceData={currentSentenceData}
-        isCritical={isPendingCritical}
-        onAttack={handleSentenceComboAttack}
-        onClose={handleSentenceComboAttack}
       />
     </div>
   );

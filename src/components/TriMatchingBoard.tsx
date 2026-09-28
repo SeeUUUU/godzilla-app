@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { WordItem, Language, SelectedCards } from '../types';
 import { useSpeech } from '../hooks/useSpeech';
 import type { SpeechLang } from '../hooks/useSpeech';
@@ -160,9 +160,15 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
 
   const [isShaking, setIsShaking] = useState(false);
   const [isMatchingSuccess, setIsMatchingSuccess] = useState(false);
+  const isLockedRef = useRef(false);
+  const mismatchTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (mismatchTimerRef.current !== null) window.clearTimeout(mismatchTimerRef.current);
+  }, []);
 
   const handleCardClick = (card: ShuffledCard) => {
-    if (clearedIds.includes(card.id) || isShaking || isMatchingSuccess) return;
+    if (clearedIds.includes(card.id) || isShaking || isMatchingSuccess || isLockedRef.current) return;
 
     playCardTapSound();
 
@@ -222,15 +228,18 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
             complete();
           });
       } else {
-        playErrorBuzzer();
+        isLockedRef.current = true;
         setIsShaking(true);
+        playErrorBuzzer();
         const failedIds = [newSelected.ko, newSelected.en, newSelected.ja].filter(
           (id): id is string | number => id !== null
         );
         onMatchFail(failedIds);
-        setTimeout(() => {
+        mismatchTimerRef.current = window.setTimeout(() => {
+          mismatchTimerRef.current = null;
           setSelected({ ko: null, en: null, ja: null });
           setIsShaking(false);
+          isLockedRef.current = false;
         }, 550);
       }
     }
