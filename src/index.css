@@ -131,3 +131,176 @@ html, body {
   animation: badgeFloat 1.4s infinite ease-in-out;
 }
 
+/* ====================================================
+   Godzilla Awakening Aura Keyframe Animations (Lv.10 ~ Lv.50+)
+   ==================================================== */
+
+/* 1. Lv.10~19 초음속 충격파 (Supersonic Pulse) */
+@keyframes supersonicPulseRing {
+  0% {
+    transform: translate(-50%, -50%) scale(0.3);
+    opacity: 0.95;
+    border-color: #00f2ff;
+    box-shadow: 0 0 14px #00f2ff, inset 0 0 10px #06b6d4;
+  }
+  60% {
+    opacity: 0.7;
+    border-color: #38bdf8;
+    box-shadow: 0 0 22px #00f2ff, inset 0 0 14px #38bdf8;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.75);
+    opacity: 0;
+    border-color: transparent;
+    box-shadow: 0 0 30px transparent;
+  }
+}
+
+.animate-supersonic-ring {
+  animation: supersonicPulseRing 2.2s cubic-bezier(0.1, 0.8, 0.2, 1) infinite;
+}
+
+.animate-supersonic-ring-delayed {
+  animation: supersonicPulseRing 2.2s cubic-bezier(0.1, 0.8, 0.2, 1) 1.1s infinite;
+}
+
+/* 2. Lv.20~29 화염 융합로 (Volcano Fusion) */
+@keyframes flameSparkFloat {
+  0% {
+    transform: translateY(0) scale(0.7) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.85;
+    transform: translateY(-26px) scale(1.1) rotate(15deg);
+  }
+  100% {
+    transform: translateY(-38px) scale(0.5) rotate(-10deg);
+    opacity: 0;
+  }
+}
+
+.animate-flame-spark {
+  animation: flameSparkFloat 1.8s ease-out infinite;
+}
+
+/* 3. Lv.30~39 스페이스 크리스탈 (Cosmic Energy) */
+@keyframes crystalFloatMotion {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+    filter: drop-shadow(0 0 6px #c084fc);
+  }
+  50% {
+    transform: translateY(-9px) rotate(18deg) scale(1.15);
+    filter: drop-shadow(0 0 12px #e879f9) drop-shadow(0 0 20px #818cf8);
+  }
+}
+
+@keyframes crystalFloatMotionAlt {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+    filter: drop-shadow(0 0 6px #38bdf8);
+  }
+  50% {
+    transform: translateY(8px) rotate(-15deg) scale(0.9);
+    filter: drop-shadow(0 0 14px #c084fc) drop-shadow(0 0 18px #a855f7);
+  }
+}
+
+.animate-crystal-float {
+  animation: crystalFloatMotion 2.4s ease-in-out infinite;
+}
+
+.animate-crystal-float-alt {
+  animation: crystalFloatMotionAlt 2.8s ease-in-out infinite;
+}
+
+/* 4. Lv.40~49 암흑 흑염 (Abyssal Shadow) */
+@keyframes darkFlamePulse {
+  0%, 100% {
+    transform: scale(0.98);
+    opacity: 0.75;
+    filter: drop-shadow(0 0 15px rgba(220, 38, 38, 0.8)) blur(4px);
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+    filter: drop-shadow(0 0 30px rgba(185, 28, 28, 1)) drop-shadow(0 0 45px rgba(0, 0, 0, 0.9)) blur(7px);
+  }
+}
+
+@keyframes darkAshFloat {
+  0% {
+    transform: translateY(0) scale(0.6);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.9;
+  }
+  85% {
+    opacity: 0.6;
+    transform: translateY(-30px) scale(1);
+  }
+  100% {
+    transform: translateY(-45px) scale(0.3);
+    opacity: 0;
+  }
+}
+
+.animate-dark-flame {
+  animation: darkFlamePulse 1.6s ease-in-out infinite alternate;
+}
+
+.animate-dark-ash {
+  animation: darkAshFloat 2s ease-out infinite;
+}
+
+/* 5. Lv.50+ 골든 엠페러 (Golden Emperor) */
+@keyframes goldenAuraPulse {
+  0%, 100% {
+    transform: scale(0.98);
+    opacity: 0.8;
+    filter: drop-shadow(0 0 16px #fbbf24) drop-shadow(0 0 30px #f59e0b);
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+    filter: drop-shadow(0 0 28px #fbbf24) drop-shadow(0 0 55px #f59e0b) drop-shadow(0 0 75px #ffd700);
+  }
+}
+
+@keyframes goldenLightningFlash {
+  0%, 100% {
+    opacity: 0.2;
+    transform: scale(0.9) rotate(0deg);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(1.25) rotate(10deg);
+    filter: drop-shadow(0 0 10px #ffffff) drop-shadow(0 0 20px #fbbf24);
+  }
+  40% {
+    opacity: 0.3;
+    transform: scale(0.95) rotate(-5deg);
+  }
+  65% {
+    opacity: 0.95;
+    transform: scale(1.2) rotate(15deg);
+    filter: drop-shadow(0 0 12px #fbbf24);
+  }
+  80% {
+    opacity: 0.1;
+  }
+}
+
+.animate-golden-aura {
+  animation: goldenAuraPulse 1.8s ease-in-out infinite alternate;
+}
+
+.animate-golden-lightning {
+  animation: goldenLightningFlash 1.2s ease-in-out infinite;
+}
+

@@ -151,6 +151,100 @@ export const getGodzillaEvolution = (level: number): GodzillaEvolutionInfo => {
   };
 };
 
+// 10레벨 단위 [궁극의 각성 아우라 (Lv.10 ~ Lv.50+)]
+export type GodzillaAuraTier = 'none' | 'supersonic' | 'volcano' | 'cosmic' | 'abyssal' | 'emperor';
+
+export interface GodzillaAuraInfo {
+  tier: GodzillaAuraTier;
+  levelRange: string;
+  name: string;
+  shortName: string;
+  icon: string;
+  themeColor: string;
+  secondaryColor: string;
+  glowShadow: string;
+  description: string;
+}
+
+export const getGodzillaAura = (level: number): GodzillaAuraInfo => {
+  if (level >= 50) {
+    return {
+      tier: 'emperor',
+      levelRange: 'LV.50+',
+      name: '신화의 지배자 - 골든 엠페러',
+      shortName: '골든 엠페러',
+      icon: '👑',
+      themeColor: '#fbbf24',
+      secondaryColor: '#f59e0b',
+      glowShadow: '0 0 16px rgba(251, 191, 36, 0.8), 0 0 30px rgba(245, 158, 11, 0.6)',
+      description: '황금빛 네온 실루엣과 전신을 뚫고 나오는 황금 번개 스파크',
+    };
+  }
+  if (level >= 40) {
+    return {
+      tier: 'abyssal',
+      levelRange: 'LV.40~49',
+      name: '암흑 흑염 (Abyssal Shadow)',
+      shortName: '암흑 흑염',
+      icon: '🌑',
+      themeColor: '#dc2626',
+      secondaryColor: '#7f1d1d',
+      glowShadow: '0 0 14px rgba(220, 38, 38, 0.8), 0 0 25px rgba(0, 0, 0, 0.9)',
+      description: '전신을 휘감는 검붉은 다크 플레임 아우라',
+    };
+  }
+  if (level >= 30) {
+    return {
+      tier: 'cosmic',
+      levelRange: 'LV.30~39',
+      name: '스페이스 크리스탈 (Cosmic Energy)',
+      shortName: '스페이스 크리스탈',
+      icon: '💎',
+      themeColor: '#c084fc',
+      secondaryColor: '#8b5cf6',
+      glowShadow: '0 0 14px rgba(192, 132, 252, 0.8), 0 0 25px rgba(139, 92, 246, 0.6)',
+      description: '고질라 주변에 부유하는 보랏빛 크리스탈 다이아몬드 파티클',
+    };
+  }
+  if (level >= 20) {
+    return {
+      tier: 'volcano',
+      levelRange: 'LV.20~29',
+      name: '화염 융합로 (Volcano Fusion)',
+      shortName: '화염 융합로',
+      icon: '🌋',
+      themeColor: '#f97316',
+      secondaryColor: '#ef4444',
+      glowShadow: '0 0 14px rgba(249, 115, 22, 0.8), 0 0 25px rgba(239, 68, 68, 0.6)',
+      description: '등 지느러미 주변 붉은 스파크 및 일렁이는 불꽃 파티클',
+    };
+  }
+  if (level >= 10) {
+    return {
+      tier: 'supersonic',
+      levelRange: 'LV.10~19',
+      name: '초음속 충격파 (Supersonic Pulse)',
+      shortName: '초음속 충격파',
+      icon: '💫',
+      themeColor: '#00f2ff',
+      secondaryColor: '#06b6d4',
+      glowShadow: '0 0 12px rgba(0, 242, 255, 0.75), 0 0 22px rgba(6, 182, 212, 0.5)',
+      description: '발밑에 일정한 주기로 퍼져나가는 푸른 원형 충격파 링',
+    };
+  }
+  return {
+    tier: 'none',
+    levelRange: 'LV.1~9',
+    name: '기본 모드',
+    shortName: '기본',
+    icon: '',
+    themeColor: 'transparent',
+    secondaryColor: 'transparent',
+    glowShadow: 'none',
+    description: '기본 상태',
+  };
+};
+
 export type MonsterRarity = 'normal' | 'rare' | 'super_rare' | 'legendary' | 'mythic';
 
 export interface PartnerSkill {

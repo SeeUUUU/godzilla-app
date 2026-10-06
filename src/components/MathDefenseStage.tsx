@@ -11,6 +11,7 @@ import {
   playErrorBuzzer,
   playVictoryFanfare,
   playCardTapSound,
+  playBaseDamageSound,
 } from '../utils/soundEffects';
 
 interface MathDefenseStageProps {
@@ -27,7 +28,7 @@ interface MathDefenseStageProps {
 type GamePhase = 'WARNING' | 'PLAYING' | 'INTERCEPTING' | 'IMPACT' | 'VICTORY' | 'GAME_OVER';
 
 const TOTAL_ROUNDS = PROBLEMS_PER_MATH_STAGE; // 10문제
-const FALL_DURATION_MS = 8000; // 8초 (초등 2학년 산수 계산 여유 시간 확보)
+const FALL_DURATION_MS = 14000; // 14초 (초등 2학년 두 자리 수 암산 및 TTS 청취 시간 넉넉히 확보)
 
 export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   stageNum,
@@ -51,6 +52,11 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   const [isShootingBeam, setIsShootingBeam] = useState(false);
   const [isExploding, setIsExploding] = useState(false);
   const [isImpactShaking, setIsImpactShaking] = useState(false);
+
+  // 방어선 충돌 및 피격 연출 상태
+  const [isRedFlash, setIsRedFlash] = useState(false);
+  const [damagedHeartIdx, setDamagedHeartIdx] = useState<number | null>(null);
+  const [defenseDamageAlert, setDefenseDamageAlert] = useState<string | null>(null);
 
   const animFrameRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
@@ -109,17 +115,35 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     [cancel, currentProblem, speak]
   );
 
-  // 3. 지면 충돌 처리 (시간 초과)
+  // 2-2. 방어선 충돌 및 피격 연출 (붉은 플래시 + 화면 쉐이크 + 충돌음 + 하트 펄스 + 플로팅 경고)
+  const triggerDamageFeedback = useCallback((lostHeartIdx: number, message = '⚠️ 기지 방어막 손상! 하트 -1') => {
+    setIsRedFlash(true);
+    setIsImpactShaking(true);
+    setDamagedHeartIdx(lostHeartIdx);
+    setDefenseDamageAlert(message);
+    playBaseDamageSound();
+
+    window.setTimeout(() => setIsRedFlash(false), 350);
+    window.setTimeout(() => setIsImpactShaking(false), 450);
+    window.setTimeout(() => setDamagedHeartIdx(null), 1200);
+    window.setTimeout(() => setDefenseDamageAlert(null), 1200);
+  }, []);
+
+  // 3. 지면 방어선 충돌 처리 (시간 초과 운석 충돌)
   const handleImpact = useCallback(() => {
     clearAllTimers();
     cancel();
-    setIsImpactShaking(true);
     setPhase('IMPACT');
     playMeteorExplosionSound();
 
     if (mothraShieldActive) {
       setMothraShieldActive(false);
       onPartnerNotice?.('모스라의 수호 쉴드! 충돌 데미지 1회 무효화!', '🛡️');
+      setIsImpactShaking(true);
+      setDefenseDamageAlert('🦋 모스라 수호 쉴드! 충돌 1회 무효화!');
+      window.setTimeout(() => setIsImpactShaking(false), 400);
+      window.setTimeout(() => setDefenseDamageAlert(null), 1200);
+
       nextRoundTimerRef.current = window.setTimeout(() => {
         setIsImpactShaking(false);
         cancel();
@@ -130,6 +154,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     }
 
     setLives((prev) => {
+      triggerDamageFeedback(prev, '⚠️ 기지 방어막 손상! 하트 -1');
       const nextLives = Math.max(0, prev - 1);
       if (nextLives <= 0) {
         nextRoundTimerRef.current = window.setTimeout(() => {
@@ -147,7 +172,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       }
       return nextLives;
     });
-  }, [clearAllTimers, cancel, mothraShieldActive, onPartnerNotice]);
+  }, [clearAllTimers, cancel, mothraShieldActive, onPartnerNotice, triggerDamageFeedback]);
 
   // 4. 운석 낙하 애니메이션 루프 시작
   const startMeteorFall = useCallback(() => {
@@ -274,19 +299,22 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
           }, 1100);
         }, 250);
       } else {
-        // [오답] 진동 & 체력 감소
+        // [오답] 진동 & 체력 감소 및 시각 피드백
         playErrorBuzzer();
         setSelectedWrongChoices((prev) => [...prev, choice]);
-        setIsImpactShaking(true);
-        window.setTimeout(() => setIsImpactShaking(false), 400);
 
         if (mothraShieldActive) {
           setMothraShieldActive(false);
+          setIsImpactShaking(true);
+          setDefenseDamageAlert('🦋 모스라 수호의 날개! 오답 1회 방어!');
+          window.setTimeout(() => setIsImpactShaking(false), 400);
+          window.setTimeout(() => setDefenseDamageAlert(null), 1200);
           onPartnerNotice?.('모스라의 수호의 날개! 오답 1회 무료 방어!', '🛡️');
           return;
         }
 
         setLives((prev) => {
+          triggerDamageFeedback(prev, '⚠️ 오답 요격 실패! 하트 -1');
           const nextLives = Math.max(0, prev - 1);
           if (nextLives <= 0) {
             clearAllTimers();
@@ -300,6 +328,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       }
     },
     [
+      isStarted,
       phase,
       isShootingBeam,
       isExploding,
@@ -310,6 +339,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       meteorProgress,
       mothraShieldActive,
       onPartnerNotice,
+      triggerDamageFeedback,
     ]
   );
 
@@ -381,13 +411,20 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
 
   return (
     <div
-      className={`relative w-full flex-1 min-h-0 h-full flex flex-col rounded-2xl overflow-hidden bg-slate-950 border-2 border-amber-500/60 shadow-2xl ${
-        isImpactShaking ? 'animate-screen-shake' : ''
-      }`}
+      className={`relative w-full flex-1 min-h-0 h-full flex flex-col rounded-2xl overflow-hidden bg-slate-950 border-2 transition-all duration-150 ${
+        isRedFlash ? 'border-red-500 shadow-[0_0_50px_rgba(239,68,68,0.8)]' : 'border-amber-500/60 shadow-2xl'
+      } ${isImpactShaking ? 'animate-screen-shake' : ''}`}
       style={{
-        boxShadow: '0 0 35px rgba(245, 158, 11, 0.4), inset 0 0 30px rgba(0, 0, 0, 0.8)',
+        boxShadow: isRedFlash
+          ? '0 0 50px rgba(239, 68, 68, 0.8), inset 0 0 35px rgba(239, 68, 68, 0.5)'
+          : '0 0 35px rgba(245, 158, 11, 0.4), inset 0 0 30px rgba(0, 0, 0, 0.8)',
       }}
     >
+      {/* 화면 전체 붉은색 피격 플래시 오버레이 */}
+      {isRedFlash && (
+        <div className="absolute inset-0 bg-red-600/30 z-40 pointer-events-none animate-pulse" />
+      )}
+
       {/* 1. 상단 HUD 배너 */}
       <div className="flex-none flex items-center justify-between px-3 py-1.5 bg-slate-900/90 border-b border-amber-500/40 z-20">
         <div className="flex items-center gap-1.5 sm:gap-2">
@@ -429,19 +466,37 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             </span>
           </div>
 
-          {/* 고질라 쉴드 하트 */}
-          <div className="flex items-center gap-0.5">
-            {[1, 2, 3].map((heartIdx) => (
-              <Heart
-                key={heartIdx}
-                size={16}
-                className={`transition-all duration-300 ${
-                  heartIdx <= lives
-                    ? 'text-red-500 fill-red-500 scale-100'
-                    : 'text-slate-600 fill-slate-800 scale-75 opacity-40'
-                }`}
-              />
-            ))}
+          {/* 고질라 쉴드 하트 (피격 시 깨진 하트 💔 전환 및 팝업 펄스 연출) */}
+          <div className="flex items-center gap-1">
+            {[1, 2, 3].map((heartIdx) => {
+              const isLost = heartIdx > lives;
+              const isDamaged = heartIdx === damagedHeartIdx;
+              return (
+                <div
+                  key={heartIdx}
+                  className={`relative flex items-center justify-center transition-all duration-300 ${
+                    isDamaged ? 'animate-bounce scale-125' : ''
+                  }`}
+                >
+                  {isLost ? (
+                    <span
+                      className="text-sm select-none inline-block filter grayscale opacity-45 transition-transform"
+                      title="파괴된 하트"
+                    >
+                      💔
+                    </span>
+                  ) : (
+                    <Heart
+                      size={17}
+                      className="text-red-500 fill-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]"
+                    />
+                  )}
+                  {isDamaged && (
+                    <span className="absolute -inset-1 rounded-full bg-red-500/50 animate-ping pointer-events-none" />
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -507,6 +562,15 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
 
         {/* 중앙: 운석 낙하 트랙 영역 */}
         <div className="relative flex-1 min-h-0 w-full overflow-hidden">
+          {/* 방어선 피격 / 쉴드 방어 경고 플로팅 텍스트 */}
+          {defenseDamageAlert && (
+            <div className="absolute left-1/2 -translate-x-1/2 bottom-8 z-35 animate-bounce pointer-events-none whitespace-nowrap">
+              <span className="px-3 py-1 rounded-full bg-red-950/95 border-2 border-red-500 text-red-100 font-black text-xs sm:text-sm shadow-[0_0_20px_rgba(239,68,68,0.9)] flex items-center gap-1.5">
+                {defenseDamageAlert}
+              </span>
+            </div>
+          )}
+
           {/* 지면 방어선 레이저 라인 */}
           <div
             className="absolute left-4 right-4 bottom-2 h-1 rounded-full z-10"

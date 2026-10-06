@@ -1,6 +1,6 @@
 import React from 'react';
 import type { GodzillaStageTier } from '../types';
-import { getGodzillaEvolution } from '../types';
+import { getGodzillaEvolution, getGodzillaAura } from '../types';
 
 export type GodzillaSkin = GodzillaStageTier;
 
@@ -71,6 +71,8 @@ export const GodzillaCharacter: React.FC<GodzillaCharacterProps> = ({
     auraBg = 'radial-gradient(ellipse, rgba(239, 68, 68, 0.85) 0%, rgba(245, 158, 11, 0.55) 50%, transparent 80%)';
   }
 
+  const aura = getGodzillaAura(level ?? 1);
+
   // 이미지 외곽 필터
   let imgFilter = 'drop-shadow(0 6px 12px rgba(0, 0, 0, 0.75))';
   if (isHit) {
@@ -89,6 +91,18 @@ export const GodzillaCharacter: React.FC<GodzillaCharacterProps> = ({
     } else {
       imgFilter = 'drop-shadow(0 0 14px rgba(0, 240, 255, 0.85)) drop-shadow(0 0 30px rgba(59, 130, 246, 0.5))';
     }
+  } else if (aura.tier === 'emperor') {
+    // [Lv.50+] 골든 엠페러: 고질라 전체 실루엣에 황금빛 네온 스트로크
+    imgFilter = 'drop-shadow(0 0 10px #fbbf24) drop-shadow(0 0 22px #f59e0b) drop-shadow(0 6px 12px rgba(0, 0, 0, 0.75))';
+  } else if (aura.tier === 'abyssal') {
+    // [Lv.40~49] 암흑 흑염: 검붉은 다크 플레임 실루엣
+    imgFilter = 'drop-shadow(0 0 10px #dc2626) drop-shadow(0 0 18px #7f1d1d) drop-shadow(0 6px 12px rgba(0, 0, 0, 0.85))';
+  } else if (aura.tier === 'cosmic') {
+    // [Lv.30~39] 스페이스 크리스탈: 보랏빛 코스믹 에너지 외곽 발광
+    imgFilter = 'drop-shadow(0 0 8px #c084fc) drop-shadow(0 6px 12px rgba(0, 0, 0, 0.75))';
+  } else if (aura.tier === 'volcano') {
+    // [Lv.20~29] 화염 융합로: 오렌지 화염 외곽 발광
+    imgFilter = 'drop-shadow(0 0 8px #f97316) drop-shadow(0 6px 12px rgba(0, 0, 0, 0.75))';
   }
 
   const imageSrc = GODZILLA_TIER_IMAGES[effectiveTier] || '/images/godzilla-classic.png';

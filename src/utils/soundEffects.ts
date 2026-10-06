@@ -819,4 +819,40 @@ export const playWarningSirenSound = () => {
   }
 };
 
+// 16. 방어선 충돌 및 기지 피격음 (Base Defense Impact / Damage Blast)
+export const playBaseDamageSound = () => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    // 1) 둔탁한 타격 파쇄음 (Heavy Thud)
+    const thud = ctx.createOscillator();
+    const thudGain = ctx.createGain();
+    thud.type = 'sawtooth';
+    thud.frequency.setValueAtTime(320, now);
+    thud.frequency.exponentialRampToValueAtTime(40, now + 0.35);
+    thudGain.gain.setValueAtTime(0.5, now);
+    thudGain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+    thud.connect(thudGain);
+    thudGain.connect(ctx.destination);
+    thud.start(now);
+    thud.stop(now + 0.36);
+
+    // 2) 묵직한 서브우퍼 베이스 진동 충격파 (Sub-Bass Impact)
+    const sub = ctx.createOscillator();
+    const subGain = ctx.createGain();
+    sub.type = 'triangle';
+    sub.frequency.setValueAtTime(120, now);
+    sub.frequency.exponentialRampToValueAtTime(20, now + 0.65);
+    subGain.gain.setValueAtTime(0.6, now);
+    subGain.gain.exponentialRampToValueAtTime(0.01, now + 0.65);
+    sub.connect(subGain);
+    subGain.connect(ctx.destination);
+    sub.start(now);
+    sub.stop(now + 0.66);
+  } catch (e) {
+    console.warn('Audio error:', e);
+  }
+};
+
 
