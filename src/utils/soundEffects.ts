@@ -286,6 +286,42 @@ export const playDingDongSuccess = () => {
   }
 };
 
+// 3-2. 콤보 상승 효과음 (Combo Power-Up Chime)
+export const playComboSound = (combo: number) => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+    const baseFreq = Math.min(880, 440 * Math.pow(1.12, Math.min(combo, 8)));
+    const pitches =
+      combo >= 3
+        ? [baseFreq * 0.8, baseFreq, baseFreq * 1.25, baseFreq * 1.5]
+        : [baseFreq, baseFreq * 1.25];
+
+    pitches.forEach((freq, idx) => {
+      const startTime = now + idx * 0.07;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = combo >= 3 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(freq, startTime);
+      osc.frequency.exponentialRampToValueAtTime(freq * 1.15, startTime + 0.15);
+
+      gain.gain.setValueAtTime(combo >= 3 ? 0.28 : 0.2, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.2);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(startTime);
+      osc.stop(startTime + 0.21);
+    });
+  } catch (e) {
+    console.warn('Audio error:', e);
+  }
+};
+
 // 4. 오답 진동음 (Error Buzz/Wobble)
 export const playErrorBuzzer = () => {
   const ctx = getAudioContext();

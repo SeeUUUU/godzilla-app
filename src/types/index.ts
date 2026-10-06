@@ -18,13 +18,27 @@ export interface WordItem {
   jpFurigana?: string;
 }
 
+export interface MathHintFormula {
+  a: number;
+  op: '+' | '-';
+  b: number;
+  c?: number;
+  op2?: '+' | '-';
+}
+
 export interface MathProblemItem {
   id: string;
   stage: number;
   question: string;
-  answer: string;
-  options: string[];
+  answer: string | number;
+  options: Array<string | number>;
   readKr: string;
+  /** 서술형(문장제) 문제 여부 - true이면 운석 낙하/시간제한 없음 */
+  isWordProblem?: boolean;
+  /** 서술형 문제 지문 */
+  problemText?: string;
+  /** 수 모형 힌트용 연산식 데이터 */
+  hintFormula?: MathHintFormula;
 }
 
 export interface DailyDualQuest {
