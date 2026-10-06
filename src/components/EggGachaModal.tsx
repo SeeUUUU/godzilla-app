@@ -291,7 +291,7 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
                 margin: '0 0 20px 0',
               }}
             >
-              단어 배틀이나 오답 괴수 레이드를 완료해 알을 모아보세요!
+              매일 언어+산수 듀얼 훈련 완주, 보스 요격전, 오답 레이드를 완료해 알을 모아보세요!
             </p>
             <button
               type="button"

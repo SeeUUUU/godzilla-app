@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { WordItem } from '../types';
 import { X, Save, RotateCcw, AlertCircle, CheckCircle } from 'lucide-react';
-import { DEFAULT_WORDS } from '../data/defaultWords';
+import { DEFAULT_WORDS, auditAndHealWords, REGEX_KOREAN, REGEX_ENGLISH } from '../data/words';
 
 interface ParentModalProps {
   isOpen: boolean;
@@ -57,24 +57,42 @@ export const ParentModal: React.FC<ParentModalProps> = ({
     const newWords: WordItem[] = [];
 
     for (let i = 0; i < lines.length; i++) {
-      const parts = lines[i].split(/[,|\t]/).map((p) => p.trim());
-      if (parts.length < 3 || parts.length > 4 || parts.slice(0, 3).some((part) => !part)) {
+      const parts = lines[i].split(/[,|\t]/).map((p) => p.trim()).filter(Boolean);
+      if (parts.length < 3) {
         setErrorMessage(
           `${i + 1}번째 줄을 확인해 주세요. 한국어, 영어, 일본어는 모두 입력하고 쉼표(,), 탭 또는 |로 구분해 주세요. 일본어 읽기는 선택 사항입니다.`
         );
         return;
       }
 
+      let ko = parts[0];
+      let en = parts[1];
+      let ja = parts[2];
+      let jaKana = parts[3];
+
+      // 만약 4~5개 항목이고 parts[1]이 한글, parts[2]가 영어인 경우 ('형, 오빠, Older brother, お兄さん')
+      // parts[0]과 parts[1]을 한국어 복합어('형 / 오빠')로 병합 처리하여 필드 밀림 방지
+      if (parts.length >= 4 && REGEX_KOREAN.test(parts[1]) && REGEX_ENGLISH.test(parts[2])) {
+        ko = `${parts[0]} / ${parts[1]}`;
+        en = parts[2];
+        ja = parts[3];
+        jaKana = parts[4];
+      }
+
+      const defaultWord = DEFAULT_WORDS[i];
+      const wordId = defaultWord?.id ?? `w${i + 1}`;
+
       newWords.push({
-        id: i + 1,
-        ko: parts[0],
-        en: parts[1],
-        ja: parts[2],
-        jaKana: parts[3] || undefined,
+        id: wordId,
+        ko,
+        en,
+        ja,
+        jaKana: jaKana || undefined,
       });
     }
 
-    onSaveWords(newWords);
+    const { healedWords } = auditAndHealWords(newWords, DEFAULT_WORDS);
+    onSaveWords(healedWords);
     setSaveSuccess(true);
     setTimeout(() => {
       onClose();

@@ -2,6 +2,29 @@ import type { MonsterCardData, MonsterRarity, UnlockedMonsterRecord } from '../t
 import { savePlayerDataToFirestore } from '../firebase';
 
 export const STORAGE_KEY_UNLOCKED_MONSTERS = 'godzilla_unlocked_monsters';
+export const STORAGE_KEY_EQUIPPED_PARTNER = 'godzilla_equipped_partner_id';
+
+export const getStoredEquippedPartner = (): string | null => {
+  try {
+    return localStorage.getItem(STORAGE_KEY_EQUIPPED_PARTNER);
+  } catch {
+    return null;
+  }
+};
+
+export const setStoredEquippedPartner = (partnerId: string | null): void => {
+  try {
+    if (partnerId) {
+      localStorage.setItem(STORAGE_KEY_EQUIPPED_PARTNER, partnerId);
+    } else {
+      localStorage.removeItem(STORAGE_KEY_EQUIPPED_PARTNER);
+    }
+  } catch (e) {
+    console.error('Failed to save equipped partner:', e);
+  }
+  // Firestore 동기화
+  savePlayerDataToFirestore({ equippedPartnerId: partnerId });
+};
 
 // 등급별 스타일 메타데이터 (브론즈, 실버, 골드, 퍼플, 레드)
 export const RARITY_METADATA: Record<
@@ -93,6 +116,12 @@ export const MONSTER_CARDS: MonsterCardData[] = [
     badgeBg: 'linear-gradient(135deg, #15803d, #22c55e)',
     glowColor: '#4ade80',
     element: '미니 파이어볼 🫧',
+    partnerSkill: {
+      name: '아기 고질라의 응원',
+      shortDesc: '매칭 성공 시 HP +5% 회복',
+      description: '단어 매칭에 성공할 때마다 고질라의 체력이 5%씩 회복돼요!',
+      icon: '🫧',
+    },
   },
   {
     id: 'classic-godzilla',
@@ -110,6 +139,12 @@ export const MONSTER_CARDS: MonsterCardData[] = [
     badgeBg: 'linear-gradient(135deg, #0e7490, #06b6d4)',
     glowColor: '#06b6d4',
     element: '방사열선 🌊',
+    partnerSkill: {
+      name: '원조의 위엄',
+      shortDesc: '2연속부터 즉시 FEVER 돌입',
+      description: '콤보 2연속 정답부터 즉시 화염 버닝 FEVER 모드가 발동해요!',
+      icon: '🦖',
+    },
   },
   {
     id: 'mothra',
@@ -127,6 +162,12 @@ export const MONSTER_CARDS: MonsterCardData[] = [
     badgeBg: 'linear-gradient(135deg, #0369a1, #38bdf8)',
     glowColor: '#38bdf8',
     element: '수호 날개 가루 🦋',
+    partnerSkill: {
+      name: '수호의 날개',
+      shortDesc: '한 판당 오답 1회 무료 방어',
+      description: '스테이지당 실수로 오답을 골라도 체력 차감을 1회 완전히 막아줘요!',
+      icon: '🦋',
+    },
   },
   {
     id: 'rodan',
@@ -144,6 +185,12 @@ export const MONSTER_CARDS: MonsterCardData[] = [
     badgeBg: 'linear-gradient(135deg, #c2410c, #fb923c)',
     glowColor: '#fb923c',
     element: '마하 충격파 🦅',
+    partnerSkill: {
+      name: '초음속 비행',
+      shortDesc: '첫 단어 힌트 1회 자동 반짝임',
+      description: '스테이지 시작 시 첫 번째 단어 카드가 황금빛으로 반짝여요!',
+      icon: '🦅',
+    },
   },
   {
     id: 'anguirus',
@@ -161,6 +208,12 @@ export const MONSTER_CARDS: MonsterCardData[] = [
     badgeBg: 'linear-gradient(135deg, #a16207, #eab308)',
     glowColor: '#eab308',
     element: '가시 돌격 🛡️',
+    partnerSkill: {
+      name: '단단한 갑옷',
+      shortDesc: '오답 데미지 50% 경감',
+      description: '오답 시 받는 체력 피해를 50% 줄여줘요!',
+      icon: '🛡️',
+    },
   },
   {
     id: 'mechagodzilla',
@@ -178,6 +231,12 @@ export const MONSTER_CARDS: MonsterCardData[] = [
     badgeBg: 'linear-gradient(135deg, #0891b2, #06b6d4)',
     glowColor: '#67e8f9',
     element: '하이퍼 메가 빔 🤖',
+    partnerSkill: {
+      name: '에너지 증폭',
+      shortDesc: '클리어 시 EXP +20% 보너스',
+      description: '스테이지 클리어 시 획득하는 경험치(EXP)가 20% 증가해요!',
+      icon: '⚡',
+    },
   },
   {
     id: 'godzilla-minusone',
@@ -195,6 +254,12 @@ export const MONSTER_CARDS: MonsterCardData[] = [
     badgeBg: 'linear-gradient(135deg, #0369a1, #0284c7)',
     glowColor: '#38bdf8',
     element: '초고압 압축열선 ⚡',
+    partnerSkill: {
+      name: '압축 폭발',
+      shortDesc: '매칭 시 기본 EXP +10 추가',
+      description: '단어를 맞출 때마다 추가 보너스 EXP를 10씩 더 획득해요!',
+      icon: '💥',
+    },
   },
   {
     id: 'king-ghidorah',
@@ -212,6 +277,12 @@ export const MONSTER_CARDS: MonsterCardData[] = [
     badgeBg: 'linear-gradient(135deg, #ca8a04, #eab308)',
     glowColor: '#facc15',
     element: '황금 중력 번개 ⚡',
+    partnerSkill: {
+      name: '전격 파워',
+      shortDesc: '3단어 성공 시 보스 추가 데미지',
+      description: '3단어 매칭 성공 시 보스에게 강력한 추가 데미지(+5%)를 입혀요!',
+      icon: '⚡',
+    },
   },
   {
     id: 'evil-godzilla',
@@ -229,6 +300,12 @@ export const MONSTER_CARDS: MonsterCardData[] = [
     badgeBg: 'linear-gradient(135deg, #6b21a8, #9333ea)',
     glowColor: '#c084fc',
     element: '악령 파괴 열선 😈',
+    partnerSkill: {
+      name: '악령의 일격',
+      shortDesc: '피버 모드 시 보스 데미지 +10%',
+      description: 'FEVER 모드일 때 공격 성공 시 보스에게 추가 데미지(+10%)를 입혀요!',
+      icon: '😈',
+    },
   },
   {
     id: 'burning-godzilla',
@@ -246,6 +323,12 @@ export const MONSTER_CARDS: MonsterCardData[] = [
     badgeBg: 'linear-gradient(135deg, #b91c1c, #ef4444, #f97316)',
     glowColor: '#ef4444',
     element: '인피니트 나선 열선 🔥',
+    partnerSkill: {
+      name: '버닝 인피니트',
+      shortDesc: '알(Egg) 보상 시 +1개 추가',
+      description: '듀얼 훈련 완주 및 보스전 등 알 획득 시 알(Egg)이 1개 더 추가 지급돼요 (총 2개)!',
+      icon: '🔥',
+    },
   },
 ];
 

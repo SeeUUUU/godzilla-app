@@ -18,16 +18,45 @@ export interface WordItem {
   jpFurigana?: string;
 }
 
+export interface MathProblemItem {
+  id: string;
+  stage: number;
+  question: string;
+  answer: string;
+  options: string[];
+  readKr: string;
+}
+
+export interface DailyDualQuest {
+  date: string; // 'YYYY-MM-DD'
+  languageDone: boolean;
+  mathDone: boolean;
+}
+
 export interface GameState {
   level: number;
   exp: number;
   streak: number;
   cycleCount?: number;
+  equippedPartnerId?: string | null;
+  mathStage?: number;
 }
 
 export type BattleStatus = 'PLAYING' | 'FINISHING' | 'CLEARED';
 
 export type Language = 'ko' | 'en' | 'ja';
+
+// 포효 모드 3단계 파워 판정 타입
+export type RoarPowerLevel = 'GOOD' | 'GREAT' | 'PERFECT';
+
+export interface RoarPowerResult {
+  level: RoarPowerLevel;
+  peakVolume: number;
+  label: string;
+  badge: string;
+  stars: number;
+  scaleMultiplier: number;
+}
 
 export interface SelectedCards {
   ko: string | number | null;
@@ -124,6 +153,13 @@ export const getGodzillaEvolution = (level: number): GodzillaEvolutionInfo => {
 
 export type MonsterRarity = 'normal' | 'rare' | 'super_rare' | 'legendary' | 'mythic';
 
+export interface PartnerSkill {
+  name: string;
+  shortDesc: string;
+  description: string;
+  icon: string;
+}
+
 export interface MonsterCardData {
   id: string;
   ko: string;
@@ -140,6 +176,7 @@ export interface MonsterCardData {
   glowColor: string;
   title: string;
   element: string;
+  partnerSkill: PartnerSkill;
 }
 
 export interface UnlockedMonsterRecord {

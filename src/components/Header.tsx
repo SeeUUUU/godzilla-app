@@ -1,6 +1,7 @@
 import React from 'react';
 import { Settings, Zap, Award, BookOpen, LogOut, Mic, MicOff } from 'lucide-react';
 import { getGodzillaEvolution } from '../types';
+import { MONSTER_MAP } from '../data/monsterData';
 
 interface HeaderProps {
   level: number;
@@ -26,6 +27,10 @@ interface HeaderProps {
   onOpenGacha?: () => void;
   treasureBoxCount?: number;
   onOpenTreasureBox?: () => void;
+  equippedPartnerId?: string | null;
+  activeMode?: 'language' | 'math';
+  onSelectMode?: (mode: 'language' | 'math') => void;
+  dailyDualQuest?: { languageDone: boolean; mathDone: boolean };
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -52,9 +57,14 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenGacha,
   treasureBoxCount = 0,
   onOpenTreasureBox,
+  equippedPartnerId,
+  activeMode = 'language',
+  onSelectMode,
+  dailyDualQuest,
 }) => {
   const expProgress = Math.min(100, Math.max(0, exp));
   const evo = getGodzillaEvolution(level);
+  const partnerMonster = equippedPartnerId ? MONSTER_MAP.get(equippedPartnerId) : null;
 
   return (
     <header className="w-full flex-none bg-slate-950/90 border-b border-slate-800/80 backdrop-blur-md px-2 sm:px-3 md:px-4 py-1.5 sm:py-2 z-40 shadow-sm overflow-x-hidden">
@@ -195,14 +205,19 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={onOpenMonsterBook}
-              title={`괴수 카드 도감 (${unlockedMonsterCount}/${totalMonsterCount})`}
+              title={partnerMonster ? `도감 (${unlockedMonsterCount}/${totalMonsterCount}) - 파트너: ${partnerMonster.ko} [${partnerMonster.partnerSkill.name}]` : `괴수 카드 도감 (${unlockedMonsterCount}/${totalMonsterCount})`}
               className="flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-lg bg-slate-900 border border-amber-500/60 text-amber-300 text-[11px] sm:text-xs font-black whitespace-nowrap transition-all active:scale-95 shadow-[0_0_8px_rgba(245,158,11,0.2)] cursor-pointer shrink-0"
             >
-              <span className="leading-none text-xs sm:text-sm">📖</span>
+              <span className="leading-none text-xs sm:text-sm">{partnerMonster ? partnerMonster.partnerSkill.icon : '📖'}</span>
               <span>도감</span>
               <span className="px-1.5 py-0.2 rounded-full text-[9px] sm:text-[10px] font-black bg-amber-700 text-white">
                 {unlockedMonsterCount}/{totalMonsterCount}
               </span>
+              {partnerMonster && (
+                <span className="hidden sm:inline px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[9px] border border-amber-400/30">
+                  {partnerMonster.ko}
+                </span>
+              )}
             </button>
 
             {/* 🎟️ 보관된 쿠폰함 */}
@@ -352,6 +367,73 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
       </div>
+
+      {/* ─── 일일 듀얼 훈련(언어 + 산수) 미션 HUD 바 ─── */}
+      {dailyDualQuest && onSelectMode && (
+        <div className="w-full max-w-5xl lg:max-w-6xl mx-auto mt-1 pt-1 border-t border-slate-800/70 flex items-center justify-between gap-1.5 sm:gap-2">
+          {/* 좌측 안내 라벨 */}
+          <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-black text-slate-300">
+            <span className="text-yellow-400">⚡</span>
+            <span className="hidden sm:inline">일일 듀얼 퀘스트:</span>
+            <span className="text-[10px] sm:text-[11px] px-1.5 py-0.2 rounded-full font-bold bg-slate-900 border border-slate-700 text-amber-300">
+              {dailyDualQuest.languageDone && dailyDualQuest.mathDone
+                ? '🎉 2/2 완주 (출석+알 획득!)'
+                : dailyDualQuest.languageDone || dailyDualQuest.mathDone
+                ? '🔥 1/2 완료 (나머지 1개 도전!)'
+                : '⚔️ 0/2 훈련 시작'}
+            </span>
+          </div>
+
+          {/* 우측 모드 전환 탭 버튼 */}
+          <div className="flex items-center gap-1 sm:gap-2">
+            {/* [🟦 언어 배틀 ⚡] */}
+            <button
+              type="button"
+              onClick={() => onSelectMode('language')}
+              className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-0.5 sm:py-1 rounded-lg text-[11px] sm:text-xs font-black transition-all border cursor-pointer ${
+                activeMode === 'language'
+                  ? 'bg-cyan-950/90 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.4)] ring-1 ring-cyan-400'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>🟦</span>
+              <span>언어 배틀</span>
+              <span
+                className={`text-[9px] sm:text-[10px] px-1 py-0.2 rounded-full font-extrabold ${
+                  dailyDualQuest.languageDone
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                    : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {dailyDualQuest.languageDone ? '✅ 완료' : '⚡ 훈련중'}
+              </span>
+            </button>
+
+            {/* [🟧 산수 요격 🔥] */}
+            <button
+              type="button"
+              onClick={() => onSelectMode('math')}
+              className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-0.5 sm:py-1 rounded-lg text-[11px] sm:text-xs font-black transition-all border cursor-pointer ${
+                activeMode === 'math'
+                  ? 'bg-amber-950/90 border-amber-400 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.4)] ring-1 ring-amber-400'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>🟧</span>
+              <span>산수 요격</span>
+              <span
+                className={`text-[9px] sm:text-[10px] px-1 py-0.2 rounded-full font-extrabold ${
+                  dailyDualQuest.mathDone
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                    : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {dailyDualQuest.mathDone ? '✅ 완료' : '🔥 훈련중'}
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
     </header>
   );
 };

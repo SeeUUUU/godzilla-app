@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import type { WordItem, GameState, UnlockedMonsterRecord, BattleStatus } from './types';
-import { DEFAULT_WORDS } from './data/defaultWords';
+import type { WordItem, GameState, UnlockedMonsterRecord, BattleStatus, RoarPowerResult, DailyDualQuest } from './types';
+import { DEFAULT_WORDS, auditAndHealWords } from './data/words';
 import { Header } from './components/Header';
 import { GodzillaStage } from './components/GodzillaStage';
 import { TriMatchingBoard } from './components/TriMatchingBoard';
+import { BossMiniGame } from './components/BossMiniGame';
+import { MathDefenseStage } from './components/MathDefenseStage';
+import { TOTAL_MATH_STAGES } from './data/mathData';
 import { ParentModal } from './components/ParentModal';
 import { ReviewModal } from './components/ReviewModal';
 import { EggGachaModal } from './components/EggGachaModal';
@@ -12,12 +15,16 @@ import { VoiceAttackModal } from './components/VoiceAttackModal';
 import { MiniComboModal } from './components/MiniComboModal';
 import { AttendanceModal } from './components/AttendanceModal';
 import { GoldenChestModal } from './components/LuckyEggGachaModal';
-import { useAttendance, setStoredAttendanceRecords } from './hooks/useAttendance';
+import { useAttendance, setStoredAttendanceRecords, getTodayDateStr } from './hooks/useAttendance';
 import {
   getStoredUnlockedMonsters,
   setStoredUnlockedMonsters,
   deductOneEachForCodexExchange,
   MONSTER_CARDS,
+  MONSTER_MAP,
+  getStoredEquippedPartner,
+  setStoredEquippedPartner,
+  STORAGE_KEY_EQUIPPED_PARTNER,
 } from './data/monsterData';
 import confetti from 'canvas-confetti';
 import { playVictoryFanfare } from './utils/soundEffects';
@@ -46,8 +53,10 @@ const STORAGE_KEY_TREASURE_BOX = 'godzilla_treasure_box_count';
 const STORAGE_KEY_CYCLE_COUNT = 'godzilla_cycle_count';
 const STORAGE_KEY_INFINITE_MODE = 'godzilla_is_infinite_mode';
 const STORAGE_KEY_STAGE_INDEX = 'godzilla_stage_index';
+const STORAGE_KEY_DUAL_QUEST = 'godzilla_daily_dual_quest_v1';
+const STORAGE_KEY_MATH_STAGE = 'godzilla_math_stage_index';
 const STORAGE_KEY_WORDS_VERSION = 'godzilla_language_words_version';
-const STORAGE_VERSION = 'v1.1';
+const STORAGE_VERSION = 'v1.2';
 
 // 한 스테이지(배틀)당 출제 단어 수
 const WORDS_PER_ROUND = 6;
@@ -112,21 +121,25 @@ export function App() {
         const parsed = JSON.parse(saved);
         const normalized = normalizeWords(parsed);
         if (normalized.length > 0) {
-          try {
-            if (localStorage.getItem(STORAGE_KEY_WORDS_VERSION) !== STORAGE_VERSION || JSON.stringify(normalized) !== saved) {
-              localStorage.setItem(STORAGE_KEY_WORDS, JSON.stringify(normalized));
-              localStorage.setItem(STORAGE_KEY_WORDS_VERSION, STORAGE_VERSION);
-            }
-          } catch (e) {
-            console.error('Failed to migrate words:', e);
+          // 200개 단어 전수 무결성 검수 및 뒤바뀐 언어 필드 자동 교정 (Auto Healing)
+          const { healedWords, fixedCount, fixedDetails } = auditAndHealWords(normalized, DEFAULT_WORDS);
+          if (fixedCount > 0) {
+            console.log(`[Auto Word Audit] ${fixedCount}개 단어 무결성 교정 완료:`, fixedDetails);
           }
-          // 기존 캐시 단어에 신규 교정 예문 데이터가 누락되거나 구버전일 수 있으므로 기본 단어의 교정 예문 우선 병합
-          const defaultMap = new Map(DEFAULT_WORDS.map((w) => [String(w.id), w]));
-          const merged = (normalized.length > 0 ? normalized : (parsed as WordItem[])).map((item: WordItem) => {
-            const def = defaultMap.get(String(item.id));
+
+          // 기본 단어 맵 구축 (ID 문자열 및 숫자 프리픽스 양방향 매핑)
+          const defaultMap = new Map<string, WordItem>();
+          DEFAULT_WORDS.forEach((w) => {
+            defaultMap.set(String(w.id), w);
+            defaultMap.set(String(w.id).replace(/^w/, ''), w);
+          });
+
+          // 기본 단어의 표준 데이터 및 교정 예문 병합
+          const merged = healedWords.map((item: WordItem) => {
+            const idStr = String(item.id);
+            const def = defaultMap.get(idStr) || defaultMap.get(idStr.replace(/^w/, ''));
             if (def) {
               return {
-                ...item,
                 ...def,
                 krSentence: def.krSentence || item.krSentence,
                 enSentence: def.enSentence || item.enSentence,
@@ -136,6 +149,19 @@ export function App() {
             }
             return item;
           });
+
+          try {
+            if (
+              localStorage.getItem(STORAGE_KEY_WORDS_VERSION) !== STORAGE_VERSION ||
+              JSON.stringify(merged) !== saved ||
+              fixedCount > 0
+            ) {
+              localStorage.setItem(STORAGE_KEY_WORDS, JSON.stringify(merged));
+              localStorage.setItem(STORAGE_KEY_WORDS_VERSION, STORAGE_VERSION);
+            }
+          } catch (e) {
+            console.error('Failed to migrate words:', e);
+          }
           return merged;
         }
       }
@@ -187,6 +213,55 @@ export function App() {
     } catch {}
     return 0;
   });
+
+  // ─────────────────────────────────────────────
+  // 2-2. 일일 듀얼 훈련(Daily Dual Quest) 및 산수 스테이지 상태
+  // ─────────────────────────────────────────────
+  const [dailyDualQuest, setDailyDualQuest] = useState<DailyDualQuest>(() => {
+    const today = getTodayDateStr();
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_DUAL_QUEST);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.date === today) {
+          return {
+            date: today,
+            languageDone: Boolean(parsed.languageDone),
+            mathDone: Boolean(parsed.mathDone),
+          };
+        }
+      }
+    } catch {}
+    return { date: today, languageDone: false, mathDone: false };
+  });
+
+  const [activeMode, setActiveMode] = useState<'language' | 'math'>('language');
+
+  const [mathStageIndex, setMathStageIndex] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_MATH_STAGE);
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 0) return parsed;
+      }
+    } catch {}
+    return 0;
+  });
+
+  const [mathSessionId, setMathSessionId] = useState(0);
+  const mathStageNum = (mathStageIndex % TOTAL_MATH_STAGES) + 1;
+
+  // 일일 퀘스트 날짜 변경 시 자동 리셋
+  useEffect(() => {
+    const today = getTodayDateStr();
+    if (dailyDualQuest.date !== today) {
+      const resetQuest: DailyDualQuest = { date: today, languageDone: false, mathDone: false };
+      setDailyDualQuest(resetQuest);
+      try {
+        localStorage.setItem(STORAGE_KEY_DUAL_QUEST, JSON.stringify(resetQuest));
+      } catch {}
+    }
+  }, [dailyDualQuest.date]);
 
   // 배틀 세션 고유 ID (스테이지 변경 및 재도전/부활 시 카드 독립 셔플 강제 갱신용)
   const [battleSessionId, setBattleSessionId] = useState(0);
@@ -309,6 +384,33 @@ export function App() {
   const [unlockedMonsters, setUnlockedMonsters] = useState<Record<string, UnlockedMonsterRecord>>(() =>
     getStoredUnlockedMonsters()
   );
+  // 서포트 파트너 괴수 상태 및 스킬 발동 연출 알림
+  const [equippedPartnerId, setEquippedPartnerId] = useState<string | null>(() => getStoredEquippedPartner());
+  const [partnerSkillNotice, setPartnerSkillNotice] = useState<{ message: string; icon: string; id: number } | null>(null);
+  const partnerNoticeTimerRef = useRef<number | null>(null);
+  const hasUsedPartnerShieldRef = useRef(false);
+  const hasShownRodanHintRef = useRef(false);
+
+  const triggerPartnerNotice = useCallback((message: string, icon: string) => {
+    if (partnerNoticeTimerRef.current !== null) window.clearTimeout(partnerNoticeTimerRef.current);
+    setPartnerSkillNotice({ message, icon, id: Date.now() });
+    partnerNoticeTimerRef.current = window.setTimeout(() => {
+      setPartnerSkillNotice(null);
+      partnerNoticeTimerRef.current = null;
+    }, 2200);
+  }, []);
+
+  const handleEquipPartner = useCallback((partnerId: string | null) => {
+    setEquippedPartnerId(partnerId);
+    setStoredEquippedPartner(partnerId);
+    if (partnerId) {
+      const monster = MONSTER_MAP.get(partnerId);
+      if (monster) {
+        triggerPartnerNotice(`${monster.ko} 동행 시작! [${monster.partnerSkill.name}]`, monster.partnerSkill.icon);
+      }
+    }
+  }, [triggerPartnerNotice]);
+
   const [isGachaOpen, setIsGachaOpen] = useState(false);
   const [isMonsterBookOpen, setIsMonsterBookOpen] = useState(false);
   // 한 스테이지당 알 부화 보상 1회 제한 상태
@@ -407,8 +509,14 @@ export function App() {
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
   const [targetWord, setTargetWord] = useState<WordItem | null>(null);
   const [comboWord, setComboWord] = useState<WordItem | null>(null);
-  const pendingAttackRef = useRef<{ id: string | number; isCritical: boolean } | null>(null);
+  const pendingAttackRef = useRef<{
+    id: string | number;
+    isCritical: boolean;
+    roarPower?: RoarPowerResult | null;
+  } | null>(null);
   const [isCriticalHit, setIsCriticalHit] = useState(false);
+  const [activeRoarPower, setActiveRoarPower] = useState<RoarPowerResult | null>(null);
+  const [isScreenShaking, setIsScreenShaking] = useState(false);
 
   // ─────────────────────────────────────────────
   // 5-4. 주간 출석부 및 스트릭 관리
@@ -537,6 +645,35 @@ export function App() {
               localStorage.setItem(STORAGE_KEY_STAGE_INDEX, String(remoteData.stageIndex));
             } catch {}
           }
+          // 10. 서포트 파트너 반영
+          if (remoteData.equippedPartnerId !== undefined) {
+            setEquippedPartnerId(remoteData.equippedPartnerId);
+            setStoredEquippedPartner(remoteData.equippedPartnerId);
+          }
+          // 11. 일일 듀얼 퀘스트 및 산수 스테이지 반영
+          if (remoteData.dailyDualQuest && typeof remoteData.dailyDualQuest === 'object') {
+            const today = getTodayDateStr();
+            const q = remoteData.dailyDualQuest as Partial<DailyDualQuest>;
+            if (q.date === today) {
+              setDailyDualQuest((prev) => {
+                const merged: DailyDualQuest = {
+                  date: today,
+                  languageDone: prev.languageDone || Boolean(q.languageDone),
+                  mathDone: prev.mathDone || Boolean(q.mathDone),
+                };
+                try {
+                  localStorage.setItem(STORAGE_KEY_DUAL_QUEST, JSON.stringify(merged));
+                } catch {}
+                return merged;
+              });
+            }
+          }
+          if (typeof remoteData.mathStageIndex === 'number') {
+            setMathStageIndex(remoteData.mathStageIndex);
+            try {
+              localStorage.setItem(STORAGE_KEY_MATH_STAGE, String(remoteData.mathStageIndex));
+            } catch {}
+          }
         } else {
           // Firestore 문서가 아직 없으면 현재 로컬스토리지 데이터를 최초 백업
           const localMonsters = getStoredUnlockedMonsters();
@@ -554,6 +691,9 @@ export function App() {
             cycleCount,
             isInfiniteMode,
             stageIndex,
+            equippedPartnerId: getStoredEquippedPartner(),
+            dailyDualQuest,
+            mathStageIndex,
           });
         }
       } catch (err) {
@@ -589,7 +729,9 @@ export function App() {
   useEffect(() => {
     setHasAwardedStageEgg(false);
     setHasClaimedStageReward(false);
-  }, [stageIndex, isReviewMode]);
+    hasUsedPartnerShieldRef.current = false;
+    hasShownRodanHintRef.current = false;
+  }, [stageIndex, isReviewMode, battleSessionId]);
 
   // 도감 상태 최신화 (Header의 괴수 도감 N/10 카운트 즉시 갱신)
   const refreshUnlockedMonsters = useCallback(() => {
@@ -666,7 +808,15 @@ export function App() {
   const attackTimerRef = useRef<number | null>(null);
   const [isGhidorahAttacking, setIsGhidorahAttacking] = useState(false);
   const [isParentModalOpen, setIsParentModalOpen] = useState(false);
+  const [bonusBossDamage, setBonusBossDamage] = useState(0);
 
+  // 라돈 장착 시 스테이지 시작 직후 첫 단어 힌트 안내
+  useEffect(() => {
+    if (equippedPartnerId === 'rodan' && !hasShownRodanHintRef.current && activeWords.length > 0 && battleStatus === 'PLAYING') {
+      hasShownRodanHintRef.current = true;
+      triggerPartnerNotice('라돈의 초음속 비행! 첫 번째 단어 힌트 발동!', '🦅');
+    }
+  }, [equippedPartnerId, activeWords, battleStatus, stageIndex, triggerPartnerNotice]);
 
   const resetBattle = useCallback(() => {
     if (attackTimerRef.current !== null) {
@@ -677,6 +827,8 @@ export function App() {
     setBattleStatus('PLAYING');
     setIsShootingBeam(false);
     setIsCriticalHit(false);
+    setActiveRoarPower(null);
+    setIsScreenShaking(false);
     setIsVoiceModalOpen(false);
     setTargetWord(null);
     setComboWord(null);
@@ -684,15 +836,16 @@ export function App() {
     setClearedIds([]);
     attackedIdsRef.current.clear();
     setGodzillaHp(100);
+    setBonusBossDamage(0);
   }, []);
 
   useEffect(() => () => {
     if (attackTimerRef.current !== null) window.clearTimeout(attackTimerRef.current);
   }, []);
 
-  // 킹 기도라 HP: 활성 단어 진행률에 1:1 비례
+  // 킹 기도라 HP: 활성 단어 진행률에 1:1 비례 및 파트너 추가 데미지 반영
   const ghidorahHp = activeWords.length > 0
-    ? Math.max(0, Math.round(((activeWords.length - clearedIds.length) / activeWords.length) * 100))
+    ? Math.max(0, Math.round(((activeWords.length - clearedIds.length) / activeWords.length) * 100) - bonusBossDamage)
     : 0;
 
   // 오답 데미지
@@ -704,7 +857,8 @@ export function App() {
   const handleSaveWords = useCallback((newWords: WordItem[]) => {
     const normalized = normalizeWords(newWords);
     if (normalized.length === 0) return;
-    setWords(normalized);
+    const { healedWords } = auditAndHealWords(normalized, DEFAULT_WORDS);
+    setWords(healedWords);
     setStageIndex(0);
     setCycleCount(1);
     setIsInfiniteMode(false);
@@ -716,7 +870,7 @@ export function App() {
     setGodzillaHp(100);
     setBattleSessionId((prev) => prev + 1);
     try {
-      localStorage.setItem(STORAGE_KEY_WORDS, JSON.stringify(normalized));
+      localStorage.setItem(STORAGE_KEY_WORDS, JSON.stringify(healedWords));
       localStorage.setItem(STORAGE_KEY_WORDS_VERSION, STORAGE_VERSION);
       localStorage.setItem(STORAGE_KEY_CYCLE_COUNT, '1');
       localStorage.setItem(STORAGE_KEY_INFINITE_MODE, 'false');
@@ -749,6 +903,9 @@ export function App() {
         STORAGE_KEY_STAGE_INDEX,
         STORAGE_KEY_WRONG_WORDS,
         STORAGE_KEY_CODEX_REWARD,
+        STORAGE_KEY_EQUIPPED_PARTNER,
+        STORAGE_KEY_DUAL_QUEST,
+        STORAGE_KEY_MATH_STAGE,
         'godzilla_unlocked_monsters',
         'godzilla_earned_coupons',
         'godzilla_attendance_records',
@@ -770,6 +927,7 @@ export function App() {
       localStorage.setItem(STORAGE_KEY_CYCLE_COUNT, '1');
       localStorage.setItem(STORAGE_KEY_INFINITE_MODE, 'false');
       localStorage.setItem(STORAGE_KEY_STAGE_INDEX, '0');
+      localStorage.setItem(STORAGE_KEY_MATH_STAGE, '0');
       localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify({ level: 1, exp: 0, streak: 0 }));
       localStorage.setItem(STORAGE_KEY_WRONG_WORDS, JSON.stringify([]));
       localStorage.setItem('godzilla_unlocked_monsters', JSON.stringify({}));
@@ -794,6 +952,8 @@ export function App() {
         cycleCount: 1,
         isInfiniteMode: false,
         stageIndex: 0,
+        mathStageIndex: 0,
+        equippedPartnerId: null,
       });
     } catch (e) {
       console.error('Failed to reset Firestore user document:', e);
@@ -804,6 +964,7 @@ export function App() {
     setEggCount(0);
     setTreasureBoxCount(1);
     setUnlockedMonsters({});
+    setEquippedPartnerId(null);
     setWrongWordList([]);
     setRecords([]);
     setHasClaimedWeeklyReward(false);
@@ -821,7 +982,7 @@ export function App() {
   // 8. 실제 공격 실행 (일반 공격 또는 음성 포효 크리티컬 공격)
   // ─────────────────────────────────────────────
   const executeAttack = useCallback(
-    (matchedId: string | number, isCritical: boolean) => {
+    (matchedId: string | number, isCritical: boolean, roarPower?: RoarPowerResult | null) => {
       if (battleStatusRef.current !== 'PLAYING' || !activeWords.some((word) => word.id === matchedId) || attackedIdsRef.current.has(matchedId)) return;
       attackedIdsRef.current.add(matchedId);
       const isFinalHit = attackedIdsRef.current.size === activeWords.length;
@@ -832,17 +993,28 @@ export function App() {
       // 일반 공격: 기본 25 EXP (피버 50 EXP)
       // 음성 포효 크리티컬 공격: 기본 60 EXP (피버 85 EXP)
       setIsCriticalHit(isCritical);
+      setActiveRoarPower(roarPower || null);
       setIsShootingBeam(true);
+
+      // 슈퍼 포효 레벨 3 (PERFECT ATOMIC ROAR) 시 0.4초간 화면 진동 발동
+      if (roarPower?.level === 'PERFECT') {
+        setIsScreenShaking(true);
+        window.setTimeout(() => {
+          setIsScreenShaking(false);
+        }, 400);
+      }
+
       if (attackTimerRef.current !== null) window.clearTimeout(attackTimerRef.current);
       attackTimerRef.current = window.setTimeout(() => {
         attackTimerRef.current = null;
         setIsShootingBeam(false);
         setIsCriticalHit(false);
+        setActiveRoarPower(null);
         if (isFinalHit && battleStatusRef.current === 'FINISHING') {
           battleStatusRef.current = 'CLEARED';
           setBattleStatus('CLEARED');
         }
-      }, isCritical ? 1500 : 1200);
+      }, isCritical ? 1700 : 1200);
 
       setClearedIds((prev) => (prev.includes(matchedId) ? prev : [...prev, matchedId]));
 
@@ -860,9 +1032,36 @@ export function App() {
         });
       }
 
+      // 1) 치비 고질라 패시브: [아기 고질라의 응원] - 매칭 성공 시 HP +5% 회복
+      if (equippedPartnerId === 'chibi-godzilla') {
+        setGodzillaHp((prev) => Math.min(100, prev + 5));
+        triggerPartnerNotice('치비 고질라의 응원! HP +5% 회복!', '🫧');
+      }
+
+      // 2) 킹기도라 패시브: [전격 파워] - 3단어 매칭 성공 시 보스 추가 데미지 (+5%)
+      if (equippedPartnerId === 'king-ghidorah' && attackedIdsRef.current.size === 3) {
+        setBonusBossDamage((prev) => prev + 5);
+        triggerPartnerNotice('킹기도라의 전격 파워! 보스 추가 데미지 5%!', '⚡');
+      }
+
+      let triggeredEvilGodzilla = false;
+
       setGameState((prev) => {
-        const isFeverHit = prev.streak >= 2;
-        const expReward = isCritical ? (isFeverHit ? 85 : 60) : isFeverHit ? 50 : 25;
+        // 3) 기본 고질라 패시브: [원조의 위엄] - 2연속부터 즉시 FEVER 돌입
+        const isFeverHit = equippedPartnerId === 'classic-godzilla' ? prev.streak >= 1 : prev.streak >= 2;
+
+        // 3-1) 이블 고질라 패시브: [악령의 일격] - 피버 모드 시 보스 추가 데미지 (+10%)
+        if (equippedPartnerId === 'evil-godzilla' && isFeverHit) {
+          triggeredEvilGodzilla = true;
+        }
+
+        let expReward = isCritical ? (isFeverHit ? 85 : 60) : isFeverHit ? 50 : 25;
+
+        // 4) 고질라 -1.0 패시브: [압축 폭발] - 매칭 시 기본 EXP +10 추가
+        if (equippedPartnerId === 'godzilla-minusone') {
+          expReward += 10;
+        }
+
         const totalExp = prev.exp + expReward;
         const levelGain = Math.floor(totalExp / 100);
         return {
@@ -872,8 +1071,18 @@ export function App() {
           streak: prev.streak + 1,
         };
       });
+
+      // 이블 고질라 보스 추가 데미지 및 토스트 알림 연출
+      if (triggeredEvilGodzilla) {
+        setBonusBossDamage((prev) => prev + 10);
+        triggerPartnerNotice('🔥 이블 고질라: 악령의 일격 발동! 보스 추가 데미지 +10%!', '😈');
+      }
+
+      if (equippedPartnerId === 'godzilla-minusone') {
+        triggerPartnerNotice('고질라 -1.0 압축 폭발! 보너스 EXP +10!', '💥');
+      }
     },
-    [activeWords, isReviewMode]
+    [activeWords, isReviewMode, equippedPartnerId, triggerPartnerNotice]
   );
 
   const handleComboComplete = useCallback(() => {
@@ -881,7 +1090,7 @@ export function App() {
     pendingAttackRef.current = null;
     setComboWord(null);
     setTargetWord(null);
-    if (pending) executeAttack(pending.id, pending.isCritical);
+    if (pending) executeAttack(pending.id, pending.isCritical, pending.roarPower);
   }, [executeAttack]);
 
   // ─────────────────────────────────────────────
@@ -923,15 +1132,28 @@ export function App() {
   );
 
   // ─────────────────────────────────────────────
-  // 9. 오답 핸들러 (오답노트 자동 수집)
+  // 9. 오답 핸들러 (오답노트 자동 수집 & 파트너 패시브 발동)
   // ─────────────────────────────────────────────
   const handleMatchFail = useCallback((failedIds?: (string | number)[]) => {
     if (battleStatusRef.current !== 'PLAYING') return;
     setIsGhidorahAttacking(true);
     setTimeout(() => setIsGhidorahAttacking(false), 1200);
 
-    setGodzillaHp((prev) => Math.max(0, prev - damagePerHit));
-    setGameState((prev) => ({ ...prev, streak: 0 }));
+    // 1) 모스라 패시브: [수호의 날개] - 한 판당 오답 1회 무료 방어 (하트 차감 1회 무효)
+    if (equippedPartnerId === 'mothra' && !hasUsedPartnerShieldRef.current) {
+      hasUsedPartnerShieldRef.current = true;
+      triggerPartnerNotice('모스라의 수호의 날개! (오답 1회 무료 방어)', '🛡️');
+      // 체력 차감 무효화
+    } else if (equippedPartnerId === 'anguirus') {
+      // 2) 안기라스 패시브: [단단한 갑옷] - 오답 시 데미지 50% 경감
+      const reducedDamage = Math.max(1, Math.round(damagePerHit * 0.5));
+      setGodzillaHp((prev) => Math.max(0, prev - reducedDamage));
+      setGameState((prev) => ({ ...prev, streak: 0 }));
+      triggerPartnerNotice('안기라스의 단단한 갑옷! 데미지 50% 경감!', '🛡️');
+    } else {
+      setGodzillaHp((prev) => Math.max(0, prev - damagePerHit));
+      setGameState((prev) => ({ ...prev, streak: 0 }));
+    }
 
     if (failedIds && failedIds.length > 0) {
       const currentList = isReviewMode ? reviewWords : stageWords;
@@ -954,7 +1176,7 @@ export function App() {
         });
       }
     }
-  }, [damagePerHit, isReviewMode, reviewWords, stageWords]);
+  }, [damagePerHit, isReviewMode, reviewWords, stageWords, equippedPartnerId, triggerPartnerNotice]);
 
   // ─────────────────────────────────────────────
   // 10. 게임 리셋 / 스테이지 진행
@@ -1014,6 +1236,147 @@ export function App() {
     }
   }, [isInfiniteMode, cycleCount, currentStageNum, totalStages, resetBattle]);
 
+  // 5스테이지마다 (5, 10, 15, 20, 25, 30, 34 스테이지) 보스 특화 미니게임 모드 활성화 여부
+  const isBossStage = useMemo(() => {
+    if (isReviewMode) return false;
+    return currentStageNum % 5 === 0 || currentStageNum === 34;
+  }, [isReviewMode, currentStageNum]);
+
+  // 보스 미니게임 및 배틀 중 발생한 오답 단어 수집 핸들러
+  const handleCollectWrongWord = useCallback((wrongItem: WordItem) => {
+    if (!wrongItem || !wrongItem.id) return;
+    setWrongWordList((prev) => {
+      if (prev.some((w) => w.id === wrongItem.id)) return prev;
+      const updated = dedupeWordsById([...prev, wrongItem]);
+      try {
+        localStorage.setItem(STORAGE_KEY_WRONG_WORDS, JSON.stringify(updated));
+      } catch (e) {
+        console.error('Failed to save wrong words from boss minigame:', e);
+      }
+      savePlayerDataToFirestore({ wrongWordList: updated });
+      return updated;
+    });
+  }, []);
+
+  // 보스 특화 미니게임(운석 요격) 클리어 핸들러
+  const handleBossMiniGameClear = useCallback(
+    (bonusExp: number, bonusEggs: number = 1) => {
+      // 1. 일일 듀얼 퀘스트 언어 배틀 완료 기록
+      setDailyDualQuest((prev) => {
+        if (prev.languageDone) return prev;
+        const updated = { ...prev, languageDone: true };
+        try {
+          localStorage.setItem(STORAGE_KEY_DUAL_QUEST, JSON.stringify(updated));
+        } catch {}
+        savePlayerDataToFirestore({ dailyDualQuest: updated });
+        return updated;
+      });
+
+      // 2. 파트너 패시브 버프 적용 (메카고질라: EXP +20%, 버닝고질라: 알 +1개)
+      const isMecha = equippedPartnerId === 'mechagodzilla';
+      const isBurning = equippedPartnerId === 'burning-godzilla';
+      const finalExp = isMecha ? Math.max(bonusExp, Math.round(75 * 1.2)) : bonusExp;
+      const finalEggs = isBurning ? Math.max(bonusEggs, 2) : bonusEggs;
+
+      // 3. 보너스 EXP 지급
+      setGameState((prev) => {
+        const totalExp = prev.exp + finalExp;
+        const levelGain = Math.floor(totalExp / 100);
+        const nextState = {
+          ...prev,
+          level: prev.level + levelGain,
+          exp: totalExp % 100,
+        };
+        try {
+          localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(nextState));
+        } catch {}
+        savePlayerDataToFirestore({ gameState: nextState });
+        return nextState;
+      });
+
+      // 4. 신비한 괴수 알 확정 지급 (황금 보물상자 대신 도감 부화용 알 지급)
+      setEggCount((prev) => {
+        const next = prev + finalEggs;
+        try {
+          localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(next));
+        } catch {}
+        savePlayerDataToFirestore({ eggCount: next });
+        return next;
+      });
+
+      // 5. 파트너 알림
+      let noticeMsg = `보스 완전 격파! EXP +${finalExp}, 🥚 괴수 알 +${finalEggs}개 획득!`;
+      if (isMecha && isBurning) {
+        noticeMsg += ' (메카고질라 & 버닝고질라 보너스 적용!)';
+      } else if (isMecha) {
+        noticeMsg += ' (메카고질라 EXP +20% 보너스!)';
+      } else if (isBurning) {
+        noticeMsg += ' (버닝고질라 알 +1개 보너스!)';
+      }
+      triggerPartnerNotice(noticeMsg, '👑');
+
+      // 6. 다음 스테이지로 진행
+      handleNextStage();
+    },
+    [handleNextStage, triggerPartnerNotice, equippedPartnerId]
+  );
+
+  // 산수 특화 미니게임(운석 요격) 클리어 핸들러
+  const handleMathStageClear = useCallback(
+    (bonusExp: number) => {
+      // 1. 파트너 패시브 버프 적용 (메카고질라: EXP +20% 반영된 bonusExp 수령)
+      const isMecha = equippedPartnerId === 'mechagodzilla';
+      const finalExp = bonusExp;
+
+      // 2. 보너스 EXP 지급
+      setGameState((prev) => {
+        const totalExp = prev.exp + finalExp;
+        const levelGain = Math.floor(totalExp / 100);
+        const nextState = {
+          ...prev,
+          level: prev.level + levelGain,
+          exp: totalExp % 100,
+        };
+        try {
+          localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(nextState));
+        } catch {}
+        savePlayerDataToFirestore({ gameState: nextState });
+        return nextState;
+      });
+
+      // 3. 일일 듀얼 퀘스트 산수 완료 기록
+      setDailyDualQuest((prev) => {
+        if (prev.mathDone) return prev;
+        const updated = { ...prev, mathDone: true };
+        try {
+          localStorage.setItem(STORAGE_KEY_DUAL_QUEST, JSON.stringify(updated));
+        } catch {}
+        savePlayerDataToFirestore({ dailyDualQuest: updated });
+        return updated;
+      });
+
+      // 4. 파트너 알림
+      let noticeMsg = `산수 요격 완벽 성공! EXP +${finalExp} 획득!`;
+      if (isMecha) {
+        noticeMsg += ' (메카고질라 EXP +20% 보너스!)';
+      }
+      triggerPartnerNotice(noticeMsg, '⚡');
+    },
+    [triggerPartnerNotice, equippedPartnerId]
+  );
+
+  const handleNextMathStage = useCallback(() => {
+    setMathStageIndex((prev) => {
+      const next = prev + 1;
+      try {
+        localStorage.setItem(STORAGE_KEY_MATH_STAGE, String(next));
+      } catch {}
+      savePlayerDataToFirestore({ mathStageIndex: next });
+      return next;
+    });
+    setMathSessionId((prev) => prev + 1);
+  }, []);
+
   // ─────────────────────────────────────────────
   // 11. 오답 복습 레이드 배틀 핸들러
   // ─────────────────────────────────────────────
@@ -1028,6 +1391,7 @@ export function App() {
     }
     setReviewWords(shuffled);
     setIsReviewMode(true);
+    setActiveMode('language');
     resetBattle();
     setGameState((prev) => ({ ...prev, streak: 0 }));
     setHasClaimedReviewRaidReward(false);
@@ -1121,38 +1485,96 @@ export function App() {
     }
   }, [isAllCleared, isGameOver]);
 
-  // 12-1. 일반 배틀 스테이지 클리어(승리) 시 🥚 괴수 알 +1 즉시 자동 지급 & Firestore 영구 동기화
+  // 12-1. 일반 배틀 스테이지 클리어(승리) 시 메카고질라 EXP 보너스 판정 (알 지급은 일일 듀얼 훈련/보스/오답 레이드로 일원화)
   useEffect(() => {
     if (!isReviewMode && isStageClearReady && !isGameOver && !hasAwardedStageEgg) {
       setHasAwardedStageEgg(true);
 
-      setEggCount((prev) => {
-        const next = prev + 1;
-        try {
-          localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(next));
-        } catch (e) {
-          console.error('Failed to save eggCount:', e);
-        }
-        savePlayerDataToFirestore({ eggCount: next });
-        return next;
-      });
-    }
-  }, [isReviewMode, isStageClearReady, isGameOver, hasAwardedStageEgg]);
-
-  // 12-2. 스테이지 클리어(승리) 시 오늘의 출석 체크 자동 처리 & 스탬프 모달 연동
-  useEffect(() => {
-    if (isStageClearReady && !isGameOver) {
-      const result = checkTodayAttendance();
-      if (result.isNewlyAttended) {
-        setIsNewlyAttendedToday(true);
-
-        const timer = setTimeout(() => {
-          setIsAttendanceModalOpen(true);
-        }, 650);
-        return () => clearTimeout(timer);
+      // 메카고질라 패시브: [에너지 증폭] - 스테이지 클리어 시 획득 EXP +20% 보너스
+      if (equippedPartnerId === 'mechagodzilla') {
+        setGameState((prev) => {
+          const bonusExp = 30;
+          const totalExp = prev.exp + bonusExp;
+          const levelGain = Math.floor(totalExp / 100);
+          return {
+            ...prev,
+            level: prev.level + levelGain,
+            exp: totalExp % 100,
+          };
+        });
+        triggerPartnerNotice('메카고질라 에너지 증폭! 클리어 보너스 EXP +20%!', '⚡');
       }
     }
-  }, [isStageClearReady, isGameOver, checkTodayAttendance]);
+  }, [isReviewMode, isStageClearReady, isGameOver, hasAwardedStageEgg, equippedPartnerId, triggerPartnerNotice]);
+
+  // 12-2. 일반 배틀 스테이지 클리어 시 일일 듀얼 퀘스트 언어 배틀 완료 기록
+  useEffect(() => {
+    if (isStageClearReady && !isGameOver && !isReviewMode) {
+      setDailyDualQuest((prev) => {
+        if (prev.languageDone) return prev;
+        const updated = { ...prev, languageDone: true };
+        try {
+          localStorage.setItem(STORAGE_KEY_DUAL_QUEST, JSON.stringify(updated));
+        } catch {}
+        savePlayerDataToFirestore({ dailyDualQuest: updated });
+        return updated;
+      });
+    }
+  }, [isStageClearReady, isGameOver, isReviewMode]);
+
+  // 12-2b. 일일 듀얼 퀘스트(언어 + 산수) 2/2 완주 시 오늘의 출석 도장 쾅! & 괴수 알 확정 지급!
+  useEffect(() => {
+    if (dailyDualQuest.languageDone && dailyDualQuest.mathDone) {
+      if (!isTodayAttended) {
+        const attendanceResult = checkTodayAttendance();
+        if (attendanceResult.isNewlyAttended) {
+          setIsNewlyAttendedToday(true);
+
+          // 버닝 고질라 패시브 (알 +1개 추가 버프, 총 2개)
+          const isBurning = equippedPartnerId === 'burning-godzilla';
+          const eggBonus = isBurning ? 2 : 1;
+
+          setEggCount((prev) => {
+            const next = prev + eggBonus;
+            try {
+              localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(next));
+            } catch {}
+            savePlayerDataToFirestore({ eggCount: next });
+            return next;
+          });
+
+          playVictoryFanfare();
+          confetti({
+            particleCount: 150,
+            spread: 120,
+            origin: { y: 0.4 },
+            colors: ['#38bdf8', '#f59e0b', '#10b981', '#ef4444', '#a855f7'],
+          });
+
+          if (isBurning) {
+            triggerPartnerNotice('🔥 버닝 고질라: 보너스 알 획득! (총 2개 지급)', '🔥');
+          } else {
+            triggerPartnerNotice(
+              `🏆 일일 듀얼 훈련(언어+산수) 완주! 출석 도장 쾅! 🐾 🥚 알 +${eggBonus}개 획득!`,
+              '🎉'
+            );
+          }
+
+          const timer = window.setTimeout(() => {
+            setIsAttendanceModalOpen(true);
+          }, 800);
+          return () => window.clearTimeout(timer);
+        }
+      }
+    }
+  }, [
+    dailyDualQuest.languageDone,
+    dailyDualQuest.mathDone,
+    isTodayAttended,
+    checkTodayAttendance,
+    equippedPartnerId,
+    triggerPartnerNotice,
+  ]);
 
   // 12-3. 오답 복습 레이드 보스 격파 승리 시 괴수 알 +1 및 100 EXP 보상 지급 & Firestore 동기화
   useEffect(() => {
@@ -1219,17 +1641,29 @@ export function App() {
     const updatedMonsters = deductOneEachForCodexExchange();
     setUnlockedMonsters(updatedMonsters);
 
+    // 2-1. 장착 중인 파트너 괴수의 보유 수량이 0이 되었다면 안전하게 장착 자동 해제
+    let nextPartnerId = equippedPartnerId;
+    if (equippedPartnerId) {
+      const partnerRecord = updatedMonsters[equippedPartnerId];
+      if (!partnerRecord || (partnerRecord.count || 0) <= 0) {
+        nextPartnerId = null;
+        setEquippedPartnerId(null);
+        setStoredEquippedPartner(null);
+      }
+    }
+
     // 3. 교환 완료 플래그 초기화 (다음번에 또 10종을 모으면 즉시 재교환 가능한 순환 구조)
     setHasClaimedCodexReward(false);
     try {
       localStorage.removeItem(STORAGE_KEY_CODEX_REWARD);
     } catch {}
 
-    // 4. Firestore 영구 저장 (보물상자 증가, 차감된 도감, 교환 플래그 초기화)
+    // 4. Firestore 영구 저장 (보물상자 증가, 차감된 도감, 교환 플래그 초기화, 파트너 상태)
     savePlayerDataToFirestore({
       treasureBoxCount: nextBoxCount,
       unlockedMonsters: updatedMonsters,
       hasClaimedCodexReward: false,
+      equippedPartnerId: nextPartnerId,
     });
 
     // 5. 축하 사운드 & 콘페티
@@ -1243,7 +1677,7 @@ export function App() {
 
     // 6. 축하 알림 팝업 오픈
     setIsCodexCelebrationOpen(true);
-  }, [treasureBoxCount]);
+  }, [treasureBoxCount, equippedPartnerId]);
 
   // 12-5. 2회독 무한 마스터 모드 시작 핸들러
   const handleStartNextCycle = useCallback(() => {
@@ -1340,7 +1774,9 @@ export function App() {
   // ─────────────────────────────────────────────
   // 스테이지 레이블 (승리 화면 & HUD에 표시)
   // ─────────────────────────────────────────────
-  const stageLabel = isReviewMode
+  const stageLabel = activeMode === 'math'
+    ? `산수 요격 STAGE ${mathStageNum}/${TOTAL_MATH_STAGES}`
+    : isReviewMode
     ? `오답 괴수 레이드 (${currentRaidBoss.name})`
     : isInfiniteMode
     ? `👑 마스터 배틀 (${cycleCount}회독)`
@@ -1416,85 +1852,132 @@ export function App() {
           setGoldenChestSource('attendance');
           setIsGoldenChestOpen(true);
         }}
+        equippedPartnerId={equippedPartnerId}
+        activeMode={activeMode}
+        onSelectMode={setActiveMode}
+        dailyDualQuest={dailyDualQuest}
       />
 
-      {/* 2. 메인 게임 영역 (가로 모드에서는 좌우 2단 분할, 세로 모드에서는 상하 배치) */}
+      {/* 2. 메인 게임 영역 (일반 배틀: 2단 분할 / 보스 미니게임 / 산수 요격: 단일 전체화면 확장) */}
       <main
         className="flex-1 min-h-0 w-full max-w-5xl lg:max-w-6xl mx-auto px-1.5 sm:px-3 md:px-4 flex flex-col landscape-short:flex-row landscape-short:items-stretch overflow-hidden gap-1 sm:gap-1.5 md:gap-2"
       >
-        {/* 배틀 스테이지 (세로 모드: 상단, 가로 단축 모드: 좌측 42%) */}
-        <div className="w-full landscape-short:w-[42%] flex-none landscape-short:flex-1 min-h-0 flex flex-col justify-center">
-          <GodzillaStage
-            level={gameState.level}
-            isShootingBeam={isShootingBeam}
-            isGhidorahAttacking={isGhidorahAttacking}
-            godzillaHp={godzillaHp}
-            ghidorahHp={ghidorahHp}
-            combo={gameState.streak}
-            isAllCleared={isAllCleared}
-            isStageClearReady={isStageClearReady}
-            isGameOver={isGameOver}
-            onResetGame={
-              !isReviewMode && !isInfiniteMode && cycleCount === 1 && currentStageNum >= totalStages
-                ? () => setIsCycleCompletionModalOpen(true)
-                : isReviewMode
-                ? handleReviewComplete
-                : handleNextStage
-            }
-            onReviveGame={handleReviveGame}
-            clearedCount={clearedIds.length}
-            totalCount={activeWords.length}
-            isReviewMode={isReviewMode}
-            onExitReviewMode={handleExitReviewMode}
-            stageRangeLabel={stageRangeLabel}
-            currentStageNum={currentStageNum}
-            totalStages={totalStages}
-            onOpenGacha={handleOpenGacha}
-            hasClaimedStageReward={hasClaimedStageReward}
-            isCriticalHit={isCriticalHit}
-            raidBoss={currentRaidBoss}
-            isInfiniteMode={isInfiniteMode}
-            cycleCount={cycleCount}
-          />
-        </div>
-
-        {/* 3개 국어 카드 보드 (세로 모드: 하단, 가로 단축 모드: 우측 58%) */}
-        <div
-          className="flex-1 min-h-0 w-full landscape-short:w-[58%] flex flex-col overflow-hidden"
-          style={{
-            pointerEvents: (isGameOver || battleStatus !== 'PLAYING' || isFinishingStage || isStageClearReady || isVoiceModalOpen || !!comboWord) ? 'none' : 'auto',
-          }}
-        >
-          {activeWords && activeWords.length > 0 ? (
-            <TriMatchingBoard
-              key={
-                isReviewMode
-                  ? `review-${reviewWords.map((w) => w?.id || '').join('-')}-${battleSessionId}`
-                  : `stage-${stageIndex}-${stageWords.map((w) => w?.id || '').join('-')}-${battleSessionId}`
-              }
-              words={activeWords}
-              clearedIds={clearedIds}
-              onMatchSuccess={handleMatchComplete}
-              onMatchFail={handleMatchFail}
-              stageLabel={stageLabel}
-              stageRangeLabel={stageRangeLabel}
+        {activeMode === 'math' ? (
+          /* 산수 특화 운석 요격 디펜스 스테이지 (단일 풀스크린 와이드 아레나) */
+          <div className="w-full h-full flex-1 min-h-0 flex flex-col overflow-hidden py-0.5 sm:py-1">
+            <MathDefenseStage
+              key={`math-stage-${mathStageNum}-${mathSessionId}`}
+              stageNum={mathStageNum}
+              equippedPartnerId={equippedPartnerId}
+              onClear={handleMathStageClear}
+              onPartnerNotice={triggerPartnerNotice}
+              onGoToLanguage={() => setActiveMode('language')}
+              isLanguageDoneToday={dailyDualQuest.languageDone}
+              onNextMathStage={handleNextMathStage}
             />
-          ) : (
-            // 단어 데이터 준비 중이거나 빈 상태일 때의 안전 폴백 UI (절대 return null이나 빈 화면 방지)
-            <div className="w-full flex-1 flex flex-col items-center justify-center p-6 text-center rounded-2xl bg-slate-900 border border-slate-800 shadow-xl">
-              <div className="w-16 h-16 rounded-2xl bg-cyan-950/80 border border-cyan-500/40 flex items-center justify-center text-3xl mb-3 shadow-inner animate-pulse">
-                🦖⚡
-              </div>
-              <h3 className="text-lg sm:text-xl font-black text-cyan-300 mb-1">
-                배틀 스테이지 준비 중...
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-400 max-w-sm leading-relaxed mb-4">
-                단어 데이터를 불러오고 있습니다. 잠시만 기다려 주세요!
-              </p>
-              <div className="w-7 h-7 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : isBossStage ? (
+          /* 보스 특화 미니게임일 때: 배틀 영역 전체를 단일 풀스크린 와이드 아레나로 시원하게 100% 확장! */
+          <div className="w-full h-full flex-1 min-h-0 flex flex-col overflow-hidden py-0.5 sm:py-1">
+            <BossMiniGame
+              key={`boss-stage-${currentStageNum}-${battleSessionId}`}
+              stageNum={currentStageNum}
+              stageWords={activeWords}
+              allWords={safeWords}
+              level={gameState.level}
+              equippedPartnerId={equippedPartnerId}
+              onClear={handleBossMiniGameClear}
+              onWrongWord={handleCollectWrongWord}
+              onPartnerNotice={triggerPartnerNotice}
+              onGoToMath={() => setActiveMode('math')}
+              isMathDoneToday={dailyDualQuest.mathDone}
+            />
+          </div>
+        ) : (
+          <>
+            {/* 배틀 스테이지 (세로 모드: 상단, 가로 단축 모드: 좌측 42%) */}
+            <div className="w-full landscape-short:w-[42%] flex-none landscape-short:flex-1 min-h-0 flex flex-col justify-center">
+              <GodzillaStage
+                level={gameState.level}
+                isShootingBeam={isShootingBeam}
+                isGhidorahAttacking={isGhidorahAttacking}
+                godzillaHp={godzillaHp}
+                ghidorahHp={ghidorahHp}
+                combo={gameState.streak}
+                isAllCleared={isAllCleared}
+                isStageClearReady={isStageClearReady}
+                isGameOver={isGameOver}
+                onResetGame={
+                  !isReviewMode && !isInfiniteMode && cycleCount === 1 && currentStageNum >= totalStages
+                    ? () => setIsCycleCompletionModalOpen(true)
+                    : isReviewMode
+                    ? handleReviewComplete
+                    : handleNextStage
+                }
+                onReviveGame={handleReviveGame}
+                clearedCount={clearedIds.length}
+                totalCount={activeWords.length}
+                isReviewMode={isReviewMode}
+                onExitReviewMode={handleExitReviewMode}
+                stageRangeLabel={stageRangeLabel}
+                currentStageNum={currentStageNum}
+                totalStages={totalStages}
+                onOpenGacha={handleOpenGacha}
+                hasClaimedStageReward={hasClaimedStageReward}
+                isCriticalHit={isCriticalHit}
+                raidBoss={currentRaidBoss}
+                isInfiniteMode={isInfiniteMode}
+                cycleCount={cycleCount}
+                equippedPartnerId={equippedPartnerId}
+                partnerSkillNotification={partnerSkillNotice}
+                roarPower={activeRoarPower}
+                isScreenShaking={isScreenShaking}
+                onGoToMath={() => setActiveMode('math')}
+                isMathDoneToday={dailyDualQuest.mathDone}
+              />
             </div>
-          )}
-        </div>
+
+            {/* 3개 국어 카드 보드 (세로 모드: 하단, 가로 단축 모드: 우측 58%) */}
+            <div
+              className="flex-1 min-h-0 w-full landscape-short:w-[58%] flex flex-col overflow-hidden"
+              style={{
+                pointerEvents: (isGameOver || battleStatus !== 'PLAYING' || isFinishingStage || isStageClearReady || isVoiceModalOpen || !!comboWord) ? 'none' : 'auto',
+              }}
+            >
+              {activeWords && activeWords.length > 0 ? (
+                <TriMatchingBoard
+                  key={
+                    isReviewMode
+                      ? `review-${reviewWords.map((w) => w?.id || '').join('-')}-${battleSessionId}`
+                      : `stage-${stageIndex}-${stageWords.map((w) => w?.id || '').join('-')}-${battleSessionId}`
+                  }
+                  words={activeWords}
+                  clearedIds={clearedIds}
+                  onMatchSuccess={handleMatchComplete}
+                  onMatchFail={handleMatchFail}
+                  stageLabel={stageLabel}
+                  stageRangeLabel={stageRangeLabel}
+                  hintWordId={equippedPartnerId === 'rodan' ? activeWords.find((w) => !clearedIds.includes(w.id))?.id : null}
+                  isScreenShaking={isScreenShaking}
+                />
+              ) : (
+                // 단어 데이터 준비 중이거나 빈 상태일 때의 안전 폴백 UI (절대 return null이나 빈 화면 방지)
+                <div className="w-full flex-1 flex flex-col items-center justify-center p-6 text-center rounded-2xl bg-slate-900 border border-slate-800 shadow-xl">
+                  <div className="w-16 h-16 rounded-2xl bg-cyan-950/80 border border-cyan-500/40 flex items-center justify-center text-3xl mb-3 shadow-inner animate-pulse">
+                    🦖⚡
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-black text-cyan-300 mb-1">
+                    배틀 스테이지 준비 중...
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-400 max-w-sm leading-relaxed mb-4">
+                    단어 데이터를 불러오고 있습니다. 잠시만 기다려 주세요!
+                  </p>
+                  <div className="w-7 h-7 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </main>
 
       {/* 3. 하단 푸터 (가로 단축 모드에서는 공간 확보를 위해 숨김) */}
@@ -1736,6 +2219,8 @@ export function App() {
         unlockedRecords={unlockedMonsters}
         hasClaimedCodexReward={hasClaimedCodexReward}
         onClaimCodexReward={handleClaimCodexReward}
+        equippedPartnerId={equippedPartnerId}
+        onEquipPartner={handleEquipPartner}
         onOpenCodexChest={() => {
           setIsMonsterBookOpen(false);
           setGoldenChestSource('codex');
@@ -1886,16 +2371,19 @@ export function App() {
             setIsVoiceModalOpen(false);
             if (targetWord) setComboWord(targetWord);
           }}
-          onAttackSuccess={() => {
+          onAttackSuccess={(roarPower) => {
             // 포효 성공 후 회화 듣기까지 마치면 크리티컬 열선을 발사한다.
             if (!pendingAttackRef.current || !targetWord) return;
             pendingAttackRef.current.isCritical = true;
+            pendingAttackRef.current.roarPower = roarPower || null;
             setIsVoiceModalOpen(false);
             setComboWord(targetWord);
           }}
           onSkip={() => {
             // 포효를 건너뛰어도 회화 듣기는 진행한다.
             if (!pendingAttackRef.current || !targetWord) return;
+            pendingAttackRef.current.isCritical = false;
+            pendingAttackRef.current.roarPower = null;
             setIsVoiceModalOpen(false);
             setComboWord(targetWord);
           }}

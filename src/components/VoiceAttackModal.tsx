@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import confetti from 'canvas-confetti';
 import { Mic, MicOff, Volume2, Zap, RotateCcw, Sparkles, CheckCircle2 } from 'lucide-react';
-import type { WordItem } from '../types';
+import type { WordItem, RoarPowerResult } from '../types';
 import { useVoiceRecognition, normalizeText } from '../hooks/useVoiceRecognition';
 import type { VoiceLang } from '../hooks/useVoiceRecognition';
 import { useSpeech } from '../hooks/useSpeech';
-import { playCriticalRoarSound, playDingDongSuccess } from '../utils/soundEffects';
+import { playCriticalRoarSound, playPerfectAtomicRoarSound, playDingDongSuccess } from '../utils/soundEffects';
+import { useVoiceVolume, calculateRoarPower } from '../hooks/useVoiceAttack';
 
 interface VoiceAttackModalProps {
   isOpen: boolean;
   word: WordItem | null;
-  onAttack?: (isCritical: boolean) => void;
-  onAttackSuccess?: () => void;
+  onAttack?: (isCritical: boolean, roarPower?: RoarPowerResult) => void;
+  onAttackSuccess?: (roarPower?: RoarPowerResult) => void;
   onSkip?: () => void;
   onClose: () => void;
 }
@@ -110,6 +111,10 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
   const [justClearedLang, setJustClearedLang] = useState<LangKey | null>(null);
   const [showFlash, setShowFlash] = useState(false);
   const [secondsElapsed, setSecondsElapsed] = useState(0);
+
+  const { currentVolume, peakVolume, powerResult, resetPeakVolume, cleanupAudio } = useVoiceVolume({
+    enabled: isOpen && !isAllCleared,
+  });
 
   const timerRef = useRef<number | null>(null);
   const restartTimerRef = useRef<number | null>(null);
@@ -230,26 +235,34 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
         }
         stopListening();
 
-        playCriticalRoarSound();
+        const finalPower = calculateRoarPower(Math.max(peakVolume, currentVolume));
+
+        if (finalPower.level === 'PERFECT') {
+          playPerfectAtomicRoarSound();
+        } else {
+          playCriticalRoarSound();
+        }
+
         confetti({
-          particleCount: 110,
+          particleCount: finalPower.level === 'PERFECT' ? 140 : 100,
           spread: 90,
           origin: { y: 0.55 },
           colors: ['#ef4444', '#f59e0b', '#00f2ff', '#10b981', '#a855f7'],
         });
 
-        // 0.8초 후 크리티컬 공격 발사 및 모달 닫기
+        // 0.9초 후 크리티컬 공격 발사 및 모달 닫기
         attackTimerRef.current = window.setTimeout(() => {
           attackTimerRef.current = null;
           if (!isActiveRef.current) return;
           isActiveRef.current = false;
+          cleanupAudio();
           if (onAttackSuccess) {
-            onAttackSuccess();
+            onAttackSuccess(finalPower);
           } else if (onAttack) {
-            onAttack(true);
+            onAttack(true, finalPower);
           }
           onClose();
-        }, 800);
+        }, 900);
       } else {
         // 단일 언어 성공 -> 딩동 효과음 + 미니 컨페티
         playDingDongSuccess();
@@ -291,6 +304,7 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
       isActiveRef.current = true;
       hasFinishedRef.current = false;
       clearPendingTimers();
+      resetPeakVolume();
       setClearedLangs({ ko: false, en: false, ja: false });
       clearedLangsRef.current = { ko: false, en: false, ja: false };
       setIsAllCleared(false);
@@ -314,6 +328,7 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
     } else {
       isActiveRef.current = false;
       clearPendingTimers();
+      cleanupAudio();
       stopListening();
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -323,12 +338,13 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
     return () => {
       isActiveRef.current = false;
       clearPendingTimers();
+      cleanupAudio();
       stopListening();
       if (timerRef.current) {
         clearInterval(timerRef.current);
       }
     };
-  }, [isOpen, word, isSupported, startListening, stopListening, clearPendingTimers]);
+  }, [isOpen, word, isSupported, startListening, stopListening, clearPendingTimers, cleanupAudio, resetPeakVolume]);
 
   // 상단 탭 수동 선택
   const handleSelectLang = (lang: VoiceLang) => {
@@ -351,6 +367,7 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
     hasFinishedRef.current = true;
     isActiveRef.current = false;
     clearPendingTimers();
+    cleanupAudio();
     stopListening();
     playDingDongSuccess();
     if (onSkip) {
@@ -805,57 +822,259 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            margin: '4px 0 16px 0',
+            margin: '4px 0 12px 0',
             position: 'relative',
+            width: '100%',
           }}
         >
-          {/* 대형 마이크 버튼 */}
-          <button
-            type="button"
-            onClick={isListening ? stopListening : handleRetryMic}
-            disabled={isAllCleared || !isSupported}
+          {/* 마이크 버튼 & 사운드 파동 링 컨테이너 */}
+          <div
             style={{
-              width: '88px',
-              height: '88px',
-              borderRadius: '9999px',
-              backgroundColor: isAllCleared
-                ? '#10b981'
-                : isListening
-                ? '#ef4444'
-                : '#334155',
-              border: isAllCleared
-                ? '3px solid #6ee7b7'
-                : isListening
-                ? '3px solid #fca5a5'
-                : '2px solid #64748b',
-              boxShadow: isAllCleared
-                ? '0 0 40px #10b981'
-                : isListening
-                ? '0 0 30px rgba(239, 68, 68, 0.85), inset 0 0 15px rgba(255, 255, 255, 0.3)'
-                : '0 0 10px rgba(0,0,0,0.5)',
+              position: 'relative',
+              width: '110px',
+              height: '110px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              cursor: isAllCleared ? 'default' : 'pointer',
-              animation: isListening && !isAllCleared ? 'micPulse 1.2s infinite' : 'none',
-              transition: 'all 0.25s ease',
             }}
           >
-            {isAllCleared ? (
-              <Zap size={42} color="#ffffff" />
-            ) : isListening ? (
-              <Mic size={40} color="#ffffff" />
-            ) : (
-              <MicOff size={36} color="#94a3b8" />
+            {/* 실시간 사운드 파동(Pulse) 1차 펄스 링 */}
+            {isListening && !isAllCleared && (
+              <div
+                style={{
+                  position: 'absolute',
+                  width: '88px',
+                  height: '88px',
+                  borderRadius: '9999px',
+                  pointerEvents: 'none',
+                  border: `2.5px solid ${
+                    currentVolume >= 76 ? '#ef4444' : currentVolume >= 41 ? '#f59e0b' : '#38bdf8'
+                  }`,
+                  transform: `scale(${1 + (currentVolume / 100) * 0.45})`,
+                  opacity: Math.max(0.25, currentVolume / 100),
+                  transition: 'transform 0.08s ease-out, opacity 0.08s ease-out',
+                  boxShadow: `0 0 ${12 + currentVolume * 0.35}px ${
+                    currentVolume >= 76 ? '#ef4444' : currentVolume >= 41 ? '#f59e0b' : '#38bdf8'
+                  }`,
+                }}
+              />
             )}
-          </button>
+
+            {/* 실시간 사운드 파동(Pulse) 2차 외곽 파동 링 */}
+            {isListening && !isAllCleared && (
+              <div
+                style={{
+                  position: 'absolute',
+                  width: '88px',
+                  height: '88px',
+                  borderRadius: '9999px',
+                  pointerEvents: 'none',
+                  border: `1.5px dashed ${
+                    currentVolume >= 76 ? '#fca5a5' : currentVolume >= 41 ? '#fde047' : '#7dd3fc'
+                  }`,
+                  transform: `scale(${1 + (currentVolume / 100) * 0.75})`,
+                  opacity: Math.max(0, ((currentVolume - 15) / 85) * 0.8),
+                  transition: 'transform 0.1s ease-out, opacity 0.1s ease-out',
+                }}
+              />
+            )}
+
+            {/* 대형 마이크 버튼 */}
+            <button
+              type="button"
+              onClick={isListening ? stopListening : handleRetryMic}
+              disabled={isAllCleared || !isSupported}
+              style={{
+                width: '88px',
+                height: '88px',
+                borderRadius: '9999px',
+                backgroundColor: isAllCleared
+                  ? '#10b981'
+                  : isListening
+                  ? currentVolume >= 76
+                    ? '#dc2626'
+                    : currentVolume >= 41
+                    ? '#ea580c'
+                    : '#ef4444'
+                  : '#334155',
+                border: isAllCleared
+                  ? '3px solid #6ee7b7'
+                  : isListening
+                  ? currentVolume >= 76
+                    ? '3px solid #fca5a5'
+                    : '3px solid #fed7aa'
+                  : '2px solid #64748b',
+                boxShadow: isAllCleared
+                  ? '0 0 40px #10b981'
+                  : isListening
+                  ? `0 0 ${25 + currentVolume * 0.4}px ${
+                      currentVolume >= 76
+                        ? 'rgba(239, 68, 68, 0.95)'
+                        : currentVolume >= 41
+                        ? 'rgba(249, 115, 22, 0.9)'
+                        : 'rgba(239, 68, 68, 0.75)'
+                    }, inset 0 0 15px rgba(255, 255, 255, 0.3)`
+                  : '0 0 10px rgba(0,0,0,0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: isAllCleared ? 'default' : 'pointer',
+                animation: isListening && !isAllCleared ? 'micPulse 1.2s infinite' : 'none',
+                transition: 'all 0.15s ease',
+                zIndex: 2,
+              }}
+            >
+              {isAllCleared ? (
+                <Zap size={42} color="#ffffff" />
+              ) : isListening ? (
+                <Mic size={40} color="#ffffff" />
+              ) : (
+                <MicOff size={36} color="#94a3b8" />
+              )}
+            </button>
+          </div>
+
+          {/* 실시간 사운드 파동(Pulse) 게이지 & 파워 판정 미터 */}
+          {isListening && !isAllCleared && (
+            <div
+              style={{
+                width: '100%',
+                maxWidth: '360px',
+                margin: '8px 0 4px 0',
+                padding: '8px 12px',
+                borderRadius: '14px',
+                backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                border: `1.5px solid ${
+                  currentVolume >= 76
+                    ? 'rgba(239, 68, 68, 0.6)'
+                    : currentVolume >= 41
+                    ? 'rgba(245, 158, 11, 0.5)'
+                    : 'rgba(56, 189, 248, 0.3)'
+                }`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '5px',
+                boxShadow: currentVolume >= 76 ? '0 0 15px rgba(239, 68, 68, 0.4)' : 'none',
+                transition: 'border 0.2s ease, box-shadow 0.2s ease',
+              }}
+            >
+              {/* 게이지 상단: 볼륨 레벨 안내 문구 & 현재 판정 배지 */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    color: currentVolume >= 76 ? '#f87171' : currentVolume >= 41 ? '#fde047' : '#94a3b8',
+                  }}
+                >
+                  {currentVolume >= 76
+                    ? '🔥 대단해! 슈퍼 아토믹 포효 장전!'
+                    : currentVolume >= 41
+                    ? '⚡ 더 크게 외쳐봐! 고질라 파워 충전 중!'
+                    : '🎙️ 목소리를 들려줘! 마이크로 외쳐봐!'}
+                </span>
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 900,
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    backgroundColor:
+                      powerResult.level === 'PERFECT'
+                        ? 'rgba(239, 68, 68, 0.35)'
+                        : powerResult.level === 'GREAT'
+                        ? 'rgba(245, 158, 11, 0.3)'
+                        : 'rgba(56, 189, 248, 0.2)',
+                    color:
+                      powerResult.level === 'PERFECT'
+                        ? '#fca5a5'
+                        : powerResult.level === 'GREAT'
+                        ? '#fde047'
+                        : '#7dd3fc',
+                    border: `1px solid ${
+                      powerResult.level === 'PERFECT'
+                        ? '#ef4444'
+                        : powerResult.level === 'GREAT'
+                        ? '#f59e0b'
+                        : '#38bdf8'
+                    }`,
+                  }}
+                >
+                  {powerResult.badge}
+                </span>
+              </div>
+
+              {/* 볼륨 게이지 바 트랙 */}
+              <div
+                style={{
+                  width: '100%',
+                  height: '10px',
+                  backgroundColor: '#020617',
+                  borderRadius: '9999px',
+                  overflow: 'hidden',
+                  position: 'relative',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                }}
+              >
+                {/* 실시간 볼륨 게이지 필 */}
+                <div
+                  style={{
+                    width: `${currentVolume}%`,
+                    height: '100%',
+                    background:
+                      'linear-gradient(90deg, #06b6d4 0%, #3b82f6 35%, #f59e0b 70%, #ef4444 100%)',
+                    borderRadius: '9999px',
+                    transition: 'width 0.08s ease-out',
+                    boxShadow:
+                      currentVolume >= 76
+                        ? '0 0 14px #ef4444'
+                        : currentVolume >= 41
+                        ? '0 0 10px #f59e0b'
+                        : 'none',
+                  }}
+                />
+                {/* 최고 순간 볼륨(Peak Volume) 마커 */}
+                {peakVolume > 0 && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      left: `${Math.min(99, Math.max(1, peakVolume))}%`,
+                      width: '2px',
+                      backgroundColor: '#ffffff',
+                      boxShadow: '0 0 6px #ffffff',
+                      pointerEvents: 'none',
+                    }}
+                    title={`최고 볼륨: ${peakVolume}`}
+                  />
+                )}
+              </div>
+
+              {/* 게이지 하단 눈금 표시 */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: '9px',
+                  fontWeight: 700,
+                  color: '#64748b',
+                }}
+              >
+                <span>0</span>
+                <span style={{ color: '#38bdf8' }}>GOOD (40)</span>
+                <span style={{ color: '#f59e0b' }}>GREAT (75)</span>
+                <span style={{ color: '#ef4444' }}>PERFECT (100)</span>
+              </div>
+            </div>
+          )}
 
           {/* 청취 상태 및 안내 메시지 */}
           <div
             style={{
-              marginTop: '12px',
+              marginTop: '6px',
               textAlign: 'center',
-              minHeight: '48px',
+              minHeight: '44px',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
@@ -865,13 +1084,31 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
             {isAllCleared ? (
               <div
                 style={{
-                  fontSize: '16px',
+                  fontSize: '15px',
                   fontWeight: 900,
-                  color: '#4ade80',
+                  color:
+                    powerResult.level === 'PERFECT'
+                      ? '#f87171'
+                      : powerResult.level === 'GREAT'
+                      ? '#fde047'
+                      : '#4ade80',
                   animation: 'criticalPop 0.4s ease-out',
+                  textAlign: 'center',
                 }}
               >
-                💥 3개 국어 완전 정복! 회화를 듣고 열선을 발사해요!
+                <div>💥 3개 국어 정복 완료! 회화를 듣고 발사해요!</div>
+                <div
+                  style={{
+                    fontSize: '16px',
+                    marginTop: '4px',
+                    textShadow:
+                      powerResult.level === 'PERFECT'
+                        ? '0 0 15px rgba(239, 68, 68, 0.9)'
+                        : '0 0 12px rgba(245, 158, 11, 0.8)',
+                  }}
+                >
+                  판정: {powerResult.label}
+                </div>
               </div>
             ) : !isSupported ? (
               <div style={{ fontSize: '12px', color: '#f87171', fontWeight: 700 }}>

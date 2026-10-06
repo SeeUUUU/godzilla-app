@@ -523,6 +523,45 @@ export const playCriticalRoarSound = () => {
   }
 };
 
+// 9-2. 슈퍼 포효 (PERFECT ATOMIC ROAR) 특화 지진 럼블 & 하이퍼 빔 폭발음
+export const playPerfectAtomicRoarSound = () => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    // 1) 묵직한 지진 럼블 진동 베이스 (Earthquake rumble)
+    const sub = ctx.createOscillator();
+    const subGain = ctx.createGain();
+    sub.type = 'sawtooth';
+    sub.frequency.setValueAtTime(80, now);
+    sub.frequency.linearRampToValueAtTime(140, now + 0.15);
+    sub.frequency.exponentialRampToValueAtTime(20, now + 0.8);
+    subGain.gain.setValueAtTime(0.5, now);
+    subGain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+    sub.connect(subGain);
+    subGain.connect(ctx.destination);
+    sub.start(now);
+    sub.stop(now + 0.82);
+
+    // 2) 초고출력 하이퍼 빔 방사음
+    const hyper = ctx.createOscillator();
+    const hyperGain = ctx.createGain();
+    hyper.type = 'square';
+    hyper.frequency.setValueAtTime(1200, now + 0.05);
+    hyper.frequency.exponentialRampToValueAtTime(3200, now + 0.25);
+    hyper.frequency.exponentialRampToValueAtTime(150, now + 0.7);
+    hyperGain.gain.setValueAtTime(0.35, now + 0.05);
+    hyperGain.gain.exponentialRampToValueAtTime(0.005, now + 0.7);
+    hyper.connect(hyperGain);
+    hyperGain.connect(ctx.destination);
+    hyper.start(now + 0.05);
+    hyper.stop(now + 0.72);
+  } catch (e) {
+    console.warn('Audio error:', e);
+  }
+};
+
+
 // 12. 고질라 발자국 스탬프 쿵! 타격음 (Stamp Thud & Fanfare)
 export const playStampThudSound = () => {
   const ctx = getAudioContext();
@@ -714,4 +753,70 @@ export const playChestOpenSound = () => {
     console.warn('Audio error:', e);
   }
 };
+
+// 14. 단어 운석 요격 폭발음 (Meteor Explosion Blast)
+export const playMeteorExplosionSound = () => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    // 1) 고출력 충격파 폭발 (Crack)
+    const crack = ctx.createOscillator();
+    const crackGain = ctx.createGain();
+    crack.type = 'sawtooth';
+    crack.frequency.setValueAtTime(800, now);
+    crack.frequency.exponentialRampToValueAtTime(80, now + 0.3);
+    crackGain.gain.setValueAtTime(0.4, now);
+    crackGain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+    crack.connect(crackGain);
+    crackGain.connect(ctx.destination);
+    crack.start(now);
+    crack.stop(now + 0.31);
+
+    // 2) 묵직한 잔향 럼블
+    const boom = ctx.createOscillator();
+    const boomGain = ctx.createGain();
+    boom.type = 'triangle';
+    boom.frequency.setValueAtTime(140, now);
+    boom.frequency.exponentialRampToValueAtTime(30, now + 0.6);
+    boomGain.gain.setValueAtTime(0.45, now);
+    boomGain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+    boom.connect(boomGain);
+    boomGain.connect(ctx.destination);
+    boom.start(now);
+    boom.stop(now + 0.61);
+  } catch (e) {
+    console.warn('Audio error:', e);
+  }
+};
+
+// 15. 보스 출현 사이렌 경고음 (Boss Warning Siren)
+export const playWarningSirenSound = () => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+
+    // 듀얼 톤 경보음 (880Hz <-> 660Hz)
+    osc.frequency.setValueAtTime(880, now);
+    osc.frequency.setValueAtTime(660, now + 0.25);
+    osc.frequency.setValueAtTime(880, now + 0.5);
+    osc.frequency.setValueAtTime(660, now + 0.75);
+    osc.frequency.exponentialRampToValueAtTime(330, now + 1.1);
+
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 1.15);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 1.16);
+  } catch (e) {
+    console.warn('Audio error:', e);
+  }
+};
+
 

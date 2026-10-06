@@ -75,5 +75,19 @@ export const useSpeech = () => {
     []
   );
 
-  return { speak };
+  const cancel = useCallback(() => {
+    if (fallbackTimerRef.current !== null) {
+      clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {
+        console.warn('Speech synthesis cancel error:', e);
+      }
+    }
+  }, []);
+
+  return { speak, cancel };
 };

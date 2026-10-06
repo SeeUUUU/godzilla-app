@@ -6,6 +6,8 @@ import {
   RARITY_METADATA,
   MonsterSvgIllustration,
   getStoredUnlockedMonsters,
+  getStoredEquippedPartner,
+  setStoredEquippedPartner,
 } from '../data/monsterData';
 
 interface MonsterBookModalProps {
@@ -17,6 +19,8 @@ interface MonsterBookModalProps {
   onClaimCodexReward?: () => void;
   treasureBoxes?: number;
   onExchange?: () => boolean;
+  equippedPartnerId?: string | null;
+  onEquipPartner?: (partnerId: string | null) => void;
 }
 
 export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
@@ -25,8 +29,11 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
   unlockedRecords: propRecords,
   onOpenCodexChest,
   onClaimCodexReward,
+  equippedPartnerId: propEquippedPartnerId,
+  onEquipPartner,
 }) => {
   const [records, setRecords] = useState<Record<string, UnlockedMonsterRecord>>({});
+  const [equippedPartnerId, setEquippedPartnerId] = useState<string | null>(() => getStoredEquippedPartner());
   const [selectedMonster, setSelectedMonster] = useState<MonsterCardData | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const speechTimeoutRef = useRef<number | null>(null);
@@ -49,10 +56,20 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
     if (isOpen) {
       const current = propRecords || getStoredUnlockedMonsters();
       setRecords(current);
+      setEquippedPartnerId(propEquippedPartnerId !== undefined ? propEquippedPartnerId : getStoredEquippedPartner());
       setSelectedMonster(null);
       setIsSpeaking(false);
     }
-  }, [isOpen, propRecords]);
+  }, [isOpen, propRecords, propEquippedPartnerId]);
+
+  const handleTogglePartner = useCallback((monsterId: string) => {
+    setEquippedPartnerId((prev) => {
+      const next = prev === monsterId ? null : monsterId;
+      setStoredEquippedPartner(next);
+      onEquipPartner?.(next);
+      return next;
+    });
+  }, [onEquipPartner]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -359,6 +376,7 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
             {MONSTER_CARDS.map((monster) => {
               const record = records[monster.id];
               const isUnlocked = (record?.count ?? 0) >= 1;
+              const isEquipped = equippedPartnerId === monster.id;
               const meta = RARITY_METADATA[monster.rarity];
 
               return (
@@ -371,7 +389,9 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
                   }}
                   style={{
                     backgroundColor: isUnlocked ? meta.cardBg : '#0b0f19',
-                    border: isUnlocked
+                    border: isEquipped
+                      ? '2px solid #f59e0b'
+                      : isUnlocked
                       ? `2px solid ${meta.borderColor}`
                       : '1.5px dashed rgba(71, 85, 105, 0.6)',
                     borderRadius: '16px',
@@ -380,15 +400,19 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    minHeight: '145px',
+                    minHeight: '170px',
                     cursor: isUnlocked ? 'pointer' : 'default',
-                    boxShadow: isUnlocked ? `0 0 14px ${meta.shadowColor}` : 'none',
+                    boxShadow: isEquipped
+                      ? '0 0 18px rgba(245, 158, 11, 0.85)'
+                      : isUnlocked
+                      ? `0 0 14px ${meta.shadowColor}`
+                      : 'none',
                     transition: 'all 0.2s ease',
                     position: 'relative',
                     userSelect: 'none',
                   }}
                 >
-                  {/* 상단: 등급 라벨 또는 미발견 상태 */}
+                  {/* 상단: 등급 라벨 또는 미발견 상태 + 동행 중 뱃지 */}
                   <div
                     style={{
                       width: '100%',
@@ -402,16 +426,32 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
                   >
                     {isUnlocked ? (
                       <>
-                        <span
-                          style={{
-                            padding: '1px 5px',
-                            borderRadius: '4px',
-                            background: meta.badgeBg,
-                            color: '#ffffff',
-                          }}
-                        >
-                          {meta.label}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <span
+                            style={{
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              background: meta.badgeBg,
+                              color: '#ffffff',
+                            }}
+                          >
+                            {meta.label}
+                          </span>
+                          {isEquipped && (
+                            <span
+                              style={{
+                                padding: '1px 4px',
+                                borderRadius: '4px',
+                                backgroundColor: '#f59e0b',
+                                color: '#0f172a',
+                                fontSize: '8px',
+                                fontWeight: 900,
+                              }}
+                            >
+                              ✨동행
+                            </span>
+                          )}
+                        </div>
                         <span style={{ color: meta.starColor }}>{'★'.repeat(meta.stars)}</span>
                       </>
                     ) : (
@@ -531,6 +571,63 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
                         }}
                       >
                         알 깨기로 획득
+                      </div>
+                    )}
+
+                    {/* 파트너 장착/해제 버튼 */}
+                    {isUnlocked ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTogglePartner(monster.id);
+                        }}
+                        style={{
+                          width: '100%',
+                          marginTop: '6px',
+                          padding: '4px 6px',
+                          borderRadius: '8px',
+                          fontSize: '10px',
+                          fontWeight: 900,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '3px',
+                          backgroundColor: isEquipped ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                          border: isEquipped ? '1px solid #ef4444' : '1px solid #f59e0b',
+                          color: isEquipped ? '#fca5a5' : '#fde047',
+                          boxShadow: isEquipped ? '0 0 6px rgba(239, 68, 68, 0.4)' : '0 0 6px rgba(245, 158, 11, 0.3)',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {isEquipped ? (
+                          <>
+                            <span>✕</span>
+                            <span>장착 해제</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>⚡</span>
+                            <span>파트너 장착</span>
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <div
+                        style={{
+                          width: '100%',
+                          marginTop: '6px',
+                          padding: '4px 6px',
+                          borderRadius: '8px',
+                          fontSize: '9px',
+                          fontWeight: 700,
+                          color: '#475569',
+                          backgroundColor: 'rgba(30, 41, 59, 0.4)',
+                          border: '1px solid rgba(71, 85, 105, 0.3)',
+                        }}
+                      >
+                        미획득
                       </div>
                     )}
                   </div>
@@ -852,24 +949,87 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
                 </div>
               )}
 
-              {/* 확인 버튼 */}
-              <button
-                type="button"
-                onClick={() => setSelectedMonster(null)}
+              {/* 파트너 패시브 스킬 안내 카드 */}
+              <div
                 style={{
                   width: '100%',
-                  padding: '10px',
-                  borderRadius: '12px',
-                  background: 'linear-gradient(90deg, #0284c7 0%, #2563eb 100%)',
-                  color: '#ffffff',
-                  fontWeight: 800,
-                  fontSize: '13px',
-                  border: '1px solid #38bdf8',
-                  cursor: 'pointer',
+                  borderRadius: '14px',
+                  backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                  border: '1.5px solid rgba(245, 158, 11, 0.45)',
+                  padding: '10px 12px',
+                  marginBottom: '12px',
+                  textAlign: 'left',
+                  boxShadow: '0 0 10px rgba(245, 158, 11, 0.15)',
                 }}
               >
-                확인
-              </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+                  <span style={{ fontSize: '15px' }}>{selectedMonster.partnerSkill.icon}</span>
+                  <span style={{ fontSize: '12px', fontWeight: 900, color: '#fde047' }}>
+                    파트너 패시브: [{selectedMonster.partnerSkill.name}]
+                  </span>
+                </div>
+                <p style={{ margin: 0, fontSize: '11px', color: '#fef08a', lineHeight: 1.4, fontWeight: 600 }}>
+                  {selectedMonster.partnerSkill.description}
+                </p>
+              </div>
+
+              {/* 하단: 파트너 장착/해제 + 닫기 버튼 */}
+              <div style={{ width: '100%', display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleTogglePartner(selectedMonster.id);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '10px 14px',
+                    borderRadius: '12px',
+                    background: equippedPartnerId === selectedMonster.id
+                      ? 'linear-gradient(90deg, #dc2626 0%, #b91c1c 100%)'
+                      : 'linear-gradient(90deg, #d97706 0%, #f59e0b 100%)',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    fontSize: '13px',
+                    border: equippedPartnerId === selectedMonster.id ? '1.5px solid #f87171' : '1.5px solid #fde047',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    boxShadow: equippedPartnerId === selectedMonster.id
+                      ? '0 0 12px rgba(239, 68, 68, 0.5)'
+                      : '0 0 12px rgba(245, 158, 11, 0.5)',
+                  }}
+                >
+                  {equippedPartnerId === selectedMonster.id ? (
+                    <>
+                      <span>✖</span>
+                      <span>파트너 동행 해제</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>⚡</span>
+                      <span>이 괴수를 파트너로 장착!</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedMonster(null)}
+                  style={{
+                    padding: '10px 18px',
+                    borderRadius: '12px',
+                    backgroundColor: '#334155',
+                    color: '#ffffff',
+                    fontWeight: 800,
+                    fontSize: '13px',
+                    border: '1px solid #475569',
+                    cursor: 'pointer',
+                  }}
+                >
+                  닫기
+                </button>
+              </div>
             </div>
           </div>
         )}

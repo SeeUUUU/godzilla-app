@@ -220,9 +220,33 @@ export const WORD_SENTENCE_DICTIONARY: Record<string, SentenceDictionaryEntry> =
     jp: 'こちらは お兄(にい)さんです！',
     jpFurigana: 'こちらは おにいさんです！',
   },
+  형: {
+    kr: '이쪽은 우리 형이에요!',
+    en: 'This is my older brother!',
+    jp: 'こちらは お兄(にい)さんです！',
+    jpFurigana: 'こちらは おにいさんです！',
+  },
+  오빠: {
+    kr: '이쪽은 우리 오빠예요!',
+    en: 'This is my older brother!',
+    jp: 'こちらは お兄(にい)さんです！',
+    jpFurigana: 'こちらは おにいさんです！',
+  },
   '누나 / 언니': {
     kr: '이쪽은 우리 언니예요!',
     en: 'This is my sister!',
+    jp: 'こちらは お姉(ねえ)さんです！',
+    jpFurigana: 'こちらは おねえさんです！',
+  },
+  누나: {
+    kr: '이쪽은 우리 누나예요!',
+    en: 'This is my older sister!',
+    jp: 'こちらは お姉(ねえ)さんです！',
+    jpFurigana: 'こちらは おねえさんです！',
+  },
+  언니: {
+    kr: '이쪽은 우리 언니예요!',
+    en: 'This is my older sister!',
     jp: 'こちらは お姉(ねえ)さんです！',
     jpFurigana: 'こちらは おねえさんです！',
   },

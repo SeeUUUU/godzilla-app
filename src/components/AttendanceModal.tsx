@@ -291,10 +291,34 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                 </span>
               ) : (
                 <span style={{ color: '#fde047' }}>
-                  단어 배틀 1스테이지를 클리어하면 오늘의 발자국이 쾅 찍혀요!
+                  일일 듀얼 훈련(언어 1판 + 산수 1판)을 모두 완주하면 오늘의 발자국이 쾅 찍혀요!
                 </span>
               )}
             </p>
+
+            {/* 오늘의 출석 보상 알 획득 강조 배너 */}
+            {isTodayAttended && (
+              <div
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  backgroundColor: isNewlyAttended ? 'rgba(234, 179, 8, 0.2)' : 'rgba(234, 179, 8, 0.1)',
+                  border: isNewlyAttended ? '1.5px solid #facc15' : '1px solid rgba(234, 179, 8, 0.4)',
+                  borderRadius: '12px',
+                  padding: '8px 12px',
+                  marginBottom: '14px',
+                  boxShadow: isNewlyAttended ? '0 0 15px rgba(250, 204, 21, 0.35)' : 'none',
+                }}
+              >
+                <span style={{ fontSize: '18px' }}>🥚</span>
+                <span style={{ fontSize: '12.5px', fontWeight: 900, color: '#fef08a' }}>
+                  오늘의 출석 보상: 신비한 괴수 알 획득!
+                </span>
+              </div>
+            )}
 
             {/* 스트릭 요약 카드 */}
             <div

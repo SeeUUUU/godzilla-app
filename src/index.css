@@ -89,3 +89,45 @@ html, body {
 .animate-fever-pulse {
   animation: feverPulse 0.9s infinite ease-in-out;
 }
+
+/* Screen Shake Animation on Super Roar (PERFECT ATOMIC ROAR) */
+@keyframes screenShake {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  10% { transform: translate(-6px, -4px) rotate(-1deg); }
+  20% { transform: translate(6px, 4px) rotate(1deg); }
+  30% { transform: translate(-7px, 3px) rotate(-0.5deg); }
+  40% { transform: translate(7px, -3px) rotate(0.5deg); }
+  50% { transform: translate(-5px, 4px) rotate(-1deg); }
+  60% { transform: translate(5px, 2px) rotate(0.5deg); }
+  70% { transform: translate(-4px, -3px) rotate(-0.5deg); }
+  80% { transform: translate(4px, 2px) rotate(0deg); }
+  90% { transform: translate(-2px, -1px) rotate(0deg); }
+  100% { transform: translate(0, 0) rotate(0deg); }
+}
+
+.animate-screen-shake {
+  animation: screenShake 0.4s ease-in-out;
+}
+
+/* Rhythm-game judgment pop slam (compact non-overflow scale) */
+@keyframes judgmentSlam {
+  0% { transform: translateX(-50%) scale(1.3); opacity: 0; }
+  50% { transform: translateX(-50%) scale(0.96); opacity: 1; }
+  75% { transform: translateX(-50%) scale(1.03); }
+  100% { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+
+/* Gentle float for EXP and combat badges (stays safely within bounds) */
+@keyframes badgeFloat {
+  0%, 100% {
+    transform: translateX(-50%) translateY(0);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-3px);
+  }
+}
+
+.animate-badge-float {
+  animation: badgeFloat 1.4s infinite ease-in-out;
+}
+

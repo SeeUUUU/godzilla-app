@@ -12,6 +12,8 @@ interface TriMatchingBoardProps {
   onMatchFail: (failedIds?: (string | number)[]) => void;
   stageLabel?: string;
   stageRangeLabel?: string;
+  hintWordId?: string | number | null;
+  isScreenShaking?: boolean;
 }
 
 interface ShuffledCard {
@@ -110,6 +112,8 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
   onMatchFail,
   stageLabel,
   stageRangeLabel,
+  hintWordId,
+  isScreenShaking = false,
 }) => {
   const { speak } = useSpeech();
 
@@ -293,7 +297,9 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
 
   return (
     <div
-      className="w-full flex-1 min-h-0 h-full flex flex-col px-1 sm:px-2 md:px-3 pb-0.5 sm:pb-1 md:pb-2"
+      className={`w-full flex-1 min-h-0 h-full flex flex-col px-1 sm:px-2 md:px-3 pb-0.5 sm:pb-1 md:pb-2 ${
+        isScreenShaking ? 'animate-screen-shake' : ''
+      }`}
     >
       {/* 스테이지 라벨 바 (출제 범위 안내) */}
       {(stageLabel || stageRangeLabel) && (
@@ -354,9 +360,9 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                   borderWidth: '1.5px',
                 }}
               >
-                {/* 슬림 열 헤더 */}
+                {/* 1. 슬림 언어별 헤더 */}
                 <div
-                  className="flex items-center justify-between px-2 py-0.5 sm:px-2.5 sm:py-1 md:px-3 md:py-1.5 rounded-lg sm:rounded-xl mb-1.5 sm:mb-2 md:mb-2.5 flex-none"
+                  className="flex items-center justify-between px-2 sm:px-2.5 md:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl mb-1.5 sm:mb-2 flex-none"
                   style={{
                     backgroundColor: headerBg,
                     border: `1px solid ${borderColor}66`,
@@ -364,24 +370,24 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                 >
                   <div className="flex items-center gap-1 min-w-0">
                     <span
-                      className="font-black text-xs sm:text-sm md:text-base lg:text-lg truncate"
+                      className="font-black text-xs xs:text-sm sm:text-base truncate tracking-tight"
                       style={{ color: headerTextColor }}
                     >
-                      <span className="hidden xs:inline sm:inline">{title}</span>
-                      <span className="inline xs:hidden sm:hidden">{sub}</span>
+                      <span className="hidden xs:inline">{title}</span>
+                      <span className="inline xs:hidden">{sub}</span>
                     </span>
                   </div>
                   <div
-                    className="flex items-center gap-0.5 sm:gap-1 text-[9px] sm:text-xs md:text-sm font-black px-1.5 sm:px-2 py-0.5 rounded-full bg-slate-950 border border-white/20 text-slate-200 flex-shrink-0"
+                    className="flex items-center gap-1 text-[10px] sm:text-xs md:text-sm font-black px-1.5 sm:px-2 py-0.5 rounded-full bg-slate-950/80 border border-white/20 text-slate-200 flex-shrink-0"
                   >
-                    <Sparkles className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 text-amber-400" />
+                    <Sparkles className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-amber-400 flex-shrink-0" />
                     <span>{clearedIds.length}/{displayWords.length}</span>
                   </div>
                 </div>
 
-                {/* 카드 리스트: 6개 카드가 잔여 높이를 균등 배분 (여유 간격 확보 및 오버플로우 방지) */}
+                {/* 2. 6개 낱말 카드 균등 분할 그리드 (높이 동일 일치 & 화면 잘림 완전 해결) */}
                 <div
-                  className="flex-1 min-h-0 flex flex-col justify-between gap-1.5 sm:gap-2 md:gap-2.5"
+                  className="flex-1 min-h-0 grid grid-rows-6 gap-1.5 sm:gap-2"
                 >
                   {list.map((card) => {
                     const isCleared = clearedIds.includes(card.id);
@@ -410,18 +416,20 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                     const isLongText = textLen >= 9;
                     const isMediumText = textLen >= 7;
 
-                    let mainTextSizeClass = 'text-base sm:text-lg md:text-xl font-bold sm:font-black';
+                    let mainTextSizeClass = 'text-sm sm:text-base md:text-lg lg:text-xl font-bold sm:font-black';
                     if (card.lang === 'ja') {
                       mainTextSizeClass = card.subText
-                        ? 'text-sm sm:text-base md:text-lg font-bold sm:font-black'
-                        : isLongText
                         ? 'text-xs sm:text-sm md:text-base font-bold sm:font-black'
-                        : 'text-sm sm:text-base md:text-lg font-bold sm:font-black';
+                        : isLongText
+                        ? 'text-[11px] sm:text-xs md:text-sm font-bold sm:font-black'
+                        : 'text-xs sm:text-sm md:text-base font-bold sm:font-black';
                     } else if (isLongText) {
-                      mainTextSizeClass = 'text-xs sm:text-sm md:text-base font-bold sm:font-black';
+                      mainTextSizeClass = 'text-[11px] sm:text-xs md:text-sm font-bold sm:font-black';
                     } else if (isMediumText) {
-                      mainTextSizeClass = 'text-sm sm:text-base md:text-lg font-bold sm:font-black';
+                      mainTextSizeClass = 'text-xs sm:text-sm md:text-base font-bold sm:font-black';
                     }
+
+                    const isHint = hintWordId !== undefined && hintWordId !== null && String(card.id) === String(hintWordId) && !isCleared;
 
                     return (
                       <button
@@ -429,29 +437,38 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                         type="button"
                         onClick={() => handleCardClick(card)}
                         disabled={isCleared}
-                        className={`w-full flex-1 min-h-[36px] sm:min-h-[46px] md:min-h-[52px] rounded-xl sm:rounded-2xl px-2 sm:px-2.5 md:px-3 py-1.5 sm:py-2 flex items-center justify-between transition-all duration-150 relative overflow-hidden group select-none ${
+                        className={`w-full h-full min-h-0 rounded-xl sm:rounded-2xl px-2 sm:px-2.5 md:px-3 py-1 sm:py-1.5 flex items-center justify-between transition-all duration-150 relative overflow-hidden group select-none ${
                           isCleared
                             ? 'cursor-default'
                             : 'cursor-pointer hover:brightness-110 active:scale-[0.98]'
-                        } ${isSelected ? 'ring-2 ring-white/70 shadow-lg scale-[1.01]' : ''}`}
+                        } ${isSelected ? 'ring-2 ring-white/70 shadow-lg scale-[1.01]' : ''} ${
+                          isHint && !isSelected ? 'ring-2 ring-amber-400 shadow-md shadow-amber-400/40 animate-pulse' : ''
+                        }`}
                         style={{
-                          backgroundColor: bgStyle,
-                          border: borderStyle,
+                          backgroundColor: isHint && !isSelected && !isCleared ? '#1e293b' : bgStyle,
+                          border: isHint && !isSelected && !isCleared ? '1.5px solid #f59e0b' : borderStyle,
                           color: colorStyle,
                           opacity: opacityStyle,
                         }}
                       >
                         {/* 큼직하고 시원시원한 단어 텍스트 (수직 중앙 정렬 및 일본어 2줄 밸런스 유지) */}
                         <div className="flex flex-col min-w-0 flex-1 text-left justify-center pr-1 overflow-hidden">
-                          <span
-                            className={`${mainTextSizeClass} leading-tight sm:leading-snug truncate tracking-tight`}
-                            style={{ textDecoration: textDeco }}
-                          >
-                            {card.text}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            <span
+                              className={`${mainTextSizeClass} leading-tight truncate tracking-tight`}
+                              style={{ textDecoration: textDeco }}
+                            >
+                              {card.text}
+                            </span>
+                            {isHint && !isCleared && (
+                              <span className="text-[8px] font-black text-amber-300 px-1 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 flex-shrink-0 animate-bounce">
+                                🦅힌트
+                              </span>
+                            )}
+                          </div>
                           {card.subText && (
                             <span
-                              className="text-[10px] sm:text-xs md:text-sm font-semibold text-emerald-400 leading-tight truncate mt-0.5"
+                              className="text-[9px] sm:text-[11px] md:text-xs font-semibold text-emerald-400 leading-none truncate mt-0.5"
                               style={{ textDecoration: textDeco }}
                             >
                               {card.subText}
@@ -462,7 +479,7 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                         {/* 스피커 발음 청취 아이콘 (수직 중앙 정렬 및 여유 크기) */}
                         <div className="ml-1 sm:ml-1.5 md:ml-2 flex-shrink-0 flex items-center justify-center">
                           {isCleared ? (
-                            <div className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 flex items-center justify-center">
+                            <div className="w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center">
                               <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5 text-emerald-400" />
                             </div>
                           ) : (
@@ -478,7 +495,7 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                                 };
                                 speak(card.text, langMap[card.lang]);
                               }}
-                              className={`w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-lg sm:rounded-xl flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm hover:scale-110 active:scale-90 ${
+                              className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg sm:rounded-xl flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm hover:scale-110 active:scale-90 ${
                                 isSelected
                                   ? 'bg-cyan-400 text-slate-950 shadow-cyan-400/50'
                                   : 'bg-slate-950/70 text-slate-300 border border-slate-700/60 hover:bg-slate-800 hover:text-white'

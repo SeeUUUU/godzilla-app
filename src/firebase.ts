@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
-import type { GameState, UnlockedMonsterRecord, WordItem } from "./types";
+import type { GameState, UnlockedMonsterRecord, WordItem, DailyDualQuest } from "./types";
 import type { EarnedCoupon } from "./data/gachaRewards";
 
 const firebaseConfig = {
@@ -32,6 +32,9 @@ export interface PlayerFirestoreData {
   cycleCount?: number;
   isInfiniteMode?: boolean;
   stageIndex?: number;
+  equippedPartnerId?: string | null;
+  dailyDualQuest?: DailyDualQuest;
+  mathStageIndex?: number;
   updatedAt?: string;
 }
 

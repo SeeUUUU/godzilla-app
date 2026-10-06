@@ -10,7 +10,9 @@ import {
   playVictoryFanfare,
 } from '../utils/soundEffects';
 import { getGodzillaEvolution } from '../types';
-import { Trophy, RotateCcw, Swords, ShieldAlert, Zap, Heart } from 'lucide-react';
+import type { RoarPowerResult } from '../types';
+import { MONSTER_MAP } from '../data/monsterData';
+import { Trophy, RotateCcw, Swords, ShieldAlert, Zap, Heart, ArrowRight } from 'lucide-react';
 
 interface GodzillaStageProps {
   level: number;
@@ -37,6 +39,12 @@ interface GodzillaStageProps {
   isStageClearReady?: boolean;
   isInfiniteMode?: boolean;
   cycleCount?: number;
+  equippedPartnerId?: string | null;
+  partnerSkillNotification?: { message: string; icon: string; id: number } | null;
+  roarPower?: RoarPowerResult | null;
+  isScreenShaking?: boolean;
+  onGoToMath?: () => void;
+  isMathDoneToday?: boolean;
 }
 
 export const GodzillaStage: React.FC<GodzillaStageProps> = ({
@@ -57,19 +65,24 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
   stageRangeLabel,
   currentStageNum,
   totalStages,
-  onOpenGacha,
-  hasClaimedStageReward = false,
+  onOpenGacha: _onOpenGacha,
+  hasClaimedStageReward: _hasClaimedStageReward = false,
   isCriticalHit = false,
   raidBoss,
   isStageClearReady = true,
   isInfiniteMode = false,
   cycleCount = 1,
+  equippedPartnerId,
+  partnerSkillNotification,
+  roarPower,
+  isScreenShaking = false,
+  onGoToMath,
+  isMathDoneToday = false,
 }) => {
-  // 레이드 모드 보스 HP 계산 (남은 오답 단어 수에 맞춰 정확히 타격당 감소, 0개 남으면 0%)
-  const raidBossHp = totalCount > 0
-    ? Math.max(0, Math.round(((totalCount - clearedCount) / totalCount) * 100))
-    : 0;
-  const effectiveBossHp = isReviewMode ? raidBossHp : ghidorahHp;
+  const partnerMonster = equippedPartnerId ? MONSTER_MAP.get(equippedPartnerId) : null;
+
+  // 보스 HP (남은 단어 수 및 파트너 추가 데미지 보너스 반영)
+  const effectiveBossHp = Math.max(0, ghidorahHp);
   const isBossDefeated = isAllCleared && !isGameOver;
   // 마지막 6번째 단어 격파 시 1.8초 배틀 연출(열선 발사, 보스 HP 0% 감소, 격파 연출)이 완전히 끝난 뒤에만 결과창 오버레이 오픈
   const shouldShowClearOverlay = isBossDefeated && isStageClearReady;
@@ -157,66 +170,77 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
       '0 0 25px rgba(239, 68, 68, 0.85), 0 0 50px rgba(249, 115, 22, 0.65), inset 0 0 20px rgba(239, 68, 68, 0.3)';
   }
 
-  // 빔 높이 및 구슬 크기 (피버 모드 및 크리티컬 시 대폭 확대)
-  const beamHeight =
-    evo.tier === 'burning'
-      ? isCriticalHit
-        ? '66px'
-        : isFever
-        ? '58px'
-        : '48px'
-      : isCriticalHit
-      ? '58px'
-      : isFever
-      ? '50px'
-      : '34px';
-  const mouthBallSize = isCriticalHit ? '38px' : isFever ? '34px' : '26px';
+  // 빔 높이 및 구슬 크기 (목소리 크기 3단계 파워 판정 연동)
+  // 1) GOOD (0~40): 1.0x 표준 두께
+  // 2) GREAT (41~75): 1.8x 두께 확대 + 고질라 네온 발광 강화
+  // 3) PERFECT (76~100): 3.0x 초대형 하이퍼 열선 + 0.4초 화면 진동
+  const powerScale = roarPower
+    ? roarPower.scaleMultiplier
+    : isCriticalHit
+    ? 1.6
+    : isFever
+    ? 1.35
+    : 1.0;
 
-  // 5단계 진화별 열선 그라데이션 및 발광
-  let beamGradient = 'linear-gradient(90deg, #ffffff 0%, #cffafe 10%, #22d3ee 45%, #00f2ff 100%)';
+  const baseBeamH = evo.tier === 'burning' ? (isFever ? 24 : 22) : isFever ? 22 : 18;
+  const beamHeight = `${Math.min(32, Math.round(baseBeamH * (powerScale >= 3.0 ? 1.4 : powerScale >= 1.8 ? 1.2 : 1.0)))}px`;
+  const mouthBallSize = `${Math.min(
+    32,
+    Math.round(20 * (powerScale >= 3.0 ? 1.35 : powerScale >= 1.8 ? 1.2 : 1.0))
+  )}px`;
+
+  // 5단계 진화별 열선 그라데이션 및 발광 (파워 판정에 따른 네온 발광 증폭, 박스 잘림 없는 날렵한 글로우)
+  let beamGradient = 'linear-gradient(90deg, #ffffff 0%, #cffafe 15%, #22d3ee 50%, #00f2ff 100%)';
   let beamShadow = isFever
-    ? '0 0 35px #00f2ff, 0 0 70px #06b6d4, 0 0 95px #38bdf8'
-    : '0 0 25px #00f2ff, 0 0 50px #06b6d4';
+    ? '0 0 16px #00f2ff, 0 0 32px #06b6d4'
+    : '0 0 12px #00f2ff, 0 0 24px #06b6d4';
+  if (roarPower?.level === 'PERFECT') {
+    beamShadow = '0 0 22px #ffffff, 0 0 42px #00f2ff, 0 0 65px #38bdf8';
+  } else if (roarPower?.level === 'GREAT') {
+    beamShadow = '0 0 16px #00f2ff, 0 0 32px #06b6d4, 0 0 45px #38bdf8';
+  }
   let innerCoreColor = '#ffffff';
-  let innerCoreShadow = '0 0 10px #ffffff';
-  let mouthBallBg = 'radial-gradient(circle, #ffffff 35%, #a5f3fc 55%, #00f0ff 80%, transparent 100%)';
-  let mouthBallShadow = '0 0 20px #00f2ff, 0 0 40px #0284c7';
+  let innerCoreShadow = '0 0 8px #ffffff';
+  let mouthBallBg = 'radial-gradient(circle, #ffffff 40%, #a5f3fc 60%, #00f0ff 85%, transparent 100%)';
+  let mouthBallShadow = '0 0 14px #00f2ff, 0 0 26px #0284c7';
 
   if (evo.tier === 'chibi') {
-    mouthBallBg = 'radial-gradient(circle, #ffffff 40%, #86efac 65%, #00f0ff 90%, transparent 100%)';
-    mouthBallShadow = '0 0 20px #4ade80, 0 0 35px #00f0ff';
+    mouthBallBg = 'radial-gradient(circle, #ffffff 45%, #86efac 70%, #00f0ff 90%, transparent 100%)';
+    mouthBallShadow = '0 0 14px #4ade80, 0 0 24px #00f0ff';
   } else if (evo.tier === 'minusone') {
     beamGradient = 'linear-gradient(90deg, #ffffff 0%, #f0fdfa 15%, #ffffff 50%, #e0f2fe 80%, #38bdf8 100%)';
     beamShadow = isFever
-      ? '0 0 45px #ffffff, 0 0 85px #38bdf8, 0 0 125px #0284c7'
-      : '0 0 32px #ffffff, 0 0 65px #38bdf8';
+      ? '0 0 18px #ffffff, 0 0 36px #38bdf8'
+      : '0 0 14px #ffffff, 0 0 26px #38bdf8';
     innerCoreColor = '#ffffff';
-    innerCoreShadow = '0 0 18px #ffffff';
-    mouthBallBg = 'radial-gradient(circle, #ffffff 50%, #e0f2fe 75%, #38bdf8 90%, transparent 100%)';
-    mouthBallShadow = '0 0 25px #ffffff, 0 0 50px #38bdf8';
+    innerCoreShadow = '0 0 10px #ffffff';
+    mouthBallBg = 'radial-gradient(circle, #ffffff 55%, #e0f2fe 80%, #38bdf8 95%, transparent 100%)';
+    mouthBallShadow = '0 0 16px #ffffff, 0 0 30px #38bdf8';
   } else if (evo.tier === 'evil') {
     beamGradient = 'linear-gradient(90deg, #ffffff 0%, #c084fc 25%, #a855f7 55%, #818cf8 80%, #38bdf8 100%)';
     beamShadow = isFever
-      ? '0 0 45px #a855f7, 0 0 85px #818cf8, 0 0 120px #38bdf8'
-      : '0 0 30px #a855f7, 0 0 60px #818cf8';
+      ? '0 0 18px #a855f7, 0 0 36px #818cf8'
+      : '0 0 14px #a855f7, 0 0 26px #818cf8';
     innerCoreColor = '#faf5ff';
-    innerCoreShadow = '0 0 14px #c084fc';
-    mouthBallBg = 'radial-gradient(circle, #ffffff 35%, #c084fc 60%, #a855f7 85%, transparent 100%)';
-    mouthBallShadow = '0 0 25px #a855f7, 0 0 50px #38bdf8';
+    innerCoreShadow = '0 0 8px #c084fc';
+    mouthBallBg = 'radial-gradient(circle, #ffffff 40%, #c084fc 65%, #a855f7 85%, transparent 100%)';
+    mouthBallShadow = '0 0 16px #a855f7, 0 0 30px #38bdf8';
   } else if (evo.tier === 'burning') {
-    beamGradient = 'linear-gradient(90deg, #ffffff 0%, #ffee55 10%, #ff8800 35%, #ff2200 70%, #991b1b 100%)';
+    beamGradient = 'linear-gradient(90deg, #ffffff 0%, #ffee55 12%, #ff8800 38%, #ff2200 70%, #991b1b 100%)';
     beamShadow = isFever
-      ? '0 0 50px #ff2200, 0 0 95px #ff8800, 0 0 140px #ffee55'
-      : '0 0 35px #ff2200, 0 0 75px #ff8800';
+      ? '0 0 20px #ff2200, 0 0 38px #ff8800'
+      : '0 0 14px #ff2200, 0 0 28px #ff8800';
     innerCoreColor = '#fffbeb';
-    innerCoreShadow = '0 0 16px #ffee55';
-    mouthBallBg = 'radial-gradient(circle, #ffffff 30%, #ffee55 50%, #ff8800 75%, #ff2200 100%)';
-    mouthBallShadow = '0 0 30px #ff2200, 0 0 60px #ff8800';
+    innerCoreShadow = '0 0 10px #ffee55';
+    mouthBallBg = 'radial-gradient(circle, #ffffff 35%, #ffee55 55%, #ff8800 80%, #ff2200 100%)';
+    mouthBallShadow = '0 0 18px #ff2200, 0 0 36px #ff8800';
   }
 
   return (
     <div
-      className="w-full flex-none px-1 sm:px-2 md:px-3 my-0.5 sm:my-1 h-[175px] xs:h-[185px] sm:h-[210px] md:h-[220px] landscape-short:h-full landscape-short:my-0"
+      className={`w-full flex-none px-1 sm:px-2 md:px-3 my-0.5 sm:my-1 h-[175px] xs:h-[185px] sm:h-[210px] md:h-[220px] landscape-short:h-full landscape-short:my-0 ${
+        isScreenShaking ? 'animate-screen-shake' : ''
+      }`}
     >
       <div
         className={`relative overflow-hidden rounded-2xl bg-slate-900 p-2 sm:p-2.5 md:p-3 flex flex-col justify-between h-full ${
@@ -250,6 +274,17 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
           }}
         />
 
+        {/* 파트너 스킬 발동 팝업 알림 (모스라 1회 방어, 메카고질라 EXP 등) */}
+        {partnerSkillNotification && (
+          <div
+            key={partnerSkillNotification.id}
+            className="absolute top-12 sm:top-14 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/95 border-2 border-amber-400 text-amber-300 font-black text-xs sm:text-sm shadow-2xl shadow-amber-500/50 animate-bounce whitespace-nowrap backdrop-blur-sm pointer-events-none"
+          >
+            <span className="text-base sm:text-lg">{partnerSkillNotification.icon}</span>
+            <span className="tracking-tight text-white">{partnerSkillNotification.message}</span>
+          </div>
+        )}
+
         {/* 1. 상단 대칭형 대전 격투 HUD (5단계 진화 연동) */}
         <div
           className="w-full flex items-center justify-between flex-none z-10 border-b border-white/10 pb-1 sm:pb-1.5 mb-1 px-0.5 sm:px-1"
@@ -280,6 +315,17 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                 }}
               />
             </div>
+            {/* 파트너 동행 미니 뱃지 */}
+            {partnerMonster && (
+              <div
+                className="flex items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded-full bg-slate-950/85 border border-amber-400/50 text-[8px] xs:text-[9px] sm:text-[10px] text-amber-300 font-extrabold shadow-sm flex-shrink-0"
+                title={`${partnerMonster.ko} 파트너 패시브: ${partnerMonster.partnerSkill.description}`}
+              >
+                <span>{partnerMonster.partnerSkill.icon}</span>
+                <span className="text-white hidden sm:inline">{partnerMonster.ko}</span>
+                <span className="text-amber-400 font-black">[{partnerMonster.partnerSkill.name}]</span>
+              </div>
+            )}
           </div>
 
           {/* [중앙] VS 배지 & 피버 모드 팝업 & 콤보 & 격파 진행도 */}
@@ -425,7 +471,19 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
           {/* 좌측: 5단계 진화 고질라 (상대 축 100% 일치) */}
           <div
             className="relative h-full flex-shrink-0 flex items-end"
-            style={{ height: '100%', position: 'relative', zIndex: 10 }}
+            style={{
+              height: '100%',
+              position: 'relative',
+              zIndex: 10,
+              filter: isShootingBeam
+                ? roarPower?.level === 'PERFECT'
+                  ? 'drop-shadow(0 0 28px #00f2ff) drop-shadow(0 0 45px #38bdf8)'
+                  : roarPower?.level === 'GREAT'
+                  ? 'drop-shadow(0 0 16px #00f2ff)'
+                  : 'none'
+                : 'none',
+              transition: 'filter 0.2s ease',
+            }}
           >
             <GodzillaCharacter
               level={level}
@@ -442,14 +500,29 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
             className="flex-1 h-full relative"
             style={{ flex: 1, height: '100%', position: 'relative', minWidth: '40px' }}
           >
+            {/* 슈퍼 포효 레벨 3 (PERFECT ATOMIC ROAR) 전체 화면 아토믹 에너지 방사 */}
+            {isShootingBeam && roarPower?.level === 'PERFECT' && (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: '-25px -40px',
+                  background:
+                    'radial-gradient(ellipse at 40% 50%, rgba(0, 242, 255, 0.3) 0%, rgba(56, 189, 248, 0.18) 50%, transparent 80%)',
+                  pointerEvents: 'none',
+                  zIndex: 22,
+                  animation: 'beamPulse 0.1s infinite alternate',
+                }}
+              />
+            )}
+
             {/* [정답 시] 고질라 5단계 특화 열선 (고질라 입 cx=282 cy=132 -> 기도라 흉부 직격) */}
             {isShootingBeam && (
               <div
                 style={{
                   position: 'absolute',
-                  left: '-18px', // 고질라 입술 끝 오버랩
-                  right: '-24px', // 킹 기도라 흉곽 오버랩
-                  bottom: '40%', // 양측 캐릭터의 88/220 높이와 100% 일치
+                  left: '-14px', // 고질라 입술 끝 오버랩
+                  right: '-20px', // 킹 기도라 흉곽 오버랩
+                  bottom: '46%', // 고질라 입과 기도라 중심부 수직 정렬
                   transform: 'translateY(50%)',
                   height: beamHeight,
                   display: 'flex',
@@ -491,15 +564,15 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                     <div
                       className="animate-bounce"
                       style={{
-                        width: isFever ? '26px' : '20px',
-                        height: isFever ? '26px' : '20px',
+                        width: isFever ? '20px' : '16px',
+                        height: isFever ? '20px' : '16px',
                         borderRadius: '9999px',
                         background: 'radial-gradient(circle, #ffffff 30%, #86efac 60%, #00f0ff 100%)',
-                        boxShadow: '0 0 16px #00f0ff, 0 0 28px #4ade80',
+                        boxShadow: '0 0 12px #00f0ff, 0 0 20px #4ade80',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        fontSize: '11px',
+                        fontSize: '9px',
                       }}
                     >
                       ✨
@@ -507,15 +580,15 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                     <div
                       className="animate-pulse"
                       style={{
-                        width: isFever ? '30px' : '23px',
-                        height: isFever ? '30px' : '23px',
+                        width: isFever ? '22px' : '18px',
+                        height: isFever ? '22px' : '18px',
                         borderRadius: '9999px',
                         background: 'radial-gradient(circle, #ffffff 30%, #38bdf8 65%, #0284c7 100%)',
-                        boxShadow: '0 0 20px #38bdf8, 0 0 35px #00f0ff',
+                        boxShadow: '0 0 14px #38bdf8, 0 0 24px #00f0ff',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        fontSize: '12px',
+                        fontSize: '10px',
                       }}
                     >
                       💫
@@ -523,15 +596,15 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                     <div
                       className="animate-bounce"
                       style={{
-                        width: isFever ? '34px' : '26px',
-                        height: isFever ? '34px' : '26px',
+                        width: isFever ? '24px' : '20px',
+                        height: isFever ? '24px' : '20px',
                         borderRadius: '9999px',
                         background: 'radial-gradient(circle, #ffffff 35%, #67e8f9 60%, #06b6d4 100%)',
-                        boxShadow: '0 0 22px #06b6d4, 0 0 40px #22d3ee',
+                        boxShadow: '0 0 16px #06b6d4, 0 0 28px #22d3ee',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        fontSize: '13px',
+                        fontSize: '11px',
                       }}
                     >
                       ⭐
@@ -539,43 +612,46 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                     <div
                       className="animate-pulse"
                       style={{
-                        width: isFever ? '40px' : '30px',
-                        height: isFever ? '40px' : '30px',
+                        width: isFever ? '26px' : '22px',
+                        height: isFever ? '26px' : '22px',
                         borderRadius: '9999px',
                         background: 'radial-gradient(circle, #ffffff 40%, #a7f3d0 70%, #00f0ff 100%)',
-                        boxShadow: '0 0 25px #00f0ff, 0 0 45px #38bdf8',
+                        boxShadow: '0 0 18px #00f2ff, 0 0 30px #38bdf8',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        fontSize: '15px',
+                        fontSize: '12px',
                       }}
                     >
                       🔥
                     </div>
                   </div>
                 ) : (
-                  /* 2~5단계: 메인 에너지 열선 레이저 코어 */
+                  /* 2~5단계: 날렵한 고에너지 아토믹 레이저 빔 */
                   <div
                     className="animate-beam-glow"
                     style={{
                       width: '100%',
                       height: '100%',
                       background: beamGradient,
-                      borderRadius: '0 16px 16px 0',
+                      borderRadius: '9999px',
                       boxShadow: beamShadow,
                       position: 'relative',
+                      display: 'flex',
+                      alignItems: 'center',
                     }}
                   >
-                    {/* 중심 레이저 하이라이트 코어 */}
+                    {/* 중심 레이저 하이라이트 코어 (날렵한 고밀도 코어 라인) */}
                     <div
                       style={{
                         position: 'absolute',
-                        top: isFever ? '8px' : '6px',
-                        bottom: isFever ? '8px' : '6px',
-                        left: 0,
-                        right: '10px',
+                        left: '4px',
+                        right: '4px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        height: isFever ? '6px' : '5px',
                         backgroundColor: innerCoreColor,
-                        borderRadius: '0 12px 12px 0',
+                        borderRadius: '9999px',
                         boxShadow: innerCoreShadow,
                       }}
                     />
@@ -585,7 +661,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                       <div
                         style={{
                           position: 'absolute',
-                          inset: '-8px 0',
+                          inset: '-4px 0',
                           pointerEvents: 'none',
                           display: 'flex',
                           justifyContent: 'space-around',
@@ -594,21 +670,21 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                       >
                         <div
                           style={{
-                            width: '18px',
-                            height: '100%',
-                            border: '3px solid #ffffff',
+                            width: '8px',
+                            height: '130%',
+                            border: '2px solid #ffffff',
                             borderRadius: '9999px',
-                            boxShadow: '0 0 20px #38bdf8',
+                            boxShadow: '0 0 10px #38bdf8',
                           }}
                           className="animate-ping"
                         />
                         <div
                           style={{
-                            width: '24px',
-                            height: '100%',
-                            border: '3px solid #ffffff',
+                            width: '12px',
+                            height: '130%',
+                            border: '2px solid #ffffff',
                             borderRadius: '9999px',
-                            boxShadow: '0 0 24px #0284c7',
+                            boxShadow: '0 0 14px #0284c7',
                           }}
                           className="animate-ping"
                         />
@@ -620,7 +696,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                       <div
                         style={{
                           position: 'absolute',
-                          inset: '-6px 0',
+                          inset: '-3px 0',
                           pointerEvents: 'none',
                           zIndex: 32,
                           display: 'flex',
@@ -628,13 +704,13 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                           alignItems: 'center',
                         }}
                       >
-                        <span className="animate-bounce" style={{ fontSize: '18px', filter: 'drop-shadow(0 0 8px #a855f7)' }}>
+                        <span className="animate-bounce" style={{ fontSize: '13px', filter: 'drop-shadow(0 0 6px #a855f7)' }}>
                           ⚡
                         </span>
-                        <span className="animate-pulse" style={{ fontSize: '18px', filter: 'drop-shadow(0 0 8px #38bdf8)' }}>
+                        <span className="animate-pulse" style={{ fontSize: '11px', filter: 'drop-shadow(0 0 6px #38bdf8)' }}>
                           🟣
                         </span>
-                        <span className="animate-bounce" style={{ fontSize: '20px', filter: 'drop-shadow(0 0 8px #a855f7)' }}>
+                        <span className="animate-bounce" style={{ fontSize: '14px', filter: 'drop-shadow(0 0 6px #a855f7)' }}>
                           ⚡
                         </span>
                       </div>
@@ -645,7 +721,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                       <div
                         style={{
                           position: 'absolute',
-                          inset: '-12px 0',
+                          inset: '-4px 0',
                           pointerEvents: 'none',
                           zIndex: 32,
                         }}
@@ -653,19 +729,19 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                         {/* 회전하는 나선 화염 파티클 */}
                         <span
                           className="animate-pulse"
-                          style={{ position: 'absolute', left: '10%', top: '-10px', fontSize: '20px' }}
+                          style={{ position: 'absolute', left: '15%', top: '-6px', fontSize: '13px' }}
                         >
                           🔥
                         </span>
                         <span
                           className="animate-pulse"
-                          style={{ position: 'absolute', left: '40%', bottom: '-12px', fontSize: '22px' }}
+                          style={{ position: 'absolute', left: '50%', bottom: '-6px', fontSize: '13px' }}
                         >
                           🔥
                         </span>
                         <span
                           className="animate-pulse"
-                          style={{ position: 'absolute', left: '70%', top: '-8px', fontSize: '22px' }}
+                          style={{ position: 'absolute', left: '80%', top: '-6px', fontSize: '13px' }}
                         >
                           🔥
                         </span>
@@ -675,8 +751,8 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                             position: 'absolute',
                             inset: 0,
                             background:
-                              'repeating-linear-gradient(45deg, transparent, transparent 15px, rgba(255, 238, 85, 0.4) 15px, rgba(255, 238, 85, 0.4) 30px)',
-                            borderRadius: '0 16px 16px 0',
+                              'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255, 238, 85, 0.4) 8px, rgba(255, 238, 85, 0.4) 16px)',
+                            borderRadius: '9999px',
                           }}
                           className="animate-pulse"
                         />
@@ -692,8 +768,8 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                     right: '-14px',
                     top: '50%',
                     transform: 'translateY(-50%)',
-                    fontSize: isFever ? '42px' : '34px',
-                    filter: 'drop-shadow(0 0 14px #ef4444) drop-shadow(0 0 24px #facc15)',
+                    fontSize: isFever ? '30px' : '26px',
+                    filter: 'drop-shadow(0 0 10px #ef4444) drop-shadow(0 0 18px #facc15)',
                     zIndex: 35,
                     pointerEvents: 'none',
                   }}
@@ -703,11 +779,11 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
 
                 {/* EXP 및 피버 팝업 배지 */}
                 <div
-                  className="animate-bounce"
+                  className="animate-badge-float"
                   style={{
                     position: 'absolute',
                     left: '50%',
-                    top: isFever ? '-30px' : '-26px',
+                    bottom: roarPower ? 'calc(100% + 4px)' : 'calc(100% + 8px)',
                     transform: 'translateX(-50%)',
                     display: 'flex',
                     alignItems: 'center',
@@ -719,21 +795,17 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                       : 'linear-gradient(90deg, #0284c7, #06b6d4)',
                     color: '#ffffff',
                     fontWeight: 900,
-                    padding: isCriticalHit ? '4px 14px' : isFever ? '3px 12px' : '2px 10px',
+                    padding: isCriticalHit ? '3px 12px' : isFever ? '2.5px 10px' : '2px 8px',
                     borderRadius: '9999px',
-                    border: isCriticalHit
-                      ? '2px solid #fef08a'
-                      : isFever
-                      ? '2px solid #fef08a'
-                      : '1.5px solid #ffffff',
+                    border: isCriticalHit || isFever ? '1.5px solid #fef08a' : '1.5px solid #ffffff',
                     boxShadow: isCriticalHit
-                      ? '0 0 25px rgba(239, 68, 68, 1), 0 0 40px rgba(245, 158, 11, 0.9)'
+                      ? '0 0 16px rgba(239, 68, 68, 0.9), 0 0 28px rgba(245, 158, 11, 0.7)'
                       : isFever
-                      ? '0 0 20px rgba(239, 68, 68, 0.9), 0 0 30px rgba(245, 158, 11, 0.7)'
-                      : '0 0 15px rgba(250, 204, 21, 0.8)',
+                      ? '0 0 14px rgba(239, 68, 68, 0.8), 0 0 22px rgba(245, 158, 11, 0.6)'
+                      : '0 0 12px rgba(6, 182, 212, 0.8)',
                     whiteSpace: 'nowrap',
-                    fontSize: isCriticalHit ? '12px' : '11px',
-                    zIndex: 40,
+                    fontSize: isCriticalHit ? '11px' : '10px',
+                    zIndex: 42,
                   }}
                 >
                   {isCriticalHit
@@ -742,6 +814,59 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                     ? '⚡ FEVER EXP 2배 획득! (+50 EXP)'
                     : `⚡ ${evo.beamName} (+25 EXP)`}
                 </div>
+
+                {/* 리듬게임식 파워 판정 배너 (화면 중앙 상단 화려한 팝업) */}
+                {roarPower && (
+                  <div
+                    key={`power-badge-${roarPower.level}`}
+                    style={{
+                      position: 'absolute',
+                      left: '50%',
+                      bottom: 'calc(100% + 24px)',
+                      transform: 'translateX(-50%)',
+                      zIndex: 50,
+                      display: 'flex',
+                      alignItems: 'center',
+                      pointerEvents: 'none',
+                      animation: 'judgmentSlam 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards',
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding:
+                          roarPower.level === 'PERFECT'
+                            ? '4px 14px'
+                            : roarPower.level === 'GREAT'
+                            ? '3px 12px'
+                            : '2.5px 10px',
+                        borderRadius: '9999px',
+                        background:
+                          roarPower.level === 'PERFECT'
+                            ? 'linear-gradient(90deg, #b91c1c 0%, #ea580c 50%, #eab308 100%)'
+                            : roarPower.level === 'GREAT'
+                            ? 'linear-gradient(90deg, #0284c7 0%, #06b6d4 50%, #f59e0b 100%)'
+                            : 'linear-gradient(90deg, #059669 0%, #10b981 100%)',
+                        border:
+                          roarPower.level === 'PERFECT' ? '1.5px solid #fef08a' : '1.5px solid #ffffff',
+                        boxShadow:
+                          roarPower.level === 'PERFECT'
+                            ? '0 0 20px rgba(239, 68, 68, 0.9), 0 0 35px rgba(245, 158, 11, 0.8)'
+                            : roarPower.level === 'GREAT'
+                            ? '0 0 16px rgba(6, 182, 212, 0.8), 0 0 25px rgba(245, 158, 11, 0.6)'
+                            : '0 0 12px rgba(16, 185, 129, 0.7)',
+                        color: '#ffffff',
+                        fontWeight: 900,
+                        fontSize:
+                          roarPower.level === 'PERFECT' ? '13px' : roarPower.level === 'GREAT' ? '12px' : '11px',
+                        letterSpacing: '-0.02em',
+                        textShadow: '0 2px 4px rgba(0,0,0,0.7)',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {roarPower.label}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -936,50 +1061,25 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                   : `단어 ${totalCount}개(${totalCount}/${totalCount})를 모두 격파했어요! 대단해요!`}
             </p>
 
-            {/* 승리 보상 괴수 알 지급 완료 안내 배지 */}
+            {/* 승리 보상 EXP 획득 안내 배지 */}
             {!isReviewMode && (
-              <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-950/60 border border-amber-500/60 text-amber-300 text-[10px] sm:text-[11px] font-black mb-1.5 shadow-sm">
-                <span>🎁 승리 보상:</span>
-                <span className="text-yellow-400 font-black">🥚 괴수 알 +1 획득 완료!</span>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-950/80 border border-cyan-400 text-cyan-300 text-[11px] sm:text-xs font-black mb-2 shadow-sm">
+                <Zap size={14} className="fill-cyan-400 text-cyan-400" />
+                <span>승리 보상:</span>
+                <span className="text-yellow-300 font-black">⚡ EXP 획득 &amp; 레벨업 성장!</span>
               </div>
             )}
 
-            {/* 알 깨기 가챠 보상 버튼 (일반 스테이지 전용) */}
-            {!isReviewMode && onOpenGacha && (
-              hasClaimedStageReward ? (
-                <button
-                  type="button"
-                  disabled
-                  className="bg-slate-700/60 text-slate-400 font-bold text-[11px] sm:text-xs px-4 py-1.5 rounded-lg cursor-not-allowed border border-slate-600 flex items-center gap-1.5 mb-1.5 select-none shadow-sm"
-                >
-                  <span className="text-xs">✅</span>
-                  <span>이번 스테이지 괴수 알 부화 완료!</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={onOpenGacha}
-                  className="bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-white font-black text-xs sm:text-sm px-4 py-1.5 rounded-lg shadow-lg animate-bounce flex items-center gap-1.5 cursor-pointer border border-yellow-300 mb-1.5 active:scale-95"
-                  style={{
-                    boxShadow: '0 0 15px rgba(245, 158, 11, 0.6), 0 0 8px rgba(244, 63, 94, 0.5)',
-                  }}
-                >
-                  <span className="text-sm">🥚</span>
-                  <span>획득한 괴수 알 부화하러 가기!</span>
-                  <span
-                    style={{
-                      fontSize: '10px',
-                      backgroundColor: '#facc15',
-                      color: '#0f172a',
-                      fontWeight: 900,
-                      padding: '1px 6px',
-                      borderRadius: '9999px',
-                    }}
-                  >
-                    부화하기
-                  </span>
-                </button>
-              )
+            {/* 바톤 터치: 당일 산수 요격이 아직 안 끝났을 때 산수 모드 이동 유도 */}
+            {!isReviewMode && !isMathDoneToday && onGoToMath && (
+              <button
+                type="button"
+                onClick={onGoToMath}
+                className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs sm:text-sm border border-yellow-200 shadow-xl mb-2 cursor-pointer animate-pulse active:scale-95"
+              >
+                <span>🔥 산수 에너지 충전하러 가기! (1/2 완료)</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
             )}
 
             {/* 메인 CTA 버튼 */}
