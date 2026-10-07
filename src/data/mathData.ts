@@ -15,16 +15,44 @@ export const PROBLEMS_PER_MATH_STAGE = 10;
 
 // ---------- 유틸 ----------
 
-const DIGITS = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
+export const DIGITS = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
 
-/** 0~100 한자어 수 읽기 (예: 34 → 삼십사) */
-const readSino = (n: number): string => {
+/** 0~100 한자어 한국어 수 읽기 (예: 34 → 삼십사) */
+export const readSino = (n: number): string => {
   if (n === 0) return '영';
   if (n === 100) return '백';
   const tens = Math.floor(n / 10);
   const ones = n % 10;
   const tensStr = tens === 0 ? '' : tens === 1 ? '십' : `${DIGITS[tens]}십`;
   return `${tensStr}${DIGITS[ones]}`;
+};
+
+const EN_ONES = [
+  'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+  'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'
+];
+const EN_TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+
+/** 0~100 영어 수 읽기 (예: 34 → thirty-four) */
+export const readEnglish = (n: number): string => {
+  if (n < 0 || n > 100) return String(n);
+  if (n < 20) return EN_ONES[n];
+  if (n === 100) return 'one hundred';
+  const tens = Math.floor(n / 10);
+  const ones = n % 10;
+  return ones === 0 ? EN_TENS[tens] : `${EN_TENS[tens]}-${EN_ONES[ones]}`;
+};
+
+const JP_DIGITS = ['', 'いち', 'に', 'さん', 'よん', 'ご', 'ろく', 'なな', 'はち', 'きゅう'];
+
+/** 0~100 일본어 수 읽기 (예: 34 → さんじゅうよん) */
+export const readJapanese = (n: number): string => {
+  if (n === 0) return 'ぜろ';
+  if (n === 100) return 'ひゃく';
+  const tens = Math.floor(n / 10);
+  const ones = n % 10;
+  const tensStr = tens === 0 ? '' : tens === 1 ? 'じゅう' : `${JP_DIGITS[tens]}じゅう`;
+  return `${tensStr}${JP_DIGITS[ones]}`;
 };
 
 /** 시드 고정 난수 (매번 같은 문제가 나오도록) */
@@ -39,16 +67,134 @@ const makeRng = (seed: number) => {
 const randInt = (rng: () => number, min: number, max: number) =>
   min + Math.floor(rng() * (max - min + 1));
 
-/** 정답 + 그럴듯한 오답 3개로 4지선다 구성 (정답 위치는 문제마다 달라짐) */
-const buildOptions = (answer: number, index: number): number[] => {
-  const candidates = [answer + 1, answer - 1, answer + 10, answer - 10, answer + 2, answer - 2, answer + 9, answer + 11];
-  const wrongs: number[] = [];
-  for (const c of candidates) {
-    if (c >= 0 && c !== answer && !wrongs.includes(c)) wrongs.push(c);
-    if (wrongs.length === 3) break;
+/**
+ * 정답 + 그럴듯한 오답 3개로 4지선다 구성
+ * - 초등 2학년의 대표적인 연산 실수 패턴을 반영 (받아올림/받아내림 실수, 일의 자리 계산 실수, 자릿수 전치 등)
+ * - 정답보다 큰 수와 작은 수가 균형 있게 섞이고, 정답의 크기 순위(작은 쪽에서 몇 번째)가 무작위화되어 보기만 보고 찍을 수 없도록 방지
+ */
+const buildOptions = (
+  answer: number,
+  indexOrSeed: number,
+  spec?: { hintFormula?: MathHintFormula }
+): number[] => {
+  const h = spec?.hintFormula;
+  const pool = new Set<number>();
+
+  // 1) 수식 분석을 통한 초등 2학년 맞춤형 실수 패턴 후보군
+  if (h) {
+    const a = h.a;
+    const b = h.b;
+    const op = h.op;
+
+    if (op === '+') {
+      // 덧셈 실수: 받아올림을 누락한 경우 (10이 덜 더해짐)
+      if (answer >= 10) pool.add(answer - 10);
+      // 받아올림을 중복으로 더한 경우
+      if (answer + 10 <= 100) pool.add(answer + 10);
+      // 덧셈 대신 뺄셈을 해버린 실수
+      if (a >= b && a - b !== answer) pool.add(a - b);
+      // 일의 자리 합만 적고 십의 자리를 빠뜨린 경우 등
+    } else if (op === '-') {
+      // 뺄셈 실수: 받아내림을 하지 않고 큰 수에서 작은 수를 뺀 경우
+      const aO = a % 10;
+      const bO = b % 10;
+      if (aO < bO) {
+        // 일의 자리에서 작은 수 - 큰 수가 안 되어 그냥 bO - aO를 한 대표적 실수
+        const noBorrowMistake = Math.floor(a / 10 - b / 10) * 10 + (bO - aO);
+        if (noBorrowMistake >= 0 && noBorrowMistake <= 100) pool.add(noBorrowMistake);
+      }
+      // 받아내림 후 십의 자리를 1 줄이지 않은 실수 (+10)
+      if (answer + 10 <= 100) pool.add(answer + 10);
+      // 10을 더 깎아버린 실수 (-10)
+      if (answer >= 10) pool.add(answer - 10);
+      // 뺄셈 대신 덧셈을 한 실수
+      if (a + b <= 100) pool.add(a + b);
+    }
   }
+
+  // 2) 십의 자리 / 일의 자리 숫자 전치(뒤바뀜) 실수 (예: 42 ↔ 24)
+  if (answer >= 12 && answer <= 98) {
+    const tens = Math.floor(answer / 10);
+    const ones = answer % 10;
+    if (tens !== ones && ones > 0) {
+      const swapped = ones * 10 + tens;
+      if (swapped <= 100) pool.add(swapped);
+    }
+  }
+
+  // 3) 계산 근접 실수 (일의 자리 ±1, ±2, ±3)
+  const nearOffsets = [1, -1, 2, -2, 3, -3, 10, -10, 9, -9, 11, -11];
+  for (const off of nearOffsets) {
+    const val = answer + off;
+    if (val >= 0 && val <= 100) pool.add(val);
+  }
+
+  // 4) 정답 제거 및 배열화
+  pool.delete(answer);
+  const candidateList = Array.from(pool);
+
+  // 시드 난수화 (indexOrSeed 기반 일관성 + 무작위성 확보)
+  let seed = ((indexOrSeed + 1) * 314159 + answer * 7919) >>> 0;
+  const pseudoRand = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+
+  // 정답보다 작은 후보와 큰 후보 분리
+  const smaller = candidateList.filter((n) => n < answer);
+  const larger = candidateList.filter((n) => n > answer);
+
+  // 셔플
+  const shuffleArray = (arr: number[]) => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(pseudoRand() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+  };
+  shuffleArray(smaller);
+  shuffleArray(larger);
+
+  // 정답이 항상 작은 쪽 2번째가 되지 않도록, 정답보다 작은 오답 개수를 0~3개 중 균형 있게 무작위 추출
+  // (가능한 경우 작은 수 1~2개, 큰 수 1~2개로 정답이 중간 또는 양 끝에 고르게 분포)
+  const wrongs: number[] = [];
+  const targetSmallerCount = Math.floor(pseudoRand() * 3); // 0, 1, 2 중 하나
+
+  // 작은 수에서 추출
+  for (const s of smaller) {
+    if (wrongs.length >= targetSmallerCount) break;
+    wrongs.push(s);
+  }
+
+  // 큰 수에서 추출
+  for (const l of larger) {
+    if (wrongs.length >= 3) break;
+    wrongs.push(l);
+  }
+
+  // 모자라면 남은 후보군 전체에서 충원
+  if (wrongs.length < 3) {
+    const remaining = candidateList.filter((n) => !wrongs.includes(n));
+    shuffleArray(remaining);
+    for (const r of remaining) {
+      wrongs.push(r);
+      if (wrongs.length === 3) break;
+    }
+  }
+
+  // 극단적인 경우(후보 부족) 안전장치
+  let fallbackDelta = 4;
+  while (wrongs.length < 3) {
+    const cand = answer + fallbackDelta;
+    if (cand >= 0 && cand <= 100 && cand !== answer && !wrongs.includes(cand)) {
+      wrongs.push(cand);
+    }
+    fallbackDelta = fallbackDelta > 0 ? -fallbackDelta : -fallbackDelta + 1;
+  }
+
+  // 5) 정답을 무작위 위치(0~3)에 삽입
+  const insertPos = Math.floor(pseudoRand() * 4);
   const result = [...wrongs];
-  result.splice(index % 4, 0, answer);
+  result.splice(insertPos, 0, answer);
   return result;
 };
 
@@ -57,6 +203,8 @@ interface Spec {
   readKr: string;
   answer: number;
   hintFormula?: MathHintFormula;
+  isMissingNumber?: boolean;
+  missingPosition?: 'first' | 'second';
 }
 
 const addSpec = (a: number, b: number): Spec => ({
@@ -72,6 +220,59 @@ const subSpec = (a: number, b: number): Spec => ({
   answer: a - b,
   hintFormula: { a, op: '-', b },
 });
+
+/** 빈칸 채우기(거꾸로 셈) 문제 변환 함수 (초등 2학년 덧셈·뺄셈 관계 학습) */
+const makeMissingNumberSpec = (base: Spec, useFirstPosition = false): Spec => {
+  if (!base.hintFormula || base.hintFormula.op2) return base;
+  const { a, b, op } = base.hintFormula;
+  const result = base.answer;
+
+  if (op === '+') {
+    // a + b = result
+    if (useFirstPosition) {
+      // □ + b = result (정답: a)
+      return {
+        question: `□ + ${b} = ${result}`,
+        readKr: `어떤 수 더하기 ${readSino(b)}는 ${readSino(result)}`,
+        answer: a,
+        isMissingNumber: true,
+        missingPosition: 'first',
+        hintFormula: { a: result, op: '-', b, c: a },
+      };
+    }
+    // a + □ = result (정답: b)
+    return {
+      question: `${a} + □ = ${result}`,
+      readKr: `${readSino(a)} 더하기 어떤 수는 ${readSino(result)}`,
+      answer: b,
+      isMissingNumber: true,
+      missingPosition: 'second',
+      hintFormula: { a: result, op: '-', b: a, c: b },
+    };
+  }
+
+  // a - b = result
+  if (useFirstPosition) {
+    // □ - b = result (정답: a)
+    return {
+      question: `□ - ${b} = ${result}`,
+      readKr: `어떤 수 빼기 ${readSino(b)}는 ${readSino(result)}`,
+      answer: a,
+      isMissingNumber: true,
+      missingPosition: 'first',
+      hintFormula: { a: result, op: '+', b, c: a },
+    };
+  }
+  // a - □ = result (정답: b)
+  return {
+    question: `${a} - □ = ${result}`,
+    readKr: `${readSino(a)} 빼기 어떤 수는 ${readSino(result)}`,
+    answer: b,
+    isMissingNumber: true,
+    missingPosition: 'second',
+    hintFormula: { a, op: '-', b: result, c: b },
+  };
+};
 
 /** 세 수 계산: ops는 두 연산자 */
 const tripleSpec = (a: number, op1: '+' | '-', b: number, op2: '+' | '-', c: number): Spec => {
@@ -159,8 +360,14 @@ const mixedTwoDigit: SpecMaker = (rng) => {
   return subSpec(a, b);
 };
 
-const generateStage = (stage: number, maker: SpecMaker, count = 8, onlyKind?: 'add' | 'sub'): MathProblemItem[] => {
-  const rng = makeRng(stage * 7919 + 13);
+const generateStage = (
+  stage: number,
+  maker: SpecMaker,
+  count = 8,
+  onlyKind?: 'add' | 'sub',
+  seedOffset = 0
+): MathProblemItem[] => {
+  const rng = makeRng(stage * 7919 + 13 + seedOffset * 9973);
   const seen = new Set<string>();
   const items: MathProblemItem[] = [];
   let guard = 0;
@@ -173,14 +380,20 @@ const generateStage = (stage: number, maker: SpecMaker, count = 8, onlyKind?: 'a
     if (seen.has(spec.question)) continue;
     seen.add(spec.question);
     const n = items.length;
+    // 7번, 8번 문제는 빈칸 채우기(거꾸로 셈) 문제로 전환 (세 수 연산인 7~8 스테이지 제외)
+    const isMissingCandidate = stage !== 7 && stage !== 8 && (n === 6 || n === 7);
+    const finalSpec = isMissingCandidate ? makeMissingNumberSpec(spec, n === 6) : spec;
+
     items.push({
-      id: `math_s${stage}_p${n + 1}`,
+      id: `math_s${stage}_p${n + 1}_${seedOffset}`,
       stage,
-      question: spec.question,
-      answer: String(spec.answer),
-      options: buildOptions(spec.answer, n + stage).map(String),
-      readKr: spec.readKr,
-      hintFormula: spec.hintFormula,
+      question: finalSpec.question,
+      answer: String(finalSpec.answer),
+      options: buildOptions(finalSpec.answer, n + stage + seedOffset * 17, finalSpec).map(String),
+      readKr: finalSpec.readKr,
+      hintFormula: finalSpec.hintFormula,
+      isMissingNumber: finalSpec.isMissingNumber,
+      missingPosition: finalSpec.missingPosition,
     });
   }
   return items;
@@ -755,8 +968,22 @@ export const generateRandomWordProblems = (
 
   return selected.map((tmpl, idx) => {
     const { text, answer } = tmpl.generate(childName, stageNum);
-    const rawOptions = buildOptions(answer, Math.floor(Math.random() * 4));
     const roundNumber = startRound + idx;
+    const tempItem: MathProblemItem = {
+      id: '',
+      stage: stageNum,
+      question: text,
+      answer,
+      options: [],
+      readKr: text,
+      problemText: text,
+    };
+    const inferredHint = getProblemHintFormula(tempItem);
+    const rawOptions = buildOptions(
+      answer,
+      Math.floor(Math.random() * 100000) + idx,
+      inferredHint ? { hintFormula: inferredHint } : undefined
+    );
     return {
       id: `math_s${stageNum}_r${roundNumber}_${Date.now()}_${idx + 1}`,
       stage: stageNum,
@@ -766,6 +993,7 @@ export const generateRandomWordProblems = (
       answer,
       options: rawOptions,
       readKr: text,
+      hintFormula: inferredHint || undefined,
     };
   });
 };
@@ -793,12 +1021,43 @@ export const MATH_BASE_PROBLEMS: MathProblemItem[] = [
 
 export const MATH_PROBLEMS: MathProblemItem[] = MATH_BASE_PROBLEMS;
 
+// 스테이지별 수식 생성기 매핑
+const getStageMakerConfig = (stage: number): { maker: SpecMaker; onlyKind?: 'add' | 'sub' } => {
+  switch (stage) {
+    case 1:
+      return { maker: addNoCarry, onlyKind: 'add' };
+    case 2:
+      return { maker: subNoBorrow, onlyKind: 'sub' };
+    case 3:
+      return { maker: alternate(addNoCarry, subNoBorrow) };
+    case 4:
+      return { maker: addCarry, onlyKind: 'add' };
+    case 5:
+      return { maker: subBorrow, onlyKind: 'sub' };
+    case 6:
+      return { maker: alternate(addCarry, subBorrow) };
+    case 7:
+      return { maker: tripleAdd };
+    case 8:
+      return { maker: tripleMixed };
+    case 9:
+    case 10:
+    default:
+      return { maker: mixedTwoDigit };
+  }
+};
+
 /**
  * 특정 스테이지(1~12)에 해당하는 10개 수학 문제를 반환합니다.
+ * - sessionSeed: 게임 재시작, 재도전 또는 세션 변경 시 새로운 수식을 생성하도록 시드 오프셋 지원
  * - 모든 스테이지(1~12)의 9번, 10번 문제는 서술형 문장제(시간제한 없음)로 랜덤 출제됩니다!
  * - STAGE 11, 12는 10문제 전체가 서술형 문장제로 랜덤 출제됩니다.
  */
-export const getMathProblemsForStage = (stageNum: number, customChildName?: string): MathProblemItem[] => {
+export const getMathProblemsForStage = (
+  stageNum: number,
+  customChildName?: string,
+  sessionSeed = 0
+): MathProblemItem[] => {
   const normalizedStage = ((stageNum - 1) % TOTAL_MATH_STAGES) + 1;
   const name = customChildName || getChildName();
 
@@ -807,8 +1066,15 @@ export const getMathProblemsForStage = (stageNum: number, customChildName?: stri
     return generateRandomWordProblems(normalizedStage, PROBLEMS_PER_MATH_STAGE, 1, name);
   }
 
-  // 1~10 스테이지: 1~8번 계산 수식 문제 + 9~10번(마지막 2문제) 서술형 랜덤 문제
-  const baseCalcs = MATH_BASE_PROBLEMS.filter((p) => p.stage === normalizedStage).slice(0, 8);
+  // 1~10 스테이지: 1~8번 계산 수식 문제 (sessionSeed를 통해 다시하기 시 매번 새로운 문제 출제)
+  const config = getStageMakerConfig(normalizedStage);
+  const baseCalcs = generateStage(
+    normalizedStage,
+    config.maker,
+    8,
+    config.onlyKind,
+    sessionSeed
+  );
   const wordProblems = generateRandomWordProblems(normalizedStage, 2, 9, name);
 
   return [...baseCalcs, ...wordProblems];

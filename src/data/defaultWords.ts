@@ -1,4 +1,5 @@
 import type { WordItem } from '../types';
+import { WORD_EMOJIS } from './wordEmojis';
 
 export const defaultWords: WordItem[] = [
   // 1. 학교 생활 및 학용품 (1~20)
@@ -440,6 +441,9 @@ export const defaultWords: WordItem[] = [
   { id: 'w198', ko: '듣다', en: 'Listen / Hear', ja: '聞く', jaKana: 'きく' },
   { id: 'w199', ko: '말하다', en: 'Speak / Talk', ja: '話す', jaKana: 'はなす' },
   { id: 'w200', ko: '달리다', en: 'Run', ja: '走る', jaKana: 'はしる' }
-];
+].map((word): WordItem => ({
+  ...word,
+  emoji: WORD_EMOJIS[String(word.id)],
+}));
 
 export const DEFAULT_WORDS = defaultWords;

@@ -113,14 +113,14 @@ const SPECIAL: Record<string, SpecialSentence> = {
   기쁘다: { ko: '친구를 만나서 기뻐요!', en: 'I am happy to see my friend!', jaBefore: '友達に会えて', jaAfter: 'です！' },
   슬프다: { ko: '슬플 때는 친구에게 말해요!', en: 'I talk to a friend when I feel sad!', jaBefore: '', jaAfter: 'ときは友達に話します！' },
   즐겁다: { ko: '친구와 놀면 즐거워요!', en: 'Playing with friends is fun!', jaBefore: '友達と遊ぶと', jaAfter: 'です！' },
-  크다: { ko: '이 공룡은 정말 커요!', en: 'This dinosaur is big!', jaBefore: 'この恐竜は', jaAfter: 'です！' },
-  작다: { ko: '이 개미는 정말 작아요!', en: 'This ant is small!', jaBefore: 'このアリは', jaAfter: 'です！' },
+  크다: { ko: '이 공룡은 정말 커요!', en: 'This dinosaur is very big!', jaBefore: 'この恐竜はとても', jaAfter: 'です！' },
+  작다: { ko: '이 개미는 정말 작아요!', en: 'This ant is very small!', jaBefore: 'このアリはとても', jaAfter: 'です！' },
   많다: { ko: '공원에 친구가 많아요!', en: 'There are many friends at the park!', jaBefore: '公園には友達が', jaAfter: 'です！' },
   적다: { ko: '오늘은 사람이 적어요!', en: 'There are few people today!', jaBefore: '今日は人が', jaAfter: 'です！' },
-  빠르다: { ko: '기차가 정말 빨라요!', en: 'The train is fast!', jaBefore: '電車は', jaAfter: 'です！' },
-  느리다: { ko: '거북이는 천천히 걸어요!', en: 'The turtle walks slowly!', jaBefore: '亀は歩くのが', jaAfter: 'です！' },
+  빠르다: { ko: '기차가 정말 빨라요!', en: 'The train is very fast!', jaBefore: '電車はとても', jaAfter: 'です！' },
+  느리다: { ko: '거북이는 정말 느려요!', en: 'The turtle is so slow!', jaBefore: '亀はとても', jaAfter: 'です！' },
   좋다: { ko: '오늘은 기분이 좋아요!', en: 'I feel good today!', jaBefore: '今日は気分が', jaAfter: 'です！' },
-  먹다: { ko: '친구와 함께 밥을 먹어요!', en: 'I eat lunch with my friend!', jaBefore: '友達とご飯を', jaAfter: 'よ！' },
+  먹다: { ko: '친구와 함께 밥을 먹어요!', en: 'I eat food with my friend!', jaBefore: '友達とご飯を', jaAfter: 'よ！' },
   마시다: { ko: '물을 한 모금 마셔요!', en: 'I drink a glass of water!', jaBefore: '水を', jaAfter: 'よ！' },
   자다: { ko: '밤에는 푹 자요!', en: 'I sleep well at night!', jaBefore: '夜はぐっすり', jaAfter: 'よ！' },
   일어나다: { ko: '아침에 일어나요!', en: 'I wake up in the morning!', jaBefore: '朝、', jaAfter: 'よ！' },
@@ -148,14 +148,17 @@ export const buildMiniComboSentences = (word: WordItem): MiniComboSentences => {
 
   const category = getCategory(word, ko, en);
   if (category === 'place') {
-    return { ko: `여기는 ${ko}${copula(ko)}!`, en: en === 'home' ? 'Welcome home!' : `This is the ${en}!`, ja: japanese('ここは', 'です！') };
+    const english = (en === 'home' || en === 'house') ? 'This is my home!' : `This is the ${en}!`;
+    return { ko: `여기는 ${ko}${copula(ko)}!`, en: english, ja: japanese('ここは', 'です！') };
   }
   if (category === 'person') {
-    const familiar = inSet(ko, '친구|엄마|아빠|형|오빠|누나|언니|남동생|여동생|동생|할아버지|할머니|가족|아기|아이');
+    const isElder = inSet(ko, '선생님|할아버지|할머니|아빠|엄마|의사|경찰관|소방관|요리사');
     const profession = inSet(ko, '의사|경찰관|소방관|요리사');
+    const introKo = isElder ? '이분은' : '이쪽은';
+    const myPrefix = inSet(ko, '아빠|엄마|형|오빠|누나|언니|남동생|여동생|동생|할아버지|할머니|가족') ? '우리 ' : ko === '친구' ? '제 ' : '';
     return {
-      ko: familiar ? `소중한 ${ko}${copula(ko)}!` : `이분은 ${ko}${copula(ko)}!`,
-      en: profession ? `This is ${article(en)} ${en}!` : `This is my ${en}!`,
+      ko: `${introKo} ${myPrefix}${ko}${copula(ko)}!`,
+      en: profession ? `This is ${article(en)} ${en}!` : ko === '친구' ? 'This is my friend!' : `This is my ${en}!`,
       ja: japanese('こちらは', 'です！'),
     };
   }
@@ -167,13 +170,15 @@ export const buildMiniComboSentences = (word: WordItem): MiniComboSentences => {
     return { ko: `이것은 ${ko}${copula(ko)}!`, en: english, ja: japanese('これは', 'です！') };
   }
   if (category === 'drink') {
-    return { ko: `시원한 ${ko}${copula(ko)}!`, en: `Can I have some ${en}?`, ja: japanese('つめたい', 'です！') };
+    return { ko: `시원한 ${ko}${copula(ko)}!`, en: `It's cool ${en}!`, ja: japanese('つめたい', 'です！') };
   }
   if (category === 'food') {
-    const countable = inSet(en.toLowerCase(), 'apple|banana|grape|strawberry|watermelon|tangerine|peach|egg|carrot|potato|snack|cake');
-    const english = countable ? `I want ${article(en)} ${en}!` :
-      en.toLowerCase() === 'vegetable' ? 'I like vegetables!' :
-      en.toLowerCase() === 'fish dish' ? 'I like this fish dish!' : `I like ${en}!`;
+    const countable = inSet(en.toLowerCase(), 'apple|banana|grape|strawberry|watermelon|tangerine|peach|egg|carrot|potato|snack|cake|vegetable');
+    const english = countable
+      ? `It's a delicious ${en}!`
+      : en.toLowerCase() === 'fish dish'
+      ? `It's a delicious fish dish!`
+      : `It's delicious ${en}!`;
     return { ko: `맛있는 ${ko}${copula(ko)}!`, en: english, ja: japanese('おいしい', 'です！') };
   }
   if (category === 'animal') {
@@ -184,7 +189,7 @@ export const buildMiniComboSentences = (word: WordItem): MiniComboSentences => {
     return { ko: `내 ${ko}${object(ko)} 봐요!`, en: `Look at my ${en}!`, ja: japanese('私の', 'を見て！') };
   }
   if (category === 'nature') {
-    return { ko: `저기 ${ko}${subject(ko)} 보여요!`, en: `Look at the ${en}!`, ja: japanese('あそこに', 'が見えます！') };
+    return { ko: `저기 ${ko}${object(ko)} 봐요!`, en: `Look at the ${en}!`, ja: japanese('あそこの', 'を見て！') };
   }
   if (category === 'color') {
     return { ko: `나는 ${ko}${object(ko)} 좋아해요!`, en: `I like ${en}!`, ja: japanese('私は', 'が好きです！') };

@@ -1018,10 +1018,27 @@ export function App() {
 
       setClearedIds((prev) => (prev.includes(matchedId) ? prev : [...prev, matchedId]));
 
-      // 복습 모드에서 정답 단어는 오답노트에서 자동 제거 및 Firestore 실시간 동기화
+      // 복습 모드: SRS 3단계 마스터리 시스템 (3회 성공 시 오답노트에서 완전 봉인/졸업)
       if (isReviewMode) {
         setWrongWordList((prev) => {
-          const updated = prev.filter((w) => w.id !== matchedId);
+          const updated: WordItem[] = [];
+          for (const item of prev) {
+            if (item.id === matchedId) {
+              const currentMastery = item.reviewMastery || 0;
+              const nextMastery = currentMastery + 1;
+              if (nextMastery < 3) {
+                // 아직 3회 미만이면 마스터리 별점 카운트 1 증가 유지
+                updated.push({
+                  ...item,
+                  reviewMastery: nextMastery,
+                });
+              } else {
+                // 3회 달성: 오답노트에서 완전히 졸업/제거!
+              }
+            } else {
+              updated.push(item);
+            }
+          }
           try {
             localStorage.setItem(STORAGE_KEY_WRONG_WORDS, JSON.stringify(updated));
           } catch (e) {

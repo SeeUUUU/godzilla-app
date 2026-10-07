@@ -7,7 +7,7 @@ import {
   Trash2,
   Swords,
   BookOpen,
-  Sparkles,
+  Award,
 } from 'lucide-react';
 import { playCardTapSound } from '../utils/soundEffects';
 
@@ -125,10 +125,10 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
             <>
               <div className="flex items-center justify-between px-1 text-xs text-slate-400 font-bold">
                 <span className="flex items-center gap-1.5 text-amber-400">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  스피커 아이콘을 눌러 각 언어 발음을 들어보세요
+                  <Award className="w-3.5 h-3.5 text-yellow-400" />
+                  <span>복습 레이드에서 3회 연속 맞히면 오답노트에서 자동 졸업!</span>
                 </span>
-                <span>총 {wrongWords.length}개</span>
+                <span className="text-amber-300 font-black">총 {wrongWords.length}개</span>
               </div>
 
               <div className="space-y-2">
@@ -148,6 +148,9 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
                       <div className="flex items-center justify-between bg-slate-900/60 px-2.5 py-1.5 rounded-lg border border-cyan-500/20">
                         <div className="flex items-center gap-1.5 overflow-hidden">
                           <span className="text-[10px] text-cyan-400 font-bold flex-none">🇰🇷</span>
+                          {word.emoji && (
+                            <span className="text-sm flex-none select-none">{word.emoji}</span>
+                          )}
                           <span className="text-xs font-black text-slate-100 truncate">
                             {word.ko}
                           </span>
@@ -206,18 +209,44 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 개별 삭제 버튼 */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        playCardTapSound();
-                        onRemoveWord(word.id);
-                      }}
-                      title="이 단어 오답노트에서 제거"
-                      className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-950/30 rounded-lg transition-colors flex-none cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {/* 복습 성공 단계 및 개별 삭제 버튼 */}
+                    <div className="flex items-center gap-1.5 flex-none">
+                      {/* SRS 3단계 마스터 게이지 */}
+                      <div
+                        title={`복습 성공 ${word.reviewMastery || 0}/3회 (3회 달성 시 자동 졸업!)`}
+                        className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 select-none"
+                      >
+                        {[1, 2, 3].map((step) => {
+                          const isAchieved = (word.reviewMastery || 0) >= step;
+                          return (
+                            <span
+                              key={step}
+                              className={`text-[10px] leading-none ${
+                                isAchieved ? 'text-amber-400 font-black' : 'text-slate-600'
+                              }`}
+                            >
+                              ★
+                            </span>
+                          );
+                        })}
+                        <span className="text-[9px] font-bold text-slate-400 ml-1">
+                          {word.reviewMastery || 0}/3
+                        </span>
+                      </div>
+
+                      {/* 개별 삭제 버튼 */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playCardTapSound();
+                          onRemoveWord(word.id);
+                        }}
+                        title="이 단어 오답노트에서 제거"
+                        className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

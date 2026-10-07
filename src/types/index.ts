@@ -12,10 +12,13 @@ export interface WordItem {
   en: string;
   ja: string;
   jaKana?: string;
+  emoji?: string;
   krSentence?: string;
   enSentence?: string;
   jpSentence?: string;
   jpFurigana?: string;
+  /** 오답 복습 성공 연속 횟수 (3회 달성 시 자동 졸업/봉인 완료) */
+  reviewMastery?: number;
 }
 
 export interface MathHintFormula {
@@ -35,6 +38,9 @@ export interface MathProblemItem {
   readKr: string;
   /** 서술형(문장제) 문제 여부 - true이면 운석 낙하/시간제한 없음 */
   isWordProblem?: boolean;
+  /** 빈칸 채우기(거꾸로 셈) 문제 여부 (예: □ + B = C) */
+  isMissingNumber?: boolean;
+  missingPosition?: 'first' | 'second';
   /** 서술형 문제 지문 */
   problemText?: string;
   /** 수 모형 힌트용 연산식 데이터 */

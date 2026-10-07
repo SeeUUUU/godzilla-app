@@ -157,10 +157,13 @@ export const SentenceComboModal: React.FC<SentenceComboModalProps> = ({
             )}
           </div>
 
-          <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white flex items-center gap-2">
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white flex items-center justify-center gap-2">
             <span>고질라 한 줄 문장 파워!</span>
-            <span className="text-amber-400 text-lg sm:text-xl font-bold">
-              ({sentenceData.word?.ko || '단어'})
+            <span className="text-amber-400 text-lg sm:text-xl font-bold inline-flex items-center gap-1">
+              {sentenceData.word?.emoji && (
+                <span className="text-xl sm:text-2xl">{sentenceData.word.emoji}</span>
+              )}
+              <span>({sentenceData.word?.ko || '단어'})</span>
             </span>
           </h2>
           <p className="text-xs sm:text-sm text-slate-300 mt-1">

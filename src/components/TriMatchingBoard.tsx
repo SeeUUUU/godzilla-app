@@ -3,7 +3,7 @@ import type { WordItem, Language, SelectedCards } from '../types';
 import { useSpeech } from '../hooks/useSpeech';
 import type { SpeechLang } from '../hooks/useSpeech';
 import { playCardTapSound, playDingDongSuccess, playErrorBuzzer } from '../utils/soundEffects';
-import { CheckCircle2, Volume2, Sparkles } from 'lucide-react';
+import { CheckCircle2, Volume2, Sparkles, Ear } from 'lucide-react';
 
 interface TriMatchingBoardProps {
   words: WordItem[];
@@ -14,12 +14,14 @@ interface TriMatchingBoardProps {
   stageRangeLabel?: string;
   hintWordId?: string | number | null;
   isScreenShaking?: boolean;
+  showIconHint?: boolean;
 }
 
 interface ShuffledCard {
   id: string | number;
   text: string;
   subText?: string;
+  emoji?: string;
   lang: Language;
 }
 
@@ -46,12 +48,14 @@ export const createIndependentShuffledColumns = (words: WordItem[]): {
   const baseKo: ShuffledCard[] = words.map((w) => ({
     id: w.id,
     text: w.ko || '',
+    emoji: w.emoji,
     lang: 'ko',
   }));
 
   const baseEn: ShuffledCard[] = words.map((w) => ({
     id: w.id,
     text: w.en || '',
+    emoji: w.emoji,
     lang: 'en',
   }));
 
@@ -59,6 +63,7 @@ export const createIndependentShuffledColumns = (words: WordItem[]): {
     id: w.id,
     text: w.ja || '',
     subText: w.jaKana || '',
+    emoji: w.emoji,
     lang: 'ja',
   }));
 
@@ -114,6 +119,7 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
   stageRangeLabel,
   hintWordId,
   isScreenShaking = false,
+  showIconHint = true,
 }) => {
   const { speak } = useSpeech();
 
@@ -164,6 +170,7 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
 
   const [isShaking, setIsShaking] = useState(false);
   const [isMatchingSuccess, setIsMatchingSuccess] = useState(false);
+  const [isListeningMode, setIsListeningMode] = useState(false);
   const isLockedRef = useRef(false);
   const mismatchTimerRef = useRef<number | null>(null);
 
@@ -301,25 +308,41 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
         isScreenShaking ? 'animate-screen-shake' : ''
       }`}
     >
-      {/* 스테이지 라벨 바 (출제 범위 안내) */}
-      {(stageLabel || stageRangeLabel) && (
-        <div
-          className="flex items-center justify-center gap-1.5 sm:gap-2 pb-0.5 sm:pb-1 flex-shrink-0"
-        >
+      {/* 스테이지 라벨 바 (출제 범위 안내 및 소리 듣기 챌린지 모드 토글) */}
+      <div className="flex items-center justify-between gap-1 sm:gap-2 pb-0.5 sm:pb-1 flex-shrink-0 px-0.5">
+        <div className="flex items-center gap-1.5 sm:gap-2 overflow-hidden">
           {stageLabel && (
             <span
-              className="text-[9px] sm:text-[10px] md:text-xs font-black px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/35 tracking-wider"
+              className="text-[9px] sm:text-[10px] md:text-xs font-black px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/35 tracking-wider truncate"
             >
               ⚔️ {stageLabel}
             </span>
           )}
           {stageRangeLabel && (
-            <span className="text-[8px] sm:text-[9px] md:text-xs font-bold text-slate-400 tracking-tight">
+            <span className="text-[8px] sm:text-[9px] md:text-xs font-bold text-slate-400 tracking-tight truncate hidden sm:inline">
               {stageRangeLabel}
             </span>
           )}
         </div>
-      )}
+
+        {/* L2 소리 듣고 맞추기 (듣기 챌린지) 모드 원클릭 토글 버튼 */}
+        <button
+          type="button"
+          onClick={() => {
+            playCardTapSound();
+            setIsListeningMode((prev) => !prev);
+          }}
+          title={isListeningMode ? '일반 보기 모드로 전환' : '글자를 가리고 소리만 듣고 맞추는 챌린지 모드'}
+          className={`px-2 sm:px-2.5 py-0.5 rounded-full text-[9px] sm:text-[10px] md:text-xs font-black flex items-center gap-1 border transition-all cursor-pointer active:scale-95 shadow-sm ${
+            isListeningMode
+              ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.5)] animate-pulse'
+              : 'bg-slate-800/80 hover:bg-slate-700/80 text-purple-300 border-purple-500/40 hover:border-purple-400'
+          }`}
+        >
+          <Ear className="w-3 h-3 text-purple-300" />
+          <span>{isListeningMode ? '🎧 소리 챌린지 ON' : '👂 소리 챌린지'}</span>
+        </button>
+      </div>
 
       {/* 3열 그리드 또는 클리어/빈 상태 폴백 UI */}
       {displayWords.length === 0 ? (
@@ -453,26 +476,47 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                       >
                         {/* 큼직하고 시원시원한 단어 텍스트 (수직 중앙 정렬 및 일본어 2줄 밸런스 유지) */}
                         <div className="flex flex-col min-w-0 flex-1 text-left justify-center pr-1 overflow-hidden">
-                          <div className="flex items-center gap-1">
-                            <span
-                              className={`${mainTextSizeClass} leading-tight truncate tracking-tight`}
-                              style={{ textDecoration: textDeco }}
-                            >
-                              {card.text}
-                            </span>
-                            {isHint && !isCleared && (
-                              <span className="text-[8px] font-black text-amber-300 px-1 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 flex-shrink-0 animate-bounce">
-                                🦅힌트
+                          {isListeningMode && !isCleared && !isSelected ? (
+                            <div className="flex items-center gap-1.5 text-purple-300/90 py-0.5">
+                              <span className="text-base sm:text-lg flex-shrink-0 animate-pulse">🔊</span>
+                              <span className="text-xs sm:text-sm font-black tracking-wider text-purple-200">
+                                소리 듣기
                               </span>
-                            )}
-                          </div>
-                          {card.subText && (
-                            <span
-                              className="text-[9px] sm:text-[11px] md:text-xs font-semibold text-emerald-400 leading-none truncate mt-0.5"
-                              style={{ textDecoration: textDeco }}
-                            >
-                              {card.subText}
-                            </span>
+                              {isHint && (
+                                <span className="text-[8px] font-black text-amber-300 px-1 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 flex-shrink-0 animate-bounce">
+                                  🦅힌트
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-1.5 overflow-hidden">
+                                {showIconHint && card.lang === 'ko' && card.emoji && (
+                                  <span className="text-base sm:text-lg flex-shrink-0 select-none">
+                                    {card.emoji}
+                                  </span>
+                                )}
+                                <span
+                                  className={`${mainTextSizeClass} leading-tight truncate tracking-tight`}
+                                  style={{ textDecoration: textDeco }}
+                                >
+                                  {card.text}
+                                </span>
+                                {isHint && !isCleared && (
+                                  <span className="text-[8px] font-black text-amber-300 px-1 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 flex-shrink-0 animate-bounce">
+                                    🦅힌트
+                                  </span>
+                                )}
+                              </div>
+                              {card.subText && (
+                                <span
+                                  className="text-[9px] sm:text-[11px] md:text-xs font-semibold text-emerald-400 leading-none truncate mt-0.5"
+                                  style={{ textDecoration: textDeco }}
+                                >
+                                  {card.subText}
+                                </span>
+                              )}
+                            </>
                           )}
                         </div>
 

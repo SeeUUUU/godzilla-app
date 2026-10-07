@@ -2,7 +2,15 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import confetti from 'canvas-confetti';
 import { Volume2, Heart, Trophy, RotateCcw, Zap, ArrowRight, Calculator, Flame, Crown, Search, Award, Sparkles } from 'lucide-react';
 import type { MathProblemItem } from '../types';
-import { getMathProblemsForStage, TOTAL_MATH_STAGES, PROBLEMS_PER_MATH_STAGE, getChildName } from '../data/mathData';
+import {
+  getMathProblemsForStage,
+  TOTAL_MATH_STAGES,
+  PROBLEMS_PER_MATH_STAGE,
+  getChildName,
+  readSino,
+  readEnglish,
+  readJapanese,
+} from '../data/mathData';
 import { useSpeech } from '../hooks/useSpeech';
 import { MathBlockHintModal } from './MathBlockHintModal';
 import { AtomicHangarModal } from './AtomicHangarModal';
@@ -148,6 +156,13 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   const [combo, setCombo] = useState(0);
   const [maxCombo, setMaxCombo] = useState(0);
   const [comboPopup, setComboPopup] = useState<{ count: number; isFever: boolean } | null>(null);
+  // 정답 맞춤 시 3개 국어(한국어·영어·일본어) 숫자 낭독 & 팝업 연출 상태
+  const [solvedAnswerDisplay, setSolvedAnswerDisplay] = useState<{
+    num: number;
+    kr: string;
+    en: string;
+    ja: string;
+  } | null>(null);
   const isFever = combo >= 3;
 
   // 아이 이름 상태 (기본값: '시우')
@@ -169,11 +184,33 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
 
   // 1. 해당 스테이지의 10문제 가져오기
   const stageProblems = useMemo<MathProblemItem[]>(() => {
-    return getMathProblemsForStage(stageNum, childName);
+    return getMathProblemsForStage(stageNum, childName, gameSession);
   }, [stageNum, gameSession, childName]);
 
   const currentProblem = stageProblems[roundIndex] || stageProblems[0];
   const isWordProblem = currentProblem?.isWordProblem === true;
+
+  // M10: 스테이지당 1회 황금 보너스 운석 라운드 (1~6 라운드 중 하나)
+  const goldenRoundIndex = useMemo(() => {
+    return ((gameSession * 5 + stageNum * 3) % 6) + 1;
+  }, [gameSession, stageNum]);
+  const isGoldenMeteor = !isWordProblem && roundIndex === goldenRoundIndex;
+
+  // M3: 정답 크기에 비례한 운석 크기 스케일 (0.88 ~ 1.25)
+  const meteorScale = useMemo(() => {
+    if (isWordProblem) return 1;
+    const rawAnswer =
+      typeof currentProblem?.answer === 'number'
+        ? currentProblem.answer
+        : parseInt(String(currentProblem?.answer || '10'), 10) || 10;
+    return Math.min(1.25, Math.max(0.88, 0.88 + (rawAnswer / 100) * 0.37));
+  }, [isWordProblem, currentProblem]);
+
+  // M3: 뺄셈 운석 여부 (수 분할/쪼개짐 시각화)
+  const isSubtraction =
+    !isWordProblem &&
+    ((currentProblem?.question && currentProblem.question.includes('-')) ||
+      currentProblem?.hintFormula?.op === '-');
 
   // 숫자/문자 혼용 보기를 문자열로 통일
   const currentOptions = useMemo<string[]>(
@@ -427,6 +464,29 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         setPhase('INTERCEPTING');
         setIsShootingBeam(true);
 
+        // 3개 국어(한국어·영어·일본어) 숫자 낭독 & 피드백 정보 생성
+        const ansNum = parseInt(String(currentProblem.answer), 10);
+        if (!isNaN(ansNum) && ansNum >= 0 && ansNum <= 100) {
+          const krStr = readSino(ansNum);
+          const enStr = readEnglish(ansNum);
+          const jaStr = readJapanese(ansNum);
+          setSolvedAnswerDisplay({
+            num: ansNum,
+            kr: krStr,
+            en: enStr,
+            ja: jaStr,
+          });
+
+          // 정답 음성: 한국어 또는 영어로 정답 수치 낭독 (짝수 콤보는 영어, 홀수는 한국어)
+          window.setTimeout(() => {
+            if (nextCombo % 2 === 0) {
+              speak(enStr, 'en-US');
+            } else {
+              speak(`${krStr}!`, 'ko-KR');
+            }
+          }, 350);
+        }
+
         // 사운드: 보스 운석 격파 시에는 하이퍼 아토믹 피니시 사운드!
         if (isWordProblem) {
           playPerfectAtomicRoarSound();
@@ -449,17 +509,29 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
           setIsExploding(true);
           playMeteorExplosionSound();
 
-          // 폭죽 파티클 (보스 격파 시에는 바이올렛/골드/화염의 화려한 보스 승리 폭죽)
+          // 폭죽 파티클 (황금 운석 또는 보스 격파 시 화려한 폭죽)
           confetti({
-            particleCount: isWordProblem ? 140 : currentIsFever ? 100 : 60,
-            spread: isWordProblem ? 130 : currentIsFever ? 120 : 90,
-            origin: { x: 0.5, y: Math.min(0.7, Math.max(0.15, (meteorProgress * 0.78) / 100)) },
-            colors: isWordProblem
+            particleCount: isGoldenMeteor ? 130 : isWordProblem ? 140 : currentIsFever ? 100 : 60,
+            spread: isGoldenMeteor ? 120 : isWordProblem ? 130 : currentIsFever ? 120 : 90,
+            origin: {
+              x: 0.5,
+              y: isWordProblem ? 0.38 : Math.min(0.7, Math.max(0.15, (meteorProgress * 0.78) / 100)),
+            },
+            colors: isGoldenMeteor
+              ? ['#fbbf24', '#facc15', '#eab308', '#ffffff', '#f59e0b']
+              : isWordProblem
               ? ['#a855f7', '#ec4899', '#facc15', '#f97316', '#38bdf8', '#ffffff']
               : currentIsFever
               ? ['#ea580c', '#ef4444', '#facc15', '#f43f5e', '#ffffff', '#38bdf8']
               : ['#f59e0b', '#ef4444', '#38bdf8', '#ffffff', '#10b981'],
           });
+
+          // M10: 황금 운석 요격 보너스 피드백
+          if (isGoldenMeteor) {
+            setDefenseDamageAlert('🌟 황금 보너스 운석 격파! 알 조각 & 보너스 획득! 🌟');
+            window.setTimeout(() => setDefenseDamageAlert(null), 1800);
+            onPartnerNotice?.('⭐ 황금 운석 요격 성공! 보너스 알 조각을 획득했어요! ⭐', '🌟');
+          }
 
           // 레이저 소멸
           window.setTimeout(() => {
@@ -491,6 +563,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                 colors: ['#a855f7', '#facc15', '#f97316', '#ef4444', '#38bdf8', '#ffffff'],
               });
             } else {
+              setSolvedAnswerDisplay(null);
               setRoundIndex((r) => r + 1);
               setPhase('PLAYING');
             }
@@ -541,6 +614,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       onPartnerNotice,
       triggerDamageFeedback,
       combo,
+      isGoldenMeteor,
     ]
   );
 
@@ -811,7 +885,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         />
 
         {/* 상단: 산수 에너지 스테이션 배너 또는 50:50 긴급 서포트 배너 */}
-        <div className="relative z-10 w-full flex items-center justify-center pt-1 flex-none">
+        <div className="relative z-10 w-full flex items-center justify-center pt-1.5 pb-1 flex-none">
           {!isStarted ? (
             <div className="flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-slate-900/80 border border-amber-500/40 text-[10px] sm:text-xs text-amber-300/70 font-extrabold shadow-sm">
               <span>⚡</span>
@@ -819,7 +893,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
               <span>🦖</span>
             </div>
           ) : isWordProblem && phase === 'PLAYING' ? (
-            <div className="flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-gradient-to-r from-purple-950/95 via-indigo-950/95 to-slate-900/95 border-2 border-purple-400 text-[11px] sm:text-xs text-purple-200 font-black shadow-[0_0_20px_rgba(168,85,247,0.7)] animate-pulse">
+            <div className="flex items-center gap-1.5 px-3.5 py-1.5 my-1 rounded-full bg-gradient-to-r from-purple-950/95 via-indigo-950/95 to-slate-900/95 border-2 border-purple-400 text-[11px] sm:text-xs text-purple-200 font-black shadow-[0_0_20px_rgba(168,85,247,0.7)] animate-pulse">
               <span className="text-sm">{roundIndex === 9 ? '👑' : '👾'}</span>
               <span>
                 {roundIndex === 9
@@ -1060,7 +1134,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                 x1={12}
                 y1={90}
                 x2={50}
-                y2={Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
+                y2={isWordProblem ? 38 : Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
                 stroke={isWordProblem ? '#c084fc' : isFever ? '#ef4444' : '#f59e0b'}
                 strokeWidth={isWordProblem ? '12' : isFever ? '9' : '5'}
                 strokeLinecap="round"
@@ -1073,7 +1147,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                 x1={12}
                 y1={90}
                 x2={50}
-                y2={Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
+                y2={isWordProblem ? 38 : Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
                 stroke="url(#mathBeamGrad)"
                 strokeWidth={isWordProblem ? '6.5' : isFever ? '5.5' : '3.0'}
                 strokeLinecap="round"
@@ -1085,7 +1159,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                 x1={12}
                 y1={90}
                 x2={50}
-                y2={Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
+                y2={isWordProblem ? 38 : Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
                 stroke="#ffffff"
                 strokeWidth={isWordProblem ? '2.8' : isFever ? '2.2' : '1.4'}
                 strokeLinecap="round"
@@ -1104,14 +1178,14 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
               {/* 5. 명중 임팩트 스파크 */}
               <circle
                 cx={50}
-                cy={Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
+                cy={isWordProblem ? 38 : Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
                 r={isWordProblem ? '9' : isFever ? '7' : '4'}
                 fill="#ffffff"
                 filter="url(#mathBeamGlow)"
               />
               <circle
                 cx={50}
-                cy={Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
+                cy={isWordProblem ? 38 : Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
                 r={isWordProblem ? '16' : isFever ? '13' : '7'}
                 fill={isWordProblem ? '#f43f5e' : isFever ? '#f97316' : '#fde047'}
                 opacity="0.9"
@@ -1122,17 +1196,37 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
           {/* 낙하하는 수식 운석 (Meteor) / 서술형은 상단 중앙 고정 카드 */}
           {isStarted && phase !== 'WARNING' && phase !== 'VICTORY' && phase !== 'GAME_OVER' && (
             <div
-              className={`absolute left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none z-20 ${
-                isWordProblem ? 'w-[94%] max-w-xl top-1 max-h-[96%]' : 'transition-transform duration-75'
+              className={`absolute flex flex-col items-center pointer-events-none z-20 ${
+                isWordProblem
+                  ? 'left-1/2 -translate-x-1/2 w-[94%] max-w-xl top-[25%] max-h-[72%]'
+                  : 'w-fit max-w-[92vw] transition-transform duration-75'
               } ${isExploding ? 'animate-ping opacity-0 scale-150 duration-300' : ''}`}
-              style={isWordProblem ? undefined : { top: `${meteorProgress * 0.78}%` }}
+              style={
+                isWordProblem
+                  ? undefined
+                  : {
+                      left: '50%',
+                      top: `${meteorProgress * 0.78}%`,
+                      transform: `translate(-50%, 0) scale(${meteorScale})`,
+                      transformOrigin: 'center top',
+                    }
+              }
             >
+              {/* M10: 황금 보너스 운석 안내 뱃지 */}
+              {isGoldenMeteor && (
+                <div className="mb-1 px-3 py-0.5 rounded-full bg-gradient-to-r from-amber-500 via-yellow-300 to-amber-500 border border-yellow-100 text-slate-950 text-[10px] sm:text-xs font-black shadow-[0_0_15px_#facc15] animate-bounce flex items-center justify-center gap-1 select-none whitespace-nowrap">
+                  <span>⭐ 황금 보너스 운석! 알 조각 획득 찬스 ⭐</span>
+                </div>
+              )}
+
               {/* 운석 불꽃 꼬리 (낙하 문제 전용) */}
               {!isWordProblem && (
                 <div
                   className="w-4 h-10 -mb-2 rounded-full opacity-80 animate-pulse"
                   style={{
-                    background: 'linear-gradient(to bottom, transparent, #ea580c, #f59e0b)',
+                    background: isGoldenMeteor
+                      ? 'linear-gradient(to bottom, transparent, #eab308, #fef08a)'
+                      : 'linear-gradient(to bottom, transparent, #ea580c, #f59e0b)',
                     filter: 'blur(2px)',
                   }}
                 />
@@ -1143,14 +1237,18 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                 className={`relative rounded-2xl border-2 shadow-2xl transition-all ${
                   isWordProblem
                     ? 'w-full px-4 sm:px-6 py-3 sm:py-4 flex flex-col gap-2.5 max-h-full overflow-y-auto'
-                    : 'px-4 sm:px-6 py-2 sm:py-2.5 flex items-center gap-2'
+                    : 'w-fit max-w-[92vw] sm:max-w-md px-3.5 sm:px-6 py-2 sm:py-2.5 flex items-center justify-center gap-2'
                 } ${
                   isShootingBeam
                     ? isWordProblem
                       ? 'bg-purple-950/90 border-yellow-300 shadow-[0_0_35px_#c084fc]'
+                      : isGoldenMeteor
+                      ? 'bg-yellow-400/70 border-white shadow-[0_0_40px_#facc15] scale-110'
                       : 'bg-amber-500/40 border-yellow-300 shadow-[0_0_30px_#f59e0b] scale-110'
                     : isWordProblem
                     ? 'bg-gradient-to-b from-slate-900/98 via-purple-950/85 to-slate-900/98 border-purple-500/90 shadow-[0_0_30px_rgba(168,85,247,0.45)]'
+                    : isGoldenMeteor
+                    ? 'bg-gradient-to-br from-amber-900/95 via-yellow-700/95 to-amber-950/95 border-yellow-300 shadow-[0_0_30px_rgba(250,204,21,0.85)] animate-pulse'
                     : !isWordProblem && meteorProgress > 70
                     ? 'bg-red-950/90 border-red-500 animate-pulse shadow-[0_0_25px_rgba(239,68,68,0.7)]'
                     : 'bg-slate-900/95 border-amber-500/80 shadow-[0_0_20px_rgba(245,158,11,0.5)]'
@@ -1159,7 +1257,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                 {/* 붉은/보라 화염 이펙트 */}
                 <div
                   className={`absolute -inset-1 rounded-2xl blur-sm pointer-events-none ${
-                    isWordProblem ? 'bg-purple-500/25' : 'bg-amber-500/20'
+                    isWordProblem ? 'bg-purple-500/25' : isGoldenMeteor ? 'bg-yellow-400/30' : 'bg-amber-500/20'
                   }`}
                 />
 
@@ -1197,13 +1295,13 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                   </div>
                 )}
 
-                <div className="relative w-full flex items-center gap-2.5 sm:gap-3">
+                <div className="relative w-full flex items-center justify-center gap-2.5 sm:gap-3">
                   <span
                     className={`text-xl sm:text-2xl flex-none ${
                       isWordProblem ? 'animate-pulse' : 'animate-bounce'
                     }`}
                   >
-                    {isWordProblem ? (roundIndex === 9 ? '👑' : '👾') : '☄️'}
+                    {isGoldenMeteor ? '🌟' : isWordProblem ? (roundIndex === 9 ? '👑' : '👾') : '☄️'}
                   </span>
 
                   {isWordProblem ? (
@@ -1211,11 +1309,57 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                       {renderHighlightedText(currentProblem.problemText ?? currentProblem.question, childName)}
                     </p>
                   ) : (
-                    <div className="flex flex-col items-center flex-1">
-                      <span className="text-xl sm:text-3xl font-black text-yellow-300 tracking-wider drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
-                        {currentProblem.question} = ?
-                      </span>
-                      <span className="text-[10px] text-amber-200/90 font-bold">{currentProblem.readKr}</span>
+                    <div className="flex flex-col items-center justify-center flex-1 min-w-0 max-w-full text-center">
+                      {solvedAnswerDisplay ? (
+                        <div className="flex flex-col items-center gap-1 animate-fadeIn">
+                          <span className="text-2xl sm:text-4xl font-black text-emerald-300 drop-shadow-[0_0_12px_rgba(52,211,153,0.8)]">
+                            정답: {solvedAnswerDisplay.num}!
+                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap justify-center mt-0.5">
+                            <span className="px-2 py-0.5 rounded bg-amber-950/80 border border-amber-400 text-amber-200 text-[10px] sm:text-xs font-black shadow-sm whitespace-nowrap">
+                              🇰🇷 {solvedAnswerDisplay.kr}
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-blue-950/80 border border-blue-400 text-blue-200 text-[10px] sm:text-xs font-black shadow-sm whitespace-nowrap">
+                              🇺🇸 {solvedAnswerDisplay.en}
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-red-950/80 border border-red-400 text-red-200 text-[10px] sm:text-xs font-black shadow-sm whitespace-nowrap">
+                              🇯🇵 {solvedAnswerDisplay.ja}
+                            </span>
+                          </div>
+                        </div>
+                      ) : currentProblem.isMissingNumber ? (
+                        <div className="flex items-center gap-1.5 flex-wrap justify-center text-center">
+                          <span className="px-2 py-0.5 rounded bg-purple-900/80 border border-purple-400 text-purple-200 text-[10px] sm:text-xs font-black animate-pulse whitespace-nowrap">
+                            🔍 빈칸 채우기
+                          </span>
+                          <span className="text-xl sm:text-3xl font-black text-yellow-300 tracking-wider drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] whitespace-nowrap">
+                            {currentProblem.question.split('□').map((part, pIdx, arr) => (
+                              <React.Fragment key={pIdx}>
+                                <span>{part}</span>
+                                {pIdx < arr.length - 1 && (
+                                  <span className="inline-flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 mx-1 rounded-lg bg-purple-950/90 border-2 border-yellow-300 text-yellow-200 font-black shadow-[0_0_12px_rgba(250,204,21,0.6)] animate-bounce text-lg sm:text-2xl">
+                                    ?
+                                  </span>
+                                )}
+                              </React.Fragment>
+                            ))}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 flex-wrap justify-center text-center">
+                          <span className="text-xl sm:text-3xl font-black text-yellow-300 tracking-wider drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] whitespace-nowrap">
+                            {currentProblem.question} = ?
+                          </span>
+                          {isSubtraction && (
+                            <span className="text-[10px] text-sky-300 font-extrabold bg-sky-950/80 px-1.5 py-0.5 rounded border border-sky-400/40 whitespace-nowrap">
+                              ⚡ 쪼개지는 뺄셈
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {!solvedAnswerDisplay && (
+                        <span className="text-[10px] text-amber-200/90 font-bold truncate max-w-full">{currentProblem.readKr}</span>
+                      )}
                     </div>
                   )}
 
