@@ -149,6 +149,8 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   const nextRoundTimerRef = useRef<number | null>(null);
   const warningTimerRef = useRef<number | null>(null);
   const speechTimerRef = useRef<number | null>(null);
+  const answerSpeechFallbackRef = useRef<number | null>(null);
+  const transitionVersionRef = useRef(0);
   const lastSpokenProblemIdRef = useRef<string | null>(null);
   const comboPopupTimerRef = useRef<number | null>(null);
 
@@ -226,6 +228,11 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   }, [lives, currentProblem, currentOptions]);
 
   const clearAllTimers = useCallback(() => {
+    transitionVersionRef.current += 1;
+    if (answerSpeechFallbackRef.current !== null) {
+      window.clearTimeout(answerSpeechFallbackRef.current);
+      answerSpeechFallbackRef.current = null;
+    }
     if (animFrameRef.current !== null) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
@@ -465,6 +472,8 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         setIsShootingBeam(true);
 
         // 3개 국어(한국어·영어·일본어) 숫자 낭독 & 피드백 정보 생성
+        const transitionVersion = transitionVersionRef.current;
+        let answerSpeechFinished: Promise<number> = Promise.resolve(performance.now());
         const ansNum = parseInt(String(currentProblem.answer), 10);
         if (!isNaN(ansNum) && ansNum >= 0 && ansNum <= 100) {
           const krStr = readSino(ansNum);
@@ -478,13 +487,27 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
           });
 
           // 정답 음성: 한국어 또는 영어로 정답 수치 낭독 (짝수 콤보는 영어, 홀수는 한국어)
-          window.setTimeout(() => {
-            if (nextCombo % 2 === 0) {
-              speak(enStr, 'en-US');
-            } else {
-              speak(`${krStr}!`, 'ko-KR');
-            }
-          }, 350);
+          answerSpeechFinished = new Promise<number>((resolve) => {
+            let finished = false;
+            const finish = () => {
+              if (finished || transitionVersionRef.current !== transitionVersion) return;
+              finished = true;
+              if (answerSpeechFallbackRef.current !== null) {
+                window.clearTimeout(answerSpeechFallbackRef.current);
+                answerSpeechFallbackRef.current = null;
+              }
+              resolve(performance.now());
+            };
+            // Ensure progress if speech is canceled or its completion event is lost.
+            answerSpeechFallbackRef.current = window.setTimeout(finish, 4500);
+            speechTimerRef.current = window.setTimeout(() => {
+              speechTimerRef.current = null;
+              void speak(
+                nextCombo % 2 === 0 ? enStr : `${krStr}!`,
+                nextCombo % 2 === 0 ? 'en-US' : 'ko-KR'
+              ).then(finish);
+            }, 350);
+          });
         }
 
         // 사운드: 보스 운석 격파 시에는 하이퍼 아토믹 피니시 사운드!
@@ -539,34 +562,42 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
           }, 350);
 
           // 다음 라운드 진행 또는 클리어 판정
-          nextRoundTimerRef.current = window.setTimeout(() => {
-            cancel();
-            if (roundIndex + 1 >= TOTAL_ROUNDS) {
-              setPhase('VICTORY');
-              playVictoryFanfare();
+          nextRoundTimerRef.current = window.setTimeout(async () => {
+            nextRoundTimerRef.current = null;
+            const speechFinishedAt = await answerSpeechFinished;
+            if (transitionVersionRef.current !== transitionVersion) return;
+            // Preserve the animation duration and leave 300ms after the answer voice.
+            const remainingPause = Math.max(0, speechFinishedAt + 300 - performance.now());
+            nextRoundTimerRef.current = window.setTimeout(() => {
+              nextRoundTimerRef.current = null;
+              cancel();
+              if (roundIndex + 1 >= TOTAL_ROUNDS) {
+                setPhase('VICTORY');
+                playVictoryFanfare();
 
-              // 아토믹 파츠 및 칭호 해금 평가 & 지급
-              const rewards = evaluateStageClearRewards({
-                stageNum,
-                isPerfect: reviveCount === 0,
-                maxCombo: Math.max(maxCombo, nextCombo),
-                hasDefeatedBoss: true,
-              });
-              if (rewards.newlyUnlockedParts.length > 0 || rewards.newlyUnlockedTitles.length > 0) {
-                setNewRewardResult(rewards);
+                // 아토믹 파츠 및 칭호 해금 평가 & 지급
+                const rewards = evaluateStageClearRewards({
+                  stageNum,
+                  isPerfect: reviveCount === 0,
+                  maxCombo: Math.max(maxCombo, nextCombo),
+                  hasDefeatedBoss: true,
+                });
+                if (rewards.newlyUnlockedParts.length > 0 || rewards.newlyUnlockedTitles.length > 0) {
+                  setNewRewardResult(rewards);
+                }
+
+                confetti({
+                  particleCount: isWordProblem || currentIsFever ? 160 : 120,
+                  spread: 120,
+                  origin: { y: 0.5 },
+                  colors: ['#a855f7', '#facc15', '#f97316', '#ef4444', '#38bdf8', '#ffffff'],
+                });
+              } else {
+                setSolvedAnswerDisplay(null);
+                setRoundIndex((r) => r + 1);
+                setPhase('PLAYING');
               }
-
-              confetti({
-                particleCount: isWordProblem || currentIsFever ? 160 : 120,
-                spread: 120,
-                origin: { y: 0.5 },
-                colors: ['#a855f7', '#facc15', '#f97316', '#ef4444', '#38bdf8', '#ffffff'],
-              });
-            } else {
-              setSolvedAnswerDisplay(null);
-              setRoundIndex((r) => r + 1);
-              setPhase('PLAYING');
-            }
+            }, remainingPause);
           }, 1100);
         }, 250);
       } else {
@@ -606,6 +637,11 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       isShootingBeam,
       isExploding,
       currentProblem,
+      speak,
+      isWordProblem,
+      stageNum,
+      reviveCount,
+      maxCombo,
       clearAllTimers,
       cancel,
       roundIndex,
@@ -1198,7 +1234,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             <div
               className={`absolute flex flex-col items-center pointer-events-none z-20 ${
                 isWordProblem
-                  ? 'left-1/2 -translate-x-1/2 w-[94%] max-w-xl top-[25%] max-h-[72%]'
+                  ? 'left-1/2 -translate-x-1/2 w-[94%] max-w-xl top-2 sm:top-[25%]'
                   : 'w-fit max-w-[92vw] transition-transform duration-75'
               } ${isExploding ? 'animate-ping opacity-0 scale-150 duration-300' : ''}`}
               style={
@@ -1236,7 +1272,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
               <div
                 className={`relative rounded-2xl border-2 shadow-2xl transition-all ${
                   isWordProblem
-                    ? 'w-full px-4 sm:px-6 py-3 sm:py-4 flex flex-col gap-2.5 max-h-full overflow-y-auto'
+                    ? 'w-full h-auto px-6 py-4 flex flex-col gap-3 overflow-hidden'
                     : 'w-fit max-w-[92vw] sm:max-w-md px-3.5 sm:px-6 py-2 sm:py-2.5 flex items-center justify-center gap-2'
                 } ${
                   isShootingBeam
@@ -1263,18 +1299,18 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
 
                 {/* 보스 헤더: 보스 네임태그 & 체력 바 (HP GAUGE) */}
                 {isWordProblem && (
-                  <div className="relative w-full flex items-center justify-between pb-2 border-b border-purple-500/30 select-none">
-                    <div className="flex items-center gap-1.5">
+                  <div className="relative w-full min-w-0 flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-purple-500/30 select-none">
+                    <div className="min-w-0 flex flex-wrap items-center gap-1.5">
                       <span className="px-2 py-0.5 rounded-md bg-purple-900/90 border border-purple-400 text-purple-200 font-black text-[10px] sm:text-xs flex items-center gap-1 shadow-sm animate-pulse">
                         <Crown size={12} className="text-yellow-400" />
                         <span>{roundIndex === 9 ? 'FINAL BOSS' : 'STAGE BOSS'}</span>
                       </span>
-                      <span className="text-[11px] sm:text-xs font-black text-purple-200">
+                      <span className="min-w-0 break-keep text-[11px] sm:text-xs font-black text-purple-200">
                         {roundIndex === 9 ? '황금 우주괴수 킹기도라 운석' : '거대 외계 비행체 메카 보스'}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1.5 sm:gap-2">
+                    <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
                       <span
                         className={`text-[10px] sm:text-xs font-black transition-colors ${
                           isShootingBeam || isExploding ? 'text-emerald-400 animate-bounce' : 'text-red-400'
@@ -1295,7 +1331,9 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                   </div>
                 )}
 
-                <div className="relative w-full flex items-center justify-center gap-2.5 sm:gap-3">
+                <div className={`relative w-full min-w-0 flex gap-2.5 sm:gap-3 ${
+                  isWordProblem ? 'flex-wrap items-start sm:flex-nowrap' : 'items-center justify-center'
+                }`}>
                   <span
                     className={`text-xl sm:text-2xl flex-none ${
                       isWordProblem ? 'animate-pulse' : 'animate-bounce'
@@ -1305,7 +1343,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                   </span>
 
                   {isWordProblem ? (
-                    <p className="relative flex-1 min-w-0 text-base sm:text-xl font-bold text-white leading-relaxed break-keep drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
+                    <p className="relative flex-1 min-w-0 text-base sm:text-xl font-bold text-white leading-relaxed break-keep whitespace-pre-line [overflow-wrap:anywhere] drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
                       {renderHighlightedText(currentProblem.problemText ?? currentProblem.question, childName)}
                     </p>
                   ) : (
@@ -1363,29 +1401,31 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                     </div>
                   )}
 
-                  {/* TTS 낭독 다시 듣기 버튼 */}
-                  <button
-                    type="button"
-                    onClick={handleReplayTts}
-                    title={isWordProblem ? '문제 다시 듣기' : '수식 소리 다시 듣기'}
-                    className="relative pointer-events-auto flex-none p-1.5 sm:p-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/40 border border-amber-400/50 text-amber-300 cursor-pointer active:scale-90 transition-transform ml-1"
-                  >
-                    {isWordProblem ? <span className="text-lg leading-none">🔊</span> : <Volume2 size={16} />}
-                  </button>
+                  <div className={`flex shrink-0 items-center gap-2 ${isWordProblem ? 'w-full justify-end sm:w-auto' : ''}`}>
+                    {/* TTS 낭독 다시 듣기 버튼 */}
+                    <button
+                      type="button"
+                      onClick={handleReplayTts}
+                      title={isWordProblem ? '문제 다시 듣기' : '수식 소리 다시 듣기'}
+                      className="relative pointer-events-auto flex-none p-1.5 sm:p-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/40 border border-amber-400/50 text-amber-300 cursor-pointer active:scale-90 transition-transform"
+                    >
+                      {isWordProblem ? <span className="text-lg leading-none">🔊</span> : <Volume2 size={16} />}
+                    </button>
 
-                  {/* 수 모형(10개 묶음과 낱개) 힌트 돋보기 버튼 */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      playCardTapSound();
-                      setIsHintModalOpen(true);
-                    }}
-                    title="수 모형 힌트 보기 (10개 묶음과 낱개)"
-                    className="relative pointer-events-auto flex-none p-1.5 sm:p-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/40 border border-cyan-400/60 text-cyan-300 cursor-pointer active:scale-90 transition-transform flex items-center gap-1 shadow-sm ml-1"
-                  >
-                    <Search size={16} className="text-cyan-300" />
-                    <span className="hidden sm:inline text-xs font-black">수 모형</span>
-                  </button>
+                    {/* 수 모형(10개 묶음과 낱개) 힌트 돋보기 버튼 */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playCardTapSound();
+                        setIsHintModalOpen(true);
+                      }}
+                      title="수 모형 힌트 보기 (10개 묶음과 낱개)"
+                      className="relative pointer-events-auto flex-none p-1.5 sm:p-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/40 border border-cyan-400/60 text-cyan-300 cursor-pointer active:scale-90 transition-transform flex items-center gap-1 shadow-sm"
+                    >
+                      <Search size={16} className="text-cyan-300" />
+                      <span className="hidden sm:inline text-xs font-black">수 모형</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
