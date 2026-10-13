@@ -18,6 +18,23 @@ const getAudioContext = (): AudioContext | null => {
   return audioCtx;
 };
 
+// 모바일 브라우저(iOS Safari 등) 첫 터치 시 AudioContext 자동 언락
+export const initAudioContextOnUserGesture = () => {
+  if (typeof window === 'undefined') return;
+  const unlock = () => {
+    const ctx = getAudioContext();
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+    window.removeEventListener('pointerdown', unlock);
+    window.removeEventListener('touchstart', unlock);
+    window.removeEventListener('click', unlock);
+  };
+  window.addEventListener('pointerdown', unlock, { once: true, passive: true });
+  window.addEventListener('touchstart', unlock, { once: true, passive: true });
+  window.addEventListener('click', unlock, { once: true, passive: true });
+};
+
 // 1. 고질라 열선 발사 레이저음 (Pew-Pew & Roar Laser)
 export const playLaserPewPew = () => {
   const ctx = getAudioContext();

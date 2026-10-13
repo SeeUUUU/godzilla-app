@@ -31,6 +31,8 @@ interface HeaderProps {
   activeMode?: 'language' | 'math';
   onSelectMode?: (mode: 'language' | 'math') => void;
   dailyDualQuest?: { languageDone: boolean; mathDone: boolean };
+  onOpenInstall?: () => void;
+  isStandalone?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -61,6 +63,8 @@ export const Header: React.FC<HeaderProps> = ({
   activeMode = 'language',
   onSelectMode,
   dailyDualQuest,
+  onOpenInstall,
+  isStandalone = false,
 }) => {
   const expProgress = Math.min(100, Math.max(0, exp));
   const evo = getGodzillaEvolution(level);
@@ -71,7 +75,14 @@ export const Header: React.FC<HeaderProps> = ({
   const dualQuestCount = (dailyDualQuest?.languageDone ? 1 : 0) + (dailyDualQuest?.mathDone ? 1 : 0);
 
   return (
-    <header className="w-full flex-none bg-slate-950/95 border-b border-slate-800/80 backdrop-blur-md px-2 sm:px-3 md:px-4 py-1 sm:py-1.5 z-40 shadow-sm select-none">
+    <header
+      className="w-full flex-none bg-slate-950/95 border-b border-slate-800/80 backdrop-blur-md px-2 sm:px-3 md:px-4 py-1 sm:py-1.5 z-40 shadow-sm select-none"
+      style={{
+        paddingTop: 'max(4px, env(safe-area-inset-top, 4px))',
+        paddingLeft: 'max(8px, env(safe-area-inset-left, 8px))',
+        paddingRight: 'max(8px, env(safe-area-inset-right, 8px))',
+      }}
+    >
       <div className="w-full max-w-6xl mx-auto flex flex-wrap md:flex-nowrap items-center justify-between gap-1 sm:gap-2">
         {/* ─── 1. 좌측: 캐릭터 아바타 + 고질라 레벨 & EXP HUD ─── */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 order-1">
@@ -385,6 +396,19 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <LogOut className="w-3 h-3 text-amber-400 shrink-0" />
               <span>종료</span>
+            </button>
+          )}
+
+          {/* [유틸리티 2-2] 📱 앱 다운로드 / 홈 화면 추가 버튼 */}
+          {!isStandalone && onOpenInstall && (
+            <button
+              type="button"
+              onClick={onOpenInstall}
+              title="태블릿·휴대폰에 고질라 앱 설치하기 (전체화면 모드)"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 border border-cyan-400/80 text-white text-[11px] font-black transition-all active:scale-95 shadow-[0_0_8px_rgba(6,182,212,0.4)] cursor-pointer shrink-0 animate-pulse"
+            >
+              <span className="leading-none text-xs">📱</span>
+              <span className="hidden sm:inline">앱 다운로드</span>
             </button>
           )}
 

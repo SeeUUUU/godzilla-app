@@ -1,9 +1,33 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useEffect } from 'react';
 
 export type SpeechLang = 'ko-KR' | 'en-US' | 'ja-JP';
 
 export const useSpeech = () => {
   const fallbackTimerRef = useRef<number | null>(null);
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
+
+  // 모바일 크롬/사파리 비동기 보이스 로딩 리스너
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    const updateVoices = () => {
+      try {
+        const available = window.speechSynthesis.getVoices();
+        if (available && available.length > 0) {
+          voicesRef.current = available;
+        }
+      } catch {}
+    };
+
+    updateVoices();
+    window.speechSynthesis.onvoiceschanged = updateVoices;
+
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.onvoiceschanged = null;
+      }
+    };
+  }, []);
 
   const speak = useCallback(
     (text: string, lang: SpeechLang, onEnd?: () => void): Promise<void> => {
@@ -43,9 +67,10 @@ export const useSpeech = () => {
           utterance.pitch = 1.1;
 
           // 브라우저에서 해당 언어 음성 선택 최적화
-          const voices = window.speechSynthesis.getVoices();
-          const matchedVoice = voices.find(
-            (v) => v.lang === lang || v.lang.startsWith(lang.slice(0, 2))
+          const availableVoices =
+            voicesRef.current.length > 0 ? voicesRef.current : window.speechSynthesis.getVoices();
+          const matchedVoice = availableVoices.find(
+            (v) => v.lang === lang || v.lang.replace('_', '-').startsWith(lang.slice(0, 2))
           );
           if (matchedVoice) {
             utterance.voice = matchedVoice;

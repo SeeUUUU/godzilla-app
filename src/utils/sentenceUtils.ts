@@ -549,9 +549,9 @@ export function getWordSentenceData(word: WordItem): WordSentenceData {
   const cleanEn = word.en.trim();
   const cleanJa = word.ja.trim();
 
-  let krSentence = '';
-  let enSentence = '';
-  let jpSentence = '';
+  let krSentence: string;
+  let enSentence: string;
+  let jpSentence: string;
   let jpFurigana: string | undefined = undefined;
 
   if (category === 'person') {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import type { WordItem, GameState, UnlockedMonsterRecord, BattleStatus, RoarPowerResult, DailyDualQuest } from './types';
 import { DEFAULT_WORDS, auditAndHealWords } from './data/words';
 import { Header } from './components/Header';
@@ -7,15 +7,19 @@ import { TriMatchingBoard } from './components/TriMatchingBoard';
 import { BossMiniGame } from './components/BossMiniGame';
 import { MathDefenseStage } from './components/MathDefenseStage';
 import { TOTAL_MATH_STAGES } from './data/mathData';
-import { ParentModal } from './components/ParentModal';
-import { ReviewModal } from './components/ReviewModal';
-import { EggGachaModal } from './components/EggGachaModal';
-import { MonsterBookModal } from './components/MonsterBookModal';
-import { VoiceAttackModal } from './components/VoiceAttackModal';
-import { MiniComboModal } from './components/MiniComboModal';
-import { AttendanceModal } from './components/AttendanceModal';
-import { GoldenChestModal } from './components/LuckyEggGachaModal';
+import { InstallAppBanner, InstallGuideModal } from './components/InstallAppBanner';
+import { usePwaInstall } from './hooks/usePwaInstall';
 import { useAttendance, setStoredAttendanceRecords, getTodayDateStr } from './hooks/useAttendance';
+
+// 대형 모달 컴포넌트 동적 코드 스플리팅 (초기 로딩 속도 최적화)
+const ParentModal = lazy(() => import('./components/ParentModal').then((m) => ({ default: m.ParentModal })));
+const ReviewModal = lazy(() => import('./components/ReviewModal').then((m) => ({ default: m.ReviewModal })));
+const EggGachaModal = lazy(() => import('./components/EggGachaModal').then((m) => ({ default: m.EggGachaModal })));
+const MonsterBookModal = lazy(() => import('./components/MonsterBookModal').then((m) => ({ default: m.MonsterBookModal })));
+const VoiceAttackModal = lazy(() => import('./components/VoiceAttackModal').then((m) => ({ default: m.VoiceAttackModal })));
+const MiniComboModal = lazy(() => import('./components/MiniComboModal').then((m) => ({ default: m.MiniComboModal })));
+const AttendanceModal = lazy(() => import('./components/AttendanceModal').then((m) => ({ default: m.AttendanceModal })));
+const GoldenChestModal = lazy(() => import('./components/LuckyEggGachaModal').then((m) => ({ default: m.GoldenChestModal })));
 import {
   getStoredUnlockedMonsters,
   setStoredUnlockedMonsters,
@@ -27,7 +31,7 @@ import {
   STORAGE_KEY_EQUIPPED_PARTNER,
 } from './data/monsterData';
 import confetti from 'canvas-confetti';
-import { playVictoryFanfare } from './utils/soundEffects';
+import { playVictoryFanfare, initAudioContextOnUserGesture } from './utils/soundEffects';
 import {
   loadCoupons,
   setStoredCoupons,
@@ -269,6 +273,24 @@ export function App() {
   // 34스테이지(200단어) 1회독 완주 세리머니 & 마스터 보상 모달 상태
   const [isCycleCompletionModalOpen, setIsCycleCompletionModalOpen] = useState(false);
   const [hasAwardedCycleReward, setHasAwardedCycleReward] = useState(false);
+
+  // ─────────────────────────────────────────────
+  // PWA (Progressive Web App) 앱 설치/다운로드 훅
+  // ─────────────────────────────────────────────
+  const {
+    isStandalone,
+    isIOS,
+    isDismissed,
+    showGuideModal,
+    setShowGuideModal,
+    triggerInstall,
+    dismissBanner,
+  } = usePwaInstall();
+
+  // 모바일 브라우저(iOS Safari 등) 첫 화면 터치 시 AudioContext 전역 언락
+  useEffect(() => {
+    initAudioContextOnUserGesture();
+  }, []);
 
   // 부모 입력 단어인지 여부: DEFAULT_WORDS의 id 집합과 다르면 "커스텀(숙제) 모드"
   const isCustomWords = useMemo(() => {
@@ -1873,11 +1895,18 @@ export function App() {
         activeMode={activeMode}
         onSelectMode={setActiveMode}
         dailyDualQuest={dailyDualQuest}
+        onOpenInstall={triggerInstall}
+        isStandalone={isStandalone}
       />
 
       {/* 2. 메인 게임 영역 (일반 배틀: 2단 분할 / 보스 미니게임 / 산수 요격: 단일 전체화면 확장) */}
       <main
         className="flex-1 min-h-0 w-full max-w-5xl lg:max-w-6xl mx-auto px-1.5 sm:px-3 md:px-4 flex flex-col landscape-short:flex-row landscape-short:items-stretch overflow-hidden gap-1 sm:gap-1.5 md:gap-2"
+        style={{
+          paddingBottom: 'max(4px, env(safe-area-inset-bottom, 4px))',
+          paddingLeft: 'max(6px, env(safe-area-inset-left, 6px))',
+          paddingRight: 'max(6px, env(safe-area-inset-right, 6px))',
+        }}
       >
         {activeMode === 'math' ? (
           /* 산수 특화 운석 요격 디펜스 스테이지 (단일 풀스크린 와이드 아레나) */
@@ -2005,15 +2034,19 @@ export function App() {
       </footer>
 
       {/* 4. 학부모 단어 숙제 관리 모달 */}
-      {isParentModalOpen && <ParentModal
-        isOpen={isParentModalOpen}
-        onClose={() => setIsParentModalOpen(false)}
-        currentWords={words}
-        onSaveWords={handleSaveWords}
-        currentLevel={gameState.level}
-        onSetLevel={handleSetLevel}
-        onResetAllData={handleResetAllData}
-      />}
+      {isParentModalOpen && (
+        <Suspense fallback={null}>
+          <ParentModal
+            isOpen={isParentModalOpen}
+            onClose={() => setIsParentModalOpen(false)}
+            currentWords={words}
+            onSaveWords={handleSaveWords}
+            currentLevel={gameState.level}
+            onSetLevel={handleSetLevel}
+            onResetAllData={handleResetAllData}
+          />
+        </Suspense>
+      )}
 
       {/* 5-1. 약점 단어 없음 안내 모달 */}
       {isEmptyWrongAlertOpen && (
@@ -2210,40 +2243,48 @@ export function App() {
         </div>
       )}
 
-      {/* 5-4. 오답노트 & 복습 특훈 모달 */}
-      <ReviewModal
-        isOpen={isReviewModalOpen}
-        onClose={() => setIsReviewModalOpen(false)}
-        wrongWords={normalizedWrongWords}
-        onClearWrongWords={handleClearWrongWords}
-        onRemoveWord={handleRemoveWrongWord}
-        onStartReviewBattle={handleStartReviewBattle}
-      />
+      <Suspense fallback={null}>
+        {/* 5-4. 오답노트 & 복습 특훈 모달 */}
+        {isReviewModalOpen && (
+          <ReviewModal
+            isOpen={isReviewModalOpen}
+            onClose={() => setIsReviewModalOpen(false)}
+            wrongWords={normalizedWrongWords}
+            onClearWrongWords={handleClearWrongWords}
+            onRemoveWord={handleRemoveWrongWord}
+            onStartReviewBattle={handleStartReviewBattle}
+          />
+        )}
 
-      {/* 6. 알 깨기 가챠 모달 */}
-      <EggGachaModal
-        isOpen={isGachaOpen}
-        onClose={() => setIsGachaOpen(false)}
-        eggCount={eggCount}
-        onConsumeEgg={consumeEgg}
-        onRewardCollected={handleRewardCollected}
-      />
+        {/* 6. 알 깨기 가챠 모달 */}
+        {isGachaOpen && (
+          <EggGachaModal
+            isOpen={isGachaOpen}
+            onClose={() => setIsGachaOpen(false)}
+            eggCount={eggCount}
+            onConsumeEgg={consumeEgg}
+            onRewardCollected={handleRewardCollected}
+          />
+        )}
 
-      {/* 7. 괴수 카드 도감 모달 */}
-      <MonsterBookModal
-        isOpen={isMonsterBookOpen}
-        onClose={() => setIsMonsterBookOpen(false)}
-        unlockedRecords={unlockedMonsters}
-        hasClaimedCodexReward={hasClaimedCodexReward}
-        onClaimCodexReward={handleClaimCodexReward}
-        equippedPartnerId={equippedPartnerId}
-        onEquipPartner={handleEquipPartner}
-        onOpenCodexChest={() => {
-          setIsMonsterBookOpen(false);
-          setGoldenChestSource('codex');
-          setIsGoldenChestOpen(true);
-        }}
-      />
+        {/* 7. 괴수 카드 도감 모달 */}
+        {isMonsterBookOpen && (
+          <MonsterBookModal
+            isOpen={isMonsterBookOpen}
+            onClose={() => setIsMonsterBookOpen(false)}
+            unlockedRecords={unlockedMonsters}
+            hasClaimedCodexReward={hasClaimedCodexReward}
+            onClaimCodexReward={handleClaimCodexReward}
+            equippedPartnerId={equippedPartnerId}
+            onEquipPartner={handleEquipPartner}
+            onOpenCodexChest={() => {
+              setIsMonsterBookOpen(false);
+              setGoldenChestSource('codex');
+              setIsGoldenChestOpen(true);
+            }}
+          />
+        )}
+      </Suspense>
 
       {/* 7-1. 도감 10종 완성 축하 & 황금 보물상자 획득 모달 */}
       {isCodexCelebrationOpen && (
@@ -2379,100 +2420,120 @@ export function App() {
         </div>
       )}
 
-      {/* 8. 음성 인식 포효 공격 모달 */}
-      {isVoiceModalOpen && targetWord && (
-        <VoiceAttackModal
-          isOpen={isVoiceModalOpen}
-          word={targetWord}
-          onClose={() => {
-            setIsVoiceModalOpen(false);
-            if (targetWord) setComboWord(targetWord);
-          }}
-          onAttackSuccess={(roarPower) => {
-            // 포효 성공 후 회화 듣기까지 마치면 크리티컬 열선을 발사한다.
-            if (!pendingAttackRef.current || !targetWord) return;
-            pendingAttackRef.current.isCritical = true;
-            pendingAttackRef.current.roarPower = roarPower || null;
-            setIsVoiceModalOpen(false);
-            setComboWord(targetWord);
-          }}
-          onSkip={() => {
-            // 포효를 건너뛰어도 회화 듣기는 진행한다.
-            if (!pendingAttackRef.current || !targetWord) return;
-            pendingAttackRef.current.isCritical = false;
-            pendingAttackRef.current.roarPower = null;
-            setIsVoiceModalOpen(false);
-            setComboWord(targetWord);
-          }}
-        />
-      )}
+      <Suspense fallback={null}>
+        {/* 8. 음성 인식 포효 공격 모달 */}
+        {isVoiceModalOpen && targetWord && (
+          <VoiceAttackModal
+            isOpen={isVoiceModalOpen}
+            word={targetWord}
+            onClose={() => {
+              setIsVoiceModalOpen(false);
+              if (targetWord) setComboWord(targetWord);
+            }}
+            onAttackSuccess={(roarPower) => {
+              // 포효 성공 후 회화 듣기까지 마치면 크리티컬 열선을 발사한다.
+              if (!pendingAttackRef.current || !targetWord) return;
+              pendingAttackRef.current.isCritical = true;
+              pendingAttackRef.current.roarPower = roarPower || null;
+              setIsVoiceModalOpen(false);
+              setComboWord(targetWord);
+            }}
+            onSkip={() => {
+              // 포효를 건너뛰어도 회화 듣기는 진행한다.
+              if (!pendingAttackRef.current || !targetWord) return;
+              pendingAttackRef.current.isCritical = false;
+              pendingAttackRef.current.roarPower = null;
+              setIsVoiceModalOpen(false);
+              setComboWord(targetWord);
+            }}
+          />
+        )}
 
-      {comboWord && <MiniComboModal key={String(comboWord.id)} word={comboWord} onComplete={handleComboComplete} />}
+        {comboWord && <MiniComboModal key={String(comboWord.id)} word={comboWord} onComplete={handleComboComplete} />}
 
-      {/* 9. 주간 캘린더 & 고질라 발자국 스탬프 출석부 모달 */}
-      <AttendanceModal
-        isOpen={isAttendanceModalOpen}
-        onClose={() => {
-          setIsAttendanceModalOpen(false);
-          setIsNewlyAttendedToday(false);
-          refreshCouponCount();
-        }}
-        currentStreak={attendanceStreak}
-        maxStreak={maxAttendanceStreak}
-        weekDays={weekDays}
-        weekAttendedCount={weekAttendedCount}
-        isTodayAttended={isTodayAttended}
-        isNewlyAttended={isNewlyAttendedToday}
-        onOpenLuckyGacha={() => {
-          setIsAttendanceModalOpen(false);
-          setGoldenChestSource('attendance');
-          setIsGoldenChestOpen(true);
-        }}
-        hasClaimedWeeklyReward={hasClaimedWeeklyReward}
-        initialShowCoupons={attendanceInitialShowCoupons}
-        onCouponsChanged={refreshCouponCount}
+        {/* 9. 주간 캘린더 & 고질라 발자국 스탬프 출석부 모달 */}
+        {isAttendanceModalOpen && (
+          <AttendanceModal
+            isOpen={isAttendanceModalOpen}
+            onClose={() => {
+              setIsAttendanceModalOpen(false);
+              setIsNewlyAttendedToday(false);
+              refreshCouponCount();
+            }}
+            currentStreak={attendanceStreak}
+            maxStreak={maxAttendanceStreak}
+            weekDays={weekDays}
+            weekAttendedCount={weekAttendedCount}
+            isTodayAttended={isTodayAttended}
+            isNewlyAttended={isNewlyAttendedToday}
+            onOpenLuckyGacha={() => {
+              setIsAttendanceModalOpen(false);
+              setGoldenChestSource('attendance');
+              setIsGoldenChestOpen(true);
+            }}
+            hasClaimedWeeklyReward={hasClaimedWeeklyReward}
+            initialShowCoupons={attendanceInitialShowCoupons}
+            onCouponsChanged={refreshCouponCount}
+          />
+        )}
+
+        {/* 10. 7일 출석 & 도감 10종 완성 최고 보상 황금 보물상자 개봉 모달 */}
+        {isGoldenChestOpen && (
+          <GoldenChestModal
+            isOpen={isGoldenChestOpen}
+            onClose={() => {
+              setIsGoldenChestOpen(false);
+              refreshCouponCount();
+            }}
+            source={goldenChestSource}
+            treasureBoxCount={treasureBoxCount}
+            onConsumeTreasureBox={consumeTreasureBox}
+            onBonusExp={(amount) => {
+              setGameState((prev) => {
+                const totalExp = prev.exp + amount;
+                const levelGain = Math.floor(totalExp / 100);
+                const nextState = {
+                  ...prev,
+                  level: prev.level + levelGain,
+                  exp: totalExp % 100,
+                };
+                try {
+                  localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(nextState));
+                } catch {}
+                savePlayerDataToFirestore({ gameState: nextState });
+                return nextState;
+              });
+            }}
+            onWeeklyRewardClaimed={() => {
+              claimWeeklyReward();
+              refreshCouponCount();
+            }}
+            onCodexRewardClaimed={() => {
+              setHasClaimedCodexReward(true);
+              refreshCouponCount();
+            }}
+            onOpenCouponBox={() => {
+              setIsGoldenChestOpen(false);
+              setAttendanceInitialShowCoupons(true);
+              setIsAttendanceModalOpen(true);
+              refreshCouponCount();
+            }}
+          />
+        )}
+      </Suspense>
+
+      {/* 11. 📱 PWA 앱 다운로드 초기 플로팅 배너 및 설치 안내 가이드 모달 */}
+      <InstallAppBanner
+        onInstall={triggerInstall}
+        onDismiss={dismissBanner}
+        isIOS={isIOS}
+        isStandalone={isStandalone}
+        isDismissed={isDismissed}
       />
-
-      {/* 10. 7일 출석 & 도감 10종 완성 최고 보상 황금 보물상자 개봉 모달 */}
-      <GoldenChestModal
-        isOpen={isGoldenChestOpen}
-        onClose={() => {
-          setIsGoldenChestOpen(false);
-          refreshCouponCount();
-        }}
-        source={goldenChestSource}
-        treasureBoxCount={treasureBoxCount}
-        onConsumeTreasureBox={consumeTreasureBox}
-        onBonusExp={(amount) => {
-          setGameState((prev) => {
-            const totalExp = prev.exp + amount;
-            const levelGain = Math.floor(totalExp / 100);
-            const nextState = {
-              ...prev,
-              level: prev.level + levelGain,
-              exp: totalExp % 100,
-            };
-            try {
-              localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(nextState));
-            } catch {}
-            savePlayerDataToFirestore({ gameState: nextState });
-            return nextState;
-          });
-        }}
-        onWeeklyRewardClaimed={() => {
-          claimWeeklyReward();
-          refreshCouponCount();
-        }}
-        onCodexRewardClaimed={() => {
-          setHasClaimedCodexReward(true);
-          refreshCouponCount();
-        }}
-        onOpenCouponBox={() => {
-          setIsGoldenChestOpen(false);
-          setAttendanceInitialShowCoupons(true);
-          setIsAttendanceModalOpen(true);
-          refreshCouponCount();
-        }}
+      <InstallGuideModal
+        isOpen={showGuideModal}
+        onClose={() => setShowGuideModal(false)}
+        isIOS={isIOS}
       />
     </div>
   );
