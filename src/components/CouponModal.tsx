@@ -109,13 +109,15 @@ export const CouponModal: React.FC<CouponModalProps> = ({
       // ignore
     }
 
-    // 5) 1초간 도장 쾅! 연출 감상 후 데이터 동기화 및 사용 완료 처리
+    // [데이터 보호] 사용 완료 상태는 즉시 로컬 및 Firestore에 영구 커밋하여 도중 창을 닫아도 유실 방지
+    markCouponUsed(targetId);
+    onCouponsChanged?.();
+
+    // 1초간 도장 쾅! 연출 감상 후 UI 갱신 및 탭 전환
     setTimeout(() => {
-      markCouponUsed(targetId);
       const updated = loadCoupons();
       setCoupons(updated);
       setStampingCouponId(null);
-      onCouponsChanged?.();
 
       // 만약 보유 쿠폰이 0장이 되면 사용 내역 탭으로 자동 이동
       const remainingUnused = updated.filter((c) => !c.isUsed && c.minutes > 0);

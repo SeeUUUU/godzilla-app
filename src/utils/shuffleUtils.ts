@@ -1,4 +1,5 @@
 import type { WordItem, Language } from '../types';
+import { WORD_EMOJIS } from '../data/wordEmojis';
 
 export interface ShuffledCard {
   id: string | number;
@@ -7,6 +8,20 @@ export interface ShuffledCard {
   emoji?: string;
   lang: Language;
 }
+
+const resolveEmoji = (w: WordItem): string | undefined => {
+  if (w.emoji && typeof w.emoji === 'string' && w.emoji.trim()) return w.emoji.trim();
+  const rawObj = w as unknown as Record<string, unknown>;
+  if (typeof rawObj.icon === 'string' && rawObj.icon.trim()) return rawObj.icon.trim();
+  const idStr = String(w.id || '');
+  return (
+    WORD_EMOJIS[idStr] ||
+    WORD_EMOJIS[idStr.replace(/^w/, '')] ||
+    (w.ko ? WORD_EMOJIS[w.ko] : undefined) ||
+    (w.en ? WORD_EMOJIS[w.en] : undefined) ||
+    undefined
+  );
+};
 
 // 1. 순수 Fisher-Yates 무작위 셔플 함수
 export const fisherYatesShuffle = <T,>(array: T[]): T[] => {
@@ -31,14 +46,14 @@ export const createIndependentShuffledColumns = (words: WordItem[]): {
   const baseKo: ShuffledCard[] = words.map((w) => ({
     id: w.id,
     text: w.ko || '',
-    emoji: w.emoji,
+    emoji: resolveEmoji(w),
     lang: 'ko',
   }));
 
   const baseEn: ShuffledCard[] = words.map((w) => ({
     id: w.id,
     text: w.en || '',
-    emoji: w.emoji,
+    emoji: resolveEmoji(w),
     lang: 'en',
   }));
 
@@ -46,7 +61,7 @@ export const createIndependentShuffledColumns = (words: WordItem[]): {
     id: w.id,
     text: w.ja || '',
     subText: w.jaKana || '',
-    emoji: w.emoji,
+    emoji: resolveEmoji(w),
     lang: 'ja',
   }));
 

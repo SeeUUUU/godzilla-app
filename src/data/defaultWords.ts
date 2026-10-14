@@ -53,6 +53,7 @@ export const defaultWords: WordItem[] = [
     en: 'Book',
     ja: '本',
     jaKana: 'ほん',
+    emoji: '📚',
     krSentence: '이것은 책이에요!',
     enSentence: 'This is a book!',
     jpSentence: 'これは 本(ほん)です！',
@@ -443,7 +444,7 @@ export const defaultWords: WordItem[] = [
   { id: 'w200', ko: '달리다', en: 'Run', ja: '走る', jaKana: 'はしる' }
 ].map((word): WordItem => ({
   ...word,
-  emoji: WORD_EMOJIS[String(word.id)],
+  emoji: (word as { emoji?: string }).emoji || WORD_EMOJIS[String(word.id)] || WORD_EMOJIS[word.ko] || WORD_EMOJIS[word.en],
 }));
 
 export const DEFAULT_WORDS = defaultWords;

@@ -5,7 +5,7 @@ export const WORD_EMOJIS: Record<string, string> = {
   w2: '🧑‍🏫', // 선생님
   w3: '🧑‍🤝‍🧑', // 친구
   w4: '🚪', // 교실
-  w5: '📖', // 책
+  w5: '📚', // 책
   w6: '📓', // 공책
   w7: '✏️', // 연필
   w8: '🧼', // 지우개
@@ -219,4 +219,10 @@ export const WORD_EMOJIS: Record<string, string> = {
   w198: '👂', // 듣다
   w199: '🗣️', // 말하다
   w200: '🏃‍♂️', // 달리다
+
+  // 단어명/ID 직접 매핑 폴백
+  책: '📚',
+  book: '📚',
+  Book: '📚',
+  本: '📚',
 };

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import confetti from 'canvas-confetti';
 import { Volume2, Heart, Trophy, RotateCcw, Zap, ArrowRight, Calculator, Flame, Crown, Search, Award, Sparkles } from 'lucide-react';
 import type { MathProblemItem } from '../types';
+import { getGodzillaEvolution, getGodzillaAura } from '../types';
 import {
   getMathProblemsForStage,
   TOTAL_MATH_STAGES,
@@ -10,6 +11,7 @@ import {
   readSino,
   readEnglish,
   readJapanese,
+  getMathQuickTip,
 } from '../data/mathData';
 import { useSpeech } from '../hooks/useSpeech';
 import { MathBlockHintModal } from './MathBlockHintModal';
@@ -38,6 +40,7 @@ import {
 
 interface MathDefenseStageProps {
   stageNum: number; // 1 ~ 12
+  level?: number;
   equippedPartnerId?: string | null;
   onClear: (bonusExp: number) => void;
   onFail?: () => void;
@@ -115,6 +118,7 @@ const renderHighlightedText = (text: string, currentChildName = '시우'): React
 
 export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   stageNum,
+  level = 1,
   equippedPartnerId,
   onClear,
   onPartnerNotice,
@@ -122,6 +126,10 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   isLanguageDoneToday = false,
   onNextMathStage,
 }) => {
+  // 언어 배틀 고질라 성장 레벨 및 진화 형태 연동
+  const godzillaEvo = useMemo(() => getGodzillaEvolution(level), [level]);
+  const godzillaAura = useMemo(() => getGodzillaAura(level), [level]);
+
   const { speak, cancel } = useSpeech();
 
   const [phase, setPhase] = useState<GamePhase>('WARNING');
@@ -140,6 +148,10 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   const [isRedFlash, setIsRedFlash] = useState(false);
   const [damagedHeartIdx, setDamagedHeartIdx] = useState<number | null>(null);
   const [defenseDamageAlert, setDefenseDamageAlert] = useState<string | null>(null);
+
+  // 🔢 산수 피격 시 '1초 연산 풀이 팁' 즉시 노출 상태 및 타이머
+  const [mathQuickTip, setMathQuickTip] = useState<string | null>(null);
+  const mathQuickTipTimerRef = useRef<number | null>(null);
 
   const animFrameRef = useRef<number | null>(null);
   const accumulatedElapsedRef = useRef<number>(0);
@@ -257,6 +269,10 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       window.clearTimeout(comboPopupTimerRef.current);
       comboPopupTimerRef.current = null;
     }
+    if (mathQuickTipTimerRef.current !== null) {
+      window.clearTimeout(mathQuickTipTimerRef.current);
+      mathQuickTipTimerRef.current = null;
+    }
   }, []);
 
   // 2. 수식 TTS 다시 듣기 (버튼 클릭용)
@@ -285,6 +301,20 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     window.setTimeout(() => setDefenseDamageAlert(null), 1200);
   }, []);
 
+  // 2-3. 🔢 산수 피격 및 오답 시 '1초 연산 풀이 팁' 즉시 노출 헬퍼
+  const showQuickTip = useCallback((problem?: MathProblemItem | null) => {
+    if (!problem) return;
+    const tip = getMathQuickTip(problem);
+    setMathQuickTip(tip);
+    if (mathQuickTipTimerRef.current !== null) {
+      window.clearTimeout(mathQuickTipTimerRef.current);
+    }
+    mathQuickTipTimerRef.current = window.setTimeout(() => {
+      setMathQuickTip(null);
+      mathQuickTipTimerRef.current = null;
+    }, 4500);
+  }, []);
+
   // 3. 지면 방어선 충돌 처리 (시간 초과 운석 충돌)
   const handleImpact = useCallback(() => {
     // 서술형은 낙하 충돌/하트 감소 100% 비활성화
@@ -295,6 +325,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     playMeteorExplosionSound();
     setCombo(0);
     setComboPopup(null);
+    showQuickTip(currentProblem);
 
     if (mothraShieldActive) {
       setMothraShieldActive(false);
@@ -332,7 +363,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       }
       return nextLives;
     });
-  }, [clearAllTimers, cancel, mothraShieldActive, onPartnerNotice, triggerDamageFeedback, isWordProblem]);
+  }, [clearAllTimers, cancel, mothraShieldActive, onPartnerNotice, triggerDamageFeedback, isWordProblem, showQuickTip, currentProblem]);
 
   // 3-2. 수 모형 힌트 모달 / 아토믹 격납고 오픈 시 게임 루프 일시 정지 (PAUSE) 처리
   useEffect(() => {
@@ -510,6 +541,12 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
           });
         }
 
+        setMathQuickTip(null);
+        if (mathQuickTipTimerRef.current !== null) {
+          window.clearTimeout(mathQuickTipTimerRef.current);
+          mathQuickTipTimerRef.current = null;
+        }
+
         // 사운드: 보스 운석 격파 시에는 하이퍼 아토믹 피니시 사운드!
         if (isWordProblem) {
           playPerfectAtomicRoarSound();
@@ -606,6 +643,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         setSelectedWrongChoices((prev) => [...prev, choice]);
         setCombo(0);
         setComboPopup(null);
+        showQuickTip(currentProblem);
 
         if (mothraShieldActive) {
           setMothraShieldActive(false);
@@ -651,6 +689,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       triggerDamageFeedback,
       combo,
       isGoldenMeteor,
+      showQuickTip,
     ]
   );
 
@@ -672,6 +711,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     setCombo(0);
     setMaxCombo(0);
     setComboPopup(null);
+    setMathQuickTip(null);
     setIsStarted(true);
     setPhase('PLAYING');
   }, [clearAllTimers, cancel]);
@@ -690,6 +730,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     setReviveCount((prev) => prev + 1);
     setCombo(0);
     setComboPopup(null);
+    setMathQuickTip(null);
     setIsStarted(true);
     setPhase('PLAYING');
   }, [clearAllTimers, cancel]);
@@ -711,6 +752,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     setCombo(0);
     setMaxCombo(0);
     setComboPopup(null);
+    setMathQuickTip(null);
     setIsStarted(true);
     setPhase('PLAYING');
     setMothraShieldActive(equippedPartnerId === 'mothra');
@@ -925,8 +967,8 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
           {!isStarted ? (
             <div className="flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-slate-900/80 border border-amber-500/40 text-[10px] sm:text-xs text-amber-300/70 font-extrabold shadow-sm">
               <span>⚡</span>
-              <span>산수 요격 개시 대기 중</span>
-              <span>🦖</span>
+              <span>{godzillaEvo.shortName} 요격 개시 대기 중</span>
+              <span>{godzillaEvo.icon}</span>
             </div>
           ) : isWordProblem && phase === 'PLAYING' ? (
             <div className="flex items-center gap-1.5 px-3.5 py-1.5 my-1 rounded-full bg-gradient-to-r from-purple-950/95 via-indigo-950/95 to-slate-900/95 border-2 border-purple-400 text-[11px] sm:text-xs text-purple-200 font-black shadow-[0_0_20px_rgba(168,85,247,0.7)] animate-pulse">
@@ -970,6 +1012,38 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             </div>
           )}
 
+          {/* 🔢 산수 피격 및 오답 시 '1초 연산 풀이 팁' 즉시 노출 배너 */}
+          {mathQuickTip && (
+            <div className="absolute left-1/2 -translate-x-1/2 top-2 sm:top-3.5 z-40 w-[94%] max-w-lg pointer-events-auto transition-all animate-bounce">
+              <div className="p-2 sm:p-2.5 px-3 rounded-2xl bg-gradient-to-r from-amber-950/95 via-slate-900/95 to-amber-950/95 border-2 border-amber-400 text-amber-100 shadow-[0_0_30px_rgba(245,158,11,0.7)] backdrop-blur-md flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-400 flex items-center justify-center text-lg flex-shrink-0 shadow-inner">
+                  💡
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] sm:text-[11px] font-black text-amber-300 uppercase tracking-wider flex items-center gap-1">
+                      <span>⚡</span> 1초 연산 풀이 팁!
+                    </span>
+                    <span className="text-[9px] text-yellow-300/80 font-bold">
+                      (오답 극복 치트키)
+                    </span>
+                  </div>
+                  <p className="text-xs sm:text-sm font-extrabold text-white leading-tight break-keep mt-0.5 drop-shadow">
+                    {mathQuickTip}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMathQuickTip(null)}
+                  className="text-amber-400/70 hover:text-amber-200 text-xs p-1 rounded hover:bg-white/10 cursor-pointer"
+                  title="팁 닫기"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* 콤보 달성 중앙 팝업 배너 */}
           {comboPopup && (
             <div className="absolute left-1/2 -translate-x-1/2 top-3 sm:top-5 z-35 animate-bounce pointer-events-none whitespace-nowrap">
@@ -1008,62 +1082,96 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             </span>
           </div>
 
-          {/* 고질라 아토믹 요격 포탑 */}
-          <div className="absolute left-3 sm:left-6 bottom-1 z-30 flex items-center gap-1.5 pointer-events-none">
+          {/* 고질라 아토믹 요격 포탑 (언어 배틀 고질라 성장 레벨 & 진화 형태 연동 - 1.5배 확대) */}
+          <div className="absolute left-3 sm:left-6 bottom-1 z-30 flex items-center gap-2.5 pointer-events-none">
             <div
-              className={`relative flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 rounded-xl border-2 transition-all duration-300 ${
+              className={`relative flex items-center justify-center w-[72px] h-[72px] sm:w-[84px] sm:h-[84px] rounded-2xl border-2 transition-all duration-300 ${
                 isWordProblem
                   ? isShootingBeam
-                    ? 'bg-purple-600/40 border-yellow-300 scale-125 shadow-[0_0_40px_#c084fc]'
+                    ? 'bg-purple-600/40 border-yellow-300 scale-115 shadow-[0_0_40px_#c084fc]'
                     : 'bg-gradient-to-br from-purple-950/95 to-indigo-950/95 border-purple-400 shadow-[0_0_20px_rgba(168,85,247,0.7)] animate-pulse'
                   : isFever
                   ? isShootingBeam
-                    ? 'bg-red-500/40 border-yellow-300 scale-125 shadow-[0_0_35px_#ef4444]'
+                    ? 'bg-red-500/40 border-yellow-300 scale-115 shadow-[0_0_35px_#ef4444]'
                     : 'bg-gradient-to-br from-orange-950/90 to-red-950/90 border-orange-400 shadow-[0_0_20px_rgba(249,115,22,0.7)] animate-pulse'
                   : isShootingBeam
                   ? 'bg-amber-500/30 border-amber-300 scale-110 shadow-[0_0_25px_#f59e0b]'
-                  : 'bg-slate-900/90 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.4)]'
+                  : 'bg-slate-900/95 border-amber-500/50 shadow-[0_0_14px_rgba(245,158,11,0.4)]'
               }`}
+              style={{
+                borderColor: isShootingBeam ? godzillaEvo.themeColor : undefined,
+                boxShadow: isShootingBeam ? `0 0 35px ${godzillaEvo.themeColor}` : undefined,
+              }}
             >
+              {/* 고질라 성장 레벨 뱃지 (좌측 상단 오버레이) */}
+              <div
+                className="absolute -top-2.5 -left-1 px-1.5 py-0.5 rounded-full text-[8.5px] sm:text-[9.5px] font-black tracking-tight text-white shadow-md z-30 flex items-center gap-0.5 border border-white/40"
+                style={{ background: godzillaEvo.badgeBg }}
+                title={`${godzillaEvo.name} (LV.${level})`}
+              >
+                <span>{godzillaEvo.icon}</span>
+                <span>LV.{level}</span>
+              </div>
+
+              {/* 고질라 10레벨 단위 궁극의 각성 아우라 (Lv.10+) */}
+              {godzillaAura.tier !== 'none' && (
+                <div
+                  className="absolute -inset-2 rounded-2xl opacity-80 animate-pulse pointer-events-none z-0"
+                  style={{
+                    boxShadow: godzillaAura.glowShadow,
+                    border: `1.5px solid ${godzillaAura.themeColor}88`,
+                  }}
+                  title={godzillaAura.name}
+                />
+              )}
+
               {/* 등지느러미 아우라 (파츠 장착 시) */}
               {equippedFin && equippedFin.id !== 'fin-default' && (
                 <div
-                  className="absolute -inset-1 rounded-xl opacity-75 animate-pulse pointer-events-none"
+                  className="absolute -inset-1.5 rounded-2xl opacity-75 animate-pulse pointer-events-none z-0"
                   style={{
                     boxShadow:
                       equippedFin.rarity === 'LEGENDARY'
-                        ? '0 0 16px #eab308'
+                        ? '0 0 18px #eab308'
                         : equippedFin.rarity === 'EPIC'
-                        ? '0 0 14px #a855f7'
-                        : '0 0 12px #38bdf8',
+                        ? '0 0 16px #a855f7'
+                        : '0 0 14px #38bdf8',
                   }}
                 />
               )}
 
               {/* 헤드기어 착용 비주얼 */}
               {equippedHead && equippedHead.id !== 'head-default' && (
-                <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 text-xs sm:text-sm drop-shadow-md select-none z-10 animate-bounce">
+                <span className="absolute -top-4 sm:-top-5 left-1/2 -translate-x-1/2 text-sm sm:text-base drop-shadow-md select-none z-30 animate-bounce">
                   {equippedHead.turretEmoji || equippedHead.icon}
                 </span>
               )}
 
-              <span
-                className={`text-2xl select-none transition-transform ${
-                  isShootingBeam
-                    ? 'scale-125'
-                    : isWordProblem
-                    ? 'scale-110 drop-shadow-[0_0_8px_#c084fc]'
-                    : isFever
-                    ? 'scale-110 drop-shadow-[0_0_8px_#ea580c]'
-                    : ''
-                }`}
-              >
-                {isWordProblem ? '🦖👑' : isFever ? '🦖🔥' : '🦖'}
-              </span>
+              {/* 고질라 진화 형태 캐릭터 이미지 (1.5배 확대 적용) */}
+              <div className="relative w-full h-full flex items-center justify-center p-0.5 select-none pointer-events-none">
+                <img
+                  src={godzillaEvo.imageSrc}
+                  alt={godzillaEvo.name}
+                  className={`w-full h-full object-contain transition-transform duration-200 ${
+                    isShootingBeam
+                      ? 'scale-120 brightness-125'
+                      : isWordProblem
+                      ? 'scale-110 drop-shadow-[0_0_10px_#c084fc]'
+                      : isFever
+                      ? 'scale-110 drop-shadow-[0_0_10px_#ea580c]'
+                      : 'drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]'
+                  }`}
+                  style={{
+                    filter: isShootingBeam
+                      ? `drop-shadow(0 0 14px ${godzillaEvo.themeColor}) brightness(1.25)`
+                      : undefined,
+                  }}
+                />
+              </div>
 
               {/* 무기 파츠 아이콘 (포탑 모서리 뱃지) */}
               {equippedWeapon && equippedWeapon.id !== 'wp-default' && (
-                <span className="absolute -bottom-1 -right-1 text-xs select-none drop-shadow">
+                <span className="absolute -bottom-1.5 -right-1.5 text-sm select-none drop-shadow z-30">
                   {equippedWeapon.icon}
                 </span>
               )}
@@ -1071,32 +1179,27 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
               {isShootingBeam && (
                 <>
                   <div
-                    className={`absolute -inset-1 rounded-xl border-2 ${
-                      isWordProblem
-                        ? 'border-purple-400 animate-ping'
-                        : isFever
-                        ? 'border-red-400 animate-ping'
-                        : 'border-amber-400 animate-ping'
-                    } pointer-events-none`}
+                    className="absolute -inset-1.5 rounded-2xl border-2 pointer-events-none animate-ping"
+                    style={{ borderColor: godzillaEvo.themeColor }}
                   />
-                  <div className="absolute -top-2.5 -right-1 text-yellow-300 text-xs font-black animate-bounce pointer-events-none">
+                  <div className="absolute -top-3 -right-1 text-yellow-300 text-sm font-black animate-bounce pointer-events-none z-30">
                     ⚡
                   </div>
                 </>
               )}
 
               <div
-                className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full ${
+                className={`absolute -top-1 -right-1 w-3 h-3 rounded-full z-20 ${
                   isWordProblem
                     ? 'bg-purple-400 shadow-[0_0_8px_#c084fc]'
                     : isFever
                     ? 'bg-red-500 shadow-[0_0_8px_#ef4444]'
-                    : 'bg-amber-400 shadow-[0_0_8px_#f59e0b]'
-                } border border-white`}
+                    : 'bg-emerald-400 shadow-[0_0_8px_#10b981]'
+                } border-2 border-white`}
               />
             </div>
 
-            <div className="hidden sm:flex flex-col text-[9px] font-black select-none">
+            <div className="hidden sm:flex flex-col text-[10px] font-black select-none">
               <span
                 className={`leading-tight ${
                   isWordProblem
@@ -1107,25 +1210,23 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                 }`}
               >
                 {isWordProblem
-                  ? 'BOSS FINISHER'
+                  ? `👑 ${godzillaEvo.shortName} FINISHER`
                   : isFever
-                  ? 'BURNING FEVER'
-                  : equippedWeapon && equippedWeapon.id !== 'wp-default'
-                  ? equippedWeapon.name
-                  : 'MATH CANNON'}
+                  ? `🔥 버닝 ${godzillaEvo.shortName}`
+                  : `${godzillaEvo.name}`}
               </span>
-              <span className="text-[8px] text-slate-400 font-bold">
+              <span className="text-[8.5px] text-slate-400 font-bold">
                 {isShootingBeam
                   ? isWordProblem
-                    ? '💥 하이퍼 피니시 빔!'
+                    ? `💥 ${godzillaEvo.beamName}!`
                     : isFever
-                    ? '🔥 메가 빔 발사!'
-                    : '🔥 요격 발사 중!'
+                    ? '🔥 메가 버닝 빔 발사!'
+                    : `🔥 ${godzillaEvo.beamName}!`
                   : isWordProblem
                   ? '⚡ 필살기 장전 완료!'
                   : isFever
                   ? '⚡ 피버 장전 완료!'
-                  : 'READY'}
+                  : `READY (${equippedWeapon && equippedWeapon.id !== 'wp-default' ? equippedWeapon.name : '아토믹 캐논'})`}
               </span>
             </div>
           </div>
@@ -1167,8 +1268,8 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
 
               {/* 1. 외부 오렌지/레드/바이올렛 버닝 네온 글로우 */}
               <line
-                x1={12}
-                y1={90}
+                x1={14}
+                y1={88}
                 x2={50}
                 y2={isWordProblem ? 38 : Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
                 stroke={isWordProblem ? '#c084fc' : isFever ? '#ef4444' : '#f59e0b'}
@@ -1180,8 +1281,8 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
 
               {/* 2. 주 열선 레이저 */}
               <line
-                x1={12}
-                y1={90}
+                x1={14}
+                y1={88}
                 x2={50}
                 y2={isWordProblem ? 38 : Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
                 stroke="url(#mathBeamGrad)"
@@ -1192,8 +1293,8 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
 
               {/* 3. 코어 화이트 고출력 빔 */}
               <line
-                x1={12}
-                y1={90}
+                x1={14}
+                y1={88}
                 x2={50}
                 y2={isWordProblem ? 38 : Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
                 stroke="#ffffff"
@@ -1202,10 +1303,10 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
               />
 
               {/* 4. 머즐 플래시 */}
-              <circle cx={12} cy={90} r={isWordProblem ? '6' : isFever ? '5' : '3'} fill="#ffffff" filter="url(#mathBeamGlow)" />
+              <circle cx={14} cy={88} r={isWordProblem ? '6' : isFever ? '5' : '3'} fill="#ffffff" filter="url(#mathBeamGlow)" />
               <circle
-                cx={12}
-                cy={90}
+                cx={14}
+                cy={88}
                 r={isWordProblem ? '11' : isFever ? '9' : '5.5'}
                 fill={isWordProblem ? '#a855f7' : isFever ? '#ef4444' : '#f59e0b'}
                 opacity="0.85"
@@ -1608,8 +1709,12 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       {phase === 'GAME_OVER' && (
         <div className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex flex-col items-center justify-center text-center p-4 animate-fadeIn">
           <div className="relative mb-3">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center text-3xl sm:text-4xl shadow-xl shadow-amber-500/40 animate-pulse">
-              🦖⚡
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center p-2 shadow-xl shadow-amber-500/40">
+              <img
+                src={godzillaEvo.imageSrc}
+                alt={godzillaEvo.name}
+                className="w-full h-full object-contain grayscale opacity-75 animate-pulse"
+              />
             </div>
             <div className="absolute -bottom-1 -right-1 px-1.5 py-0.5 rounded-full bg-red-600 text-white font-black text-[10px] border border-red-300 shadow">
               HP 0
@@ -1623,7 +1728,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
           </div>
 
           <h2 className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-amber-200 to-yellow-400 mb-1">
-            ⚡ 고질라에게 다시 힘을 줄까요?
+            ⚡ {godzillaEvo.shortName}에게 다시 힘을 줄까요?
           </h2>
           <p className="text-xs sm:text-sm text-amber-200/90 font-bold mb-1">
             포기하지 마! 고질라가 다시 일어날 수 있어!

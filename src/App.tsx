@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import type { WordItem, GameState, UnlockedMonsterRecord, BattleStatus, RoarPowerResult, DailyDualQuest } from './types';
 import { DEFAULT_WORDS, auditAndHealWords } from './data/words';
+import { WORD_EMOJIS } from './data/wordEmojis';
 import { Header } from './components/Header';
 import { GodzillaStage } from './components/GodzillaStage';
 import { TriMatchingBoard } from './components/TriMatchingBoard';
@@ -35,6 +36,7 @@ import { playVictoryFanfare, initAudioContextOnUserGesture } from './utils/sound
 import {
   loadCoupons,
   setStoredCoupons,
+  type EarnedCoupon,
   setStoredWeeklyRewardClaimed,
   hasClaimedWeeklyReward as checkClaimedWeeklyReward,
   getCurrentWeekKey,
@@ -90,7 +92,42 @@ const normalizeWords = (items: unknown): WordItem[] => {
     const ja = word.ja.trim();
     if (!ko || !en || !ja || uniqueById.has(String(id))) continue;
     const jaKana = typeof word.jaKana === 'string' ? word.jaKana.trim() : undefined;
-    uniqueById.set(String(id), { id, ko, en, ja, jaKana: jaKana || undefined });
+    const idStr = String(id);
+
+    // 이모지(emoji) 또는 아이콘(icon) 속성 복원 및 WORD_EMOJIS 매핑 보존
+    const emojiRaw =
+      typeof word.emoji === 'string' && word.emoji.trim()
+        ? word.emoji.trim()
+        : typeof word.icon === 'string' && word.icon.trim()
+        ? word.icon.trim()
+        : undefined;
+    const emoji =
+      emojiRaw ||
+      WORD_EMOJIS[idStr] ||
+      WORD_EMOJIS[idStr.replace(/^w/, '')] ||
+      WORD_EMOJIS[ko] ||
+      WORD_EMOJIS[en] ||
+      undefined;
+
+    const krSentence = typeof word.krSentence === 'string' ? word.krSentence : undefined;
+    const enSentence = typeof word.enSentence === 'string' ? word.enSentence : undefined;
+    const jpSentence = typeof word.jpSentence === 'string' ? word.jpSentence : undefined;
+    const jpFurigana = typeof word.jpFurigana === 'string' ? word.jpFurigana : undefined;
+    const reviewMastery = typeof word.reviewMastery === 'number' ? word.reviewMastery : undefined;
+
+    uniqueById.set(String(id), {
+      id,
+      ko,
+      en,
+      ja,
+      jaKana: jaKana || undefined,
+      emoji,
+      krSentence,
+      enSentence,
+      jpSentence,
+      jpFurigana,
+      reviewMastery,
+    });
   }
   return Array.from(uniqueById.values());
 };
@@ -313,19 +350,6 @@ export function App() {
   // 현재 스테이지 번호 (1-based)
   const currentStageNum = (stageIndex % totalStages) + 1;
 
-  // [중요] 단어 출제 방식:
-  // - 1회독 (순차 진도 모드: cycleCount === 1): 200개 단어 중 6개씩 순차 슬라이싱 ((stage - 1) * 6 ~ stage * 6)
-  // - 2회독 이후 (무한 마스터 랜덤 모드: cycleCount >= 2): 200개 전체 단어 풀에서 중복 없이 무작위 6개 단어 랜덤 추출
-  const stageWords = useMemo<WordItem[]>(() => {
-    if (isInfiniteMode) {
-      return getRandomSixWords(safeWords);
-    }
-    const safeIndex = stageIndex % totalStages;
-    const startIndex = safeIndex * WORDS_PER_ROUND;
-    const slice = safeWords.slice(startIndex, startIndex + WORDS_PER_ROUND);
-    return slice.length > 0 ? slice : safeWords.slice(0, WORDS_PER_ROUND);
-  }, [isInfiniteMode, safeWords, stageIndex, totalStages, battleSessionId, cycleCount]);
-
   // ─────────────────────────────────────────────
   // 3. 오답 단어 목록 (localStorage 연동 & 중복 제거)
   // ─────────────────────────────────────────────
@@ -359,6 +383,58 @@ export function App() {
   const [hasClaimedReviewRaidReward, setHasClaimedReviewRaidReward] = useState(false);
   // 오답 복습 레이드 출현 보스 (5대 악역 보스 중 랜덤 1마리)
   const [currentRaidBoss, setCurrentRaidBoss] = useState<RaidBossInfo>(() => getRandomRaidBoss());
+
+  // 5스테이지마다 (5, 10, 15, 20, 25, 30, 34 스테이지) 보스 특화 미니게임 모드 활성화 여부
+  const isBossStage = useMemo(() => {
+    if (isReviewMode) return false;
+    return currentStageNum % 5 === 0 || currentStageNum === 34;
+  }, [isReviewMode, currentStageNum]);
+
+  // [망각 방지 데일리 데자뷰] 오답노트에서 1단어 기습 출제 (비복습, 비보스 일반 스테이지)
+  const dejaVuWord = useMemo<WordItem | null>(() => {
+    if (isReviewMode || isBossStage || normalizedWrongWords.length === 0) return null;
+    const target = normalizedWrongWords[0];
+    if (!target) return null;
+    const idStr = String(target.id);
+    const defaultWord = DEFAULT_WORDS.find(
+      (w) => String(w.id) === idStr || String(w.id).replace(/^w/, '') === idStr.replace(/^w/, '')
+    );
+    const emoji =
+      target.emoji ||
+      defaultWord?.emoji ||
+      WORD_EMOJIS[idStr] ||
+      WORD_EMOJIS[idStr.replace(/^w/, '')] ||
+      WORD_EMOJIS[target.ko] ||
+      WORD_EMOJIS[target.en] ||
+      undefined;
+    return {
+      ...target,
+      emoji,
+    };
+  }, [isReviewMode, isBossStage, normalizedWrongWords]);
+
+  // [중요] 단어 출제 방식:
+  // - 1회독 (순차 진도 모드: cycleCount === 1): 200개 단어 중 6개씩 순차 슬라이싱 ((stage - 1) * 6 ~ stage * 6)
+  // - 2회독 이후 (무한 마스터 랜덤 모드: cycleCount >= 2): 200개 전체 단어 풀에서 중복 없이 무작위 6개 단어 랜덤 추출
+  // - 데일리 데자뷰 적용: 오답노트 단어가 1개 있을 시 1번 슬롯에 자동 결합 (총 6개 단어 유지)
+  const stageWords = useMemo<WordItem[]>(() => {
+    let baseList: WordItem[];
+    if (isInfiniteMode) {
+      baseList = getRandomSixWords(safeWords);
+    } else {
+      const safeIndex = stageIndex % totalStages;
+      const startIndex = safeIndex * WORDS_PER_ROUND;
+      const slice = safeWords.slice(startIndex, startIndex + WORDS_PER_ROUND);
+      baseList = slice.length > 0 ? slice : safeWords.slice(0, WORDS_PER_ROUND);
+    }
+
+    if (dejaVuWord && !isBossStage) {
+      const filtered = baseList.filter((w) => w.id !== dejaVuWord.id);
+      return [dejaVuWord, ...filtered].slice(0, WORDS_PER_ROUND);
+    }
+
+    return baseList;
+  }, [isInfiniteMode, safeWords, stageIndex, totalStages, battleSessionId, cycleCount, dejaVuWord, isBossStage]);
 
   // 현재 활성화된 단어 세트:
   // - 복습 모드이고 reviewWords에 단어가 있으면 reviewWords 사용
@@ -615,12 +691,22 @@ export function App() {
             const currentWeek = getCurrentWeekKey();
             setHasClaimedWeeklyReward(remoteData.weeklyRewardClaimedWeek === currentWeek);
           }
-          // 6. 획득 쿠폰 목록 반영 (ID 기준 병합)
+          // 6. 획득 쿠폰 목록 반영 (ID 기준 병합: 한 번 사용된(isUsed: true) 쿠폰은 영구 보존)
           if (Array.isArray(remoteData.coupons)) {
             const localCoupons = loadCoupons();
-            const couponMap = new Map();
+            const couponMap = new Map<string, EarnedCoupon>();
             localCoupons.forEach((c) => couponMap.set(c.id, c));
-            remoteData.coupons.forEach((c) => couponMap.set(c.id, c));
+            remoteData.coupons.forEach((c) => {
+              const existing = couponMap.get(c.id);
+              if (existing) {
+                // 이미 사용된 쿠폰 상태(isUsed: true)는 원격/로컬 어디서든 사용되었다면 영구 보존!
+                const isUsed = Boolean(existing.isUsed || c.isUsed);
+                const usedAt = (existing.isUsed ? existing.usedAt : null) || (c.isUsed ? c.usedAt : null) || existing.usedAt || c.usedAt;
+                couponMap.set(c.id, { ...existing, ...c, isUsed, usedAt });
+              } else {
+                couponMap.set(c.id, c);
+              }
+            });
             const mergedCoupons = Array.from(couponMap.values());
             setStoredCoupons(mergedCoupons);
             refreshCouponCount();
@@ -839,6 +925,24 @@ export function App() {
       triggerPartnerNotice('라돈의 초음속 비행! 첫 번째 단어 힌트 발동!', '🦅');
     }
   }, [equippedPartnerId, activeWords, battleStatus, stageIndex, triggerPartnerNotice]);
+
+  // 데일리 데자뷰 단어 출현 안내 알림 (단어명 스포일러 방지)
+  const hasShownDejaVuNoticeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (dejaVuWord && !isReviewMode && !isBossStage && battleStatus === 'PLAYING') {
+      const dejaVuKey = `${stageIndex}-${dejaVuWord.id}`;
+      if (hasShownDejaVuNoticeRef.current !== dejaVuKey) {
+        hasShownDejaVuNoticeRef.current = dejaVuKey;
+        const timer = setTimeout(() => {
+          triggerPartnerNotice(
+            '⚡ 예전에 아쉽게 놓쳤던 복습 단어 1개가 몰래 숨어있어요! 맞춰서 졸업시켜 볼까요?',
+            '⚡'
+          );
+        }, 700);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [dejaVuWord, isReviewMode, isBossStage, battleStatus, stageIndex, triggerPartnerNotice]);
 
   const resetBattle = useCallback(() => {
     if (attackTimerRef.current !== null) {
@@ -1071,6 +1175,30 @@ export function App() {
         });
       }
 
+      // [망각 방지 데일리 데자뷰]: 이전 오답 단어를 일반 스테이지에서 정답 매칭 시 오답노트에서 명예 졸업!
+      if (!isReviewMode && dejaVuWord && matchedId === dejaVuWord.id) {
+        setWrongWordList((prev) => {
+          const updated = prev.filter((item) => item.id !== matchedId);
+          try {
+            localStorage.setItem(STORAGE_KEY_WRONG_WORDS, JSON.stringify(updated));
+          } catch (e) {
+            console.error('Failed to update wrong words on deja-vu graduation:', e);
+          }
+          savePlayerDataToFirestore({ wrongWordList: updated });
+          return updated;
+        });
+
+        triggerPartnerNotice(`🎓 깜짝 데자뷰 마스터! '${dejaVuWord.ko}' 오답노트 완벽 졸업! 🎉`, '🎓');
+        try {
+          confetti({
+            particleCount: 80,
+            spread: 80,
+            origin: { y: 0.55 },
+            colors: ['#c084fc', '#a855f7', '#fbbf24', '#ffffff', '#38bdf8'],
+          });
+        } catch {}
+      }
+
       // 1) 치비 고질라 패시브: [아기 고질라의 응원] - 매칭 성공 시 HP +5% 회복
       if (equippedPartnerId === 'chibi-godzilla') {
         setGodzillaHp((prev) => Math.min(100, prev + 5));
@@ -1274,12 +1402,6 @@ export function App() {
       });
     }
   }, [isInfiniteMode, cycleCount, currentStageNum, totalStages, resetBattle]);
-
-  // 5스테이지마다 (5, 10, 15, 20, 25, 30, 34 스테이지) 보스 특화 미니게임 모드 활성화 여부
-  const isBossStage = useMemo(() => {
-    if (isReviewMode) return false;
-    return currentStageNum % 5 === 0 || currentStageNum === 34;
-  }, [isReviewMode, currentStageNum]);
 
   // 보스 미니게임 및 배틀 중 발생한 오답 단어 수집 핸들러
   const handleCollectWrongWord = useCallback((wrongItem: WordItem) => {
@@ -1914,6 +2036,7 @@ export function App() {
             <MathDefenseStage
               key={`math-stage-${mathStageNum}-${mathSessionId}`}
               stageNum={mathStageNum}
+              level={gameState.level}
               equippedPartnerId={equippedPartnerId}
               onClear={handleMathStageClear}
               onPartnerNotice={triggerPartnerNotice}

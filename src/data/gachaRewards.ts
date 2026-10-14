@@ -160,7 +160,7 @@ export const setStoredWeeklyRewardClaimed = (weekKey: string | null): void => {
 
 export const saveCoupon = (reward: GachaReward): EarnedCoupon => {
   const newCoupon: EarnedCoupon = {
-    id: `coupon-${Date.now()}`,
+    id: `coupon-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     rewardId: reward.id,
     label: reward.label,
     minutes: reward.minutes,

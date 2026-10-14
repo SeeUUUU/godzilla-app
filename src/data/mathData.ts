@@ -1132,3 +1132,68 @@ export const getProblemHintFormula = (item: MathProblemItem): MathHintFormula | 
 
   return null;
 };
+
+/**
+ * 산수 오답 및 운석 피격 시 아이에게 직관적인 실마리를 주는 '1초 연산 풀이 팁'
+ * - 초등 2학년 눈높이 맞춤: 받아올림, 받아내림, 거꾸로 셈(□), 세 수 연산, 문장제 핵심 원리 요약
+ */
+export const getMathQuickTip = (item: MathProblemItem): string => {
+  if (!item) return '일의 자리부터 차근차근 묶음과 낱개로 계산해 보세요!';
+
+  const formula = getProblemHintFormula(item);
+
+  // 1. 빈칸 채우기 (거꾸로 셈: □)
+  if (item.isMissingNumber && formula) {
+    const relationMsg = item.question.includes('+')
+      ? '덧셈의 반대는 뺄셈!'
+      : item.missingPosition === 'first'
+      ? '뺄셈의 반대는 덧셈!'
+      : '어떤 수를 뺐을까요?';
+    return `${relationMsg} □ = ${formula.a} ${formula.op} ${formula.b}를 계산해 보세요!`;
+  }
+
+  // 2. 서술형 (문장제) 문제
+  if (item.isWordProblem && formula) {
+    if (formula.op === '-') {
+      return `'남은 것'이나 '차이'를 구할 땐 뺄셈(-)이에요! (${formula.a} - ${formula.b})`;
+    }
+    if (formula.op === '+') {
+      return `'모두'나 '전체'를 구할 땐 덧셈(+)이에요! (${formula.a} + ${formula.b})`;
+    }
+  }
+
+  if (formula) {
+    const { a, op, b, op2, c } = formula;
+
+    // 3. 세 수의 덧셈·뺄셈
+    if (op2 && typeof c === 'number') {
+      const step1 = op === '+' ? a + b : a - b;
+      return `앞의 두 수 먼저! ${a} ${op} ${b} = ${step1} 👉 그다음 ${step1} ${op2} ${c}`;
+    }
+
+    // 4. 두 수의 덧셈
+    if (op === '+') {
+      const aO = a % 10;
+      const bO = b % 10;
+      const sumO = aO + bO;
+      if (sumO >= 10) {
+        return `일의 자리 ${aO} + ${bO} = ${sumO}! 일의 자리에 ${sumO % 10}을 쓰고, 10은 십의 자리로 쏙 올라가요(+1)!`;
+      }
+      return `일의 자리는 일의 자리끼리 (${aO}+${bO}=${sumO}), 십의 자리는 십의 자리끼리 더해요!`;
+    }
+
+    // 5. 두 수의 뺄셈
+    if (op === '-') {
+      const aO = a % 10;
+      const bO = b % 10;
+      if (aO < bO) {
+        const diffO = 10 + aO - bO;
+        return `${aO}에서 ${bO}를 못 빼요! 십의 자리에서 10을 빌려와서 (10+${aO}) - ${bO} = ${diffO}!`;
+      }
+      return `일의 자리는 일의 자리끼리 (${aO}-${bO}=${aO - bO}), 십의 자리는 십의 자리끼리 빼요!`;
+    }
+  }
+
+  return '일의 자리부터 차근차근 묶음과 낱개로 계산해 보세요!';
+};
+
