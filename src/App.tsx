@@ -44,10 +44,13 @@ import {
   STORAGE_KEY_CODEX_REWARD,
 } from './data/gachaRewards';
 import {
-  fetchPlayerDataFromFirestore,
   savePlayerDataToFirestore,
   resetAllPlayerDataToFirestore,
+  ensurePlayerDocument,
+  auth,
+  type PlayerFirestoreData,
 } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { getRandomRaidBoss, type RaidBossInfo } from './data/raidBosses';
 
 const STORAGE_KEY_WORDS = 'godzilla_language_words_v3';
@@ -645,180 +648,206 @@ export function App() {
   const [goldenChestSource, setGoldenChestSource] = useState<'attendance' | 'codex'>('attendance');
 
   // ─────────────────────────────────────────────
-  // 5-5. Firebase Firestore 연동 & 초기 동기화
+  // 5-5. Firebase Firestore 연동 & 로그인 사용자별 격리 동기화
   // ─────────────────────────────────────────────
   const isFirestoreInitialized = useRef(false);
+  const syncedUidRef = useRef<string | null>(null);
+
+  const applyRemoteDataToLocal = useCallback((remoteData: PlayerFirestoreData) => {
+    // 1. 레벨 / 경험치 반영
+    if (remoteData.gameState && typeof remoteData.gameState.level === 'number') {
+      setGameState(remoteData.gameState);
+      try {
+        localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(remoteData.gameState));
+      } catch {}
+    }
+    // 3. 알 개수 반영
+    if (typeof remoteData.eggCount === 'number') {
+      setEggCount(remoteData.eggCount);
+      try {
+        localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(remoteData.eggCount));
+      } catch {}
+    }
+    // 4. 출석 체크 기록 반영 (로컬과 병합)
+    if (Array.isArray(remoteData.attendanceRecords)) {
+      setRecords(remoteData.attendanceRecords);
+      setStoredAttendanceRecords(remoteData.attendanceRecords);
+    }
+    // 4-1. 괴수 도감 반영
+    if (remoteData.unlockedMonsters && typeof remoteData.unlockedMonsters === 'object') {
+      setStoredUnlockedMonsters(remoteData.unlockedMonsters);
+      setUnlockedMonsters(remoteData.unlockedMonsters);
+    }
+    // 5. 이번 주 주간 보상 수령 상태 반영
+    if (remoteData.weeklyRewardClaimedWeek) {
+      setStoredWeeklyRewardClaimed(remoteData.weeklyRewardClaimedWeek);
+      const currentWeek = getCurrentWeekKey();
+      setHasClaimedWeeklyReward(remoteData.weeklyRewardClaimedWeek === currentWeek);
+    }
+    // 6. 획득 쿠폰 목록 반영 (ID 기준 병합: 한 번 사용된(isUsed: true) 쿠폰은 영구 보존)
+    if (Array.isArray(remoteData.coupons)) {
+      const localCoupons = loadCoupons();
+      const couponMap = new Map<string, EarnedCoupon>();
+      localCoupons.forEach((c) => couponMap.set(c.id, c));
+      remoteData.coupons.forEach((c) => {
+        const existing = couponMap.get(c.id);
+        if (existing) {
+          // 이미 사용된 쿠폰 상태(isUsed: true)는 원격/로컬 어디서든 사용되었다면 영구 보존!
+          const isUsed = Boolean(existing.isUsed || c.isUsed);
+          const usedAt = (existing.isUsed ? existing.usedAt : null) || (c.isUsed ? c.usedAt : null) || existing.usedAt || c.usedAt;
+          couponMap.set(c.id, { ...existing, ...c, isUsed, usedAt });
+        } else {
+          couponMap.set(c.id, c);
+        }
+      });
+      const mergedCoupons = Array.from(couponMap.values());
+      setStoredCoupons(mergedCoupons);
+      refreshCouponCount();
+    }
+    // 7. 도감 10종 완성 보상 수령 상태 반영
+    if (typeof remoteData.hasClaimedCodexReward === 'boolean') {
+      const resetDone = localStorage.getItem('godzilla_reset_codex_claimed_for_test_v1');
+      const finalClaimed = resetDone ? remoteData.hasClaimedCodexReward : false;
+      setHasClaimedCodexReward(finalClaimed);
+      try {
+        localStorage.setItem(STORAGE_KEY_CODEX_REWARD, String(finalClaimed));
+      } catch {}
+    }
+    // 8. 황금 보물상자 보유량 반영 (기존 테스트로 비정상 부풀려진 6개 이상 등 비정상 값을 1개로 1회 강제 교정)
+    if (typeof remoteData.treasureBoxCount === 'number') {
+      let count = remoteData.treasureBoxCount;
+      const fixApplied = localStorage.getItem('godzilla_force_fix_1_box_welcome_v1');
+      if (!fixApplied) {
+        count = 1;
+        localStorage.setItem('godzilla_force_fix_1_box_welcome_v1', 'true');
+        savePlayerDataToFirestore({ treasureBoxCount: 1 });
+      }
+      setTreasureBoxCount(count);
+      try {
+        localStorage.setItem(STORAGE_KEY_TREASURE_BOX, String(count));
+      } catch {}
+    }
+    // 9. 회독(cycleCount), 무한 모드(isInfiniteMode), 스테이지(stageIndex) 반영
+    if (typeof remoteData.cycleCount === 'number') {
+      setCycleCount(remoteData.cycleCount);
+      try {
+        localStorage.setItem(STORAGE_KEY_CYCLE_COUNT, String(remoteData.cycleCount));
+      } catch {}
+    }
+    if (typeof remoteData.isInfiniteMode === 'boolean') {
+      setIsInfiniteMode(remoteData.isInfiniteMode);
+      try {
+        localStorage.setItem(STORAGE_KEY_INFINITE_MODE, String(remoteData.isInfiniteMode));
+      } catch {}
+    }
+    if (typeof remoteData.stageIndex === 'number') {
+      setStageIndex(remoteData.stageIndex);
+      try {
+        localStorage.setItem(STORAGE_KEY_STAGE_INDEX, String(remoteData.stageIndex));
+      } catch {}
+    }
+    // 10. 서포트 파트너 반영
+    if (remoteData.equippedPartnerId !== undefined) {
+      setEquippedPartnerId(remoteData.equippedPartnerId);
+      setStoredEquippedPartner(remoteData.equippedPartnerId);
+    }
+    // 11. 일일 듀얼 퀘스트 및 산수 스테이지 반영
+    if (remoteData.dailyDualQuest && typeof remoteData.dailyDualQuest === 'object') {
+      const today = getTodayDateStr();
+      const q = remoteData.dailyDualQuest as Partial<DailyDualQuest>;
+      if (q.date === today) {
+        setDailyDualQuest((prev) => {
+          const merged: DailyDualQuest = {
+            date: today,
+            languageDone: prev.languageDone || Boolean(q.languageDone),
+            mathDone: prev.mathDone || Boolean(q.mathDone),
+          };
+          try {
+            localStorage.setItem(STORAGE_KEY_DUAL_QUEST, JSON.stringify(merged));
+          } catch {}
+          return merged;
+        });
+      }
+    }
+    if (typeof remoteData.mathStageIndex === 'number') {
+      setMathStageIndex(remoteData.mathStageIndex);
+      try {
+        localStorage.setItem(STORAGE_KEY_MATH_STAGE, String(remoteData.mathStageIndex));
+      } catch {}
+    }
+  }, [refreshCouponCount]);
 
   useEffect(() => {
     let isMounted = true;
 
-    const initFirestore = async () => {
-      if (isFirestoreInitialized.current) return;
-      isFirestoreInitialized.current = true;
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (!isMounted) return;
+
+      // 비로그인 상태 예외 처리: Firestore 동기화 건너뛰고 로컬 스토리지 데이터로 안정 동작
+      if (!currentUser) {
+        console.info('[Firestore] 비로그인 상태입니다. 로컬 스토리지 모드로 실행됩니다.');
+        syncedUidRef.current = null;
+        isFirestoreInitialized.current = false;
+        return;
+      }
+
+      // 이미 현재 UID로 동기화 완료되었으면 중복 실행 방지
+      if (syncedUidRef.current === currentUser.uid) return;
 
       try {
-        const remoteData = await fetchPlayerDataFromFirestore();
-        if (!isMounted) return;
+        // Firestore 문서가 아직 없는 신규 UID일 때 초기 문서에 저장할 로컬 데이터 폴백 구성
+        const localMonsters = getStoredUnlockedMonsters();
+        const localCoupons = loadCoupons();
+        const currentWeekClaimed = checkClaimedWeeklyReward() ? getCurrentWeekKey() : null;
 
-        if (remoteData) {
-          // 1. 레벨 / 경험치 반영
-          if (remoteData.gameState && typeof remoteData.gameState.level === 'number') {
-            setGameState(remoteData.gameState);
-            try {
-              localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(remoteData.gameState));
-            } catch {}
-          }
-          // 3. 알 개수 반영
-          if (typeof remoteData.eggCount === 'number') {
-            setEggCount(remoteData.eggCount);
-            try {
-              localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(remoteData.eggCount));
-            } catch {}
-          }
-          // 4. 출석 체크 기록 반영 (로컬과 병합)
-          if (Array.isArray(remoteData.attendanceRecords)) {
-            setRecords(remoteData.attendanceRecords);
-            setStoredAttendanceRecords(remoteData.attendanceRecords);
-          }
-          // 4-1. 괴수 도감 반영
-          if (remoteData.unlockedMonsters && typeof remoteData.unlockedMonsters === 'object') {
-            setStoredUnlockedMonsters(remoteData.unlockedMonsters);
-            setUnlockedMonsters(remoteData.unlockedMonsters);
-          }
-          // 5. 이번 주 주간 보상 수령 상태 반영
-          if (remoteData.weeklyRewardClaimedWeek) {
-            setStoredWeeklyRewardClaimed(remoteData.weeklyRewardClaimedWeek);
-            const currentWeek = getCurrentWeekKey();
-            setHasClaimedWeeklyReward(remoteData.weeklyRewardClaimedWeek === currentWeek);
-          }
-          // 6. 획득 쿠폰 목록 반영 (ID 기준 병합: 한 번 사용된(isUsed: true) 쿠폰은 영구 보존)
-          if (Array.isArray(remoteData.coupons)) {
-            const localCoupons = loadCoupons();
-            const couponMap = new Map<string, EarnedCoupon>();
-            localCoupons.forEach((c) => couponMap.set(c.id, c));
-            remoteData.coupons.forEach((c) => {
-              const existing = couponMap.get(c.id);
-              if (existing) {
-                // 이미 사용된 쿠폰 상태(isUsed: true)는 원격/로컬 어디서든 사용되었다면 영구 보존!
-                const isUsed = Boolean(existing.isUsed || c.isUsed);
-                const usedAt = (existing.isUsed ? existing.usedAt : null) || (c.isUsed ? c.usedAt : null) || existing.usedAt || c.usedAt;
-                couponMap.set(c.id, { ...existing, ...c, isUsed, usedAt });
-              } else {
-                couponMap.set(c.id, c);
-              }
-            });
-            const mergedCoupons = Array.from(couponMap.values());
-            setStoredCoupons(mergedCoupons);
-            refreshCouponCount();
-          }
-          // 7. 도감 10종 완성 보상 수령 상태 반영
-          if (typeof remoteData.hasClaimedCodexReward === 'boolean') {
-            const resetDone = localStorage.getItem('godzilla_reset_codex_claimed_for_test_v1');
-            const finalClaimed = resetDone ? remoteData.hasClaimedCodexReward : false;
-            setHasClaimedCodexReward(finalClaimed);
-            try {
-              localStorage.setItem(STORAGE_KEY_CODEX_REWARD, String(finalClaimed));
-            } catch {}
-          }
-          // 8. 황금 보물상자 보유량 반영 (기존 테스트로 비정상 부풀려진 6개 이상 등 비정상 값을 1개로 1회 강제 교정)
-          if (typeof remoteData.treasureBoxCount === 'number') {
-            let count = remoteData.treasureBoxCount;
-            const fixApplied = localStorage.getItem('godzilla_force_fix_1_box_welcome_v1');
-            if (!fixApplied) {
-              count = 1;
-              localStorage.setItem('godzilla_force_fix_1_box_welcome_v1', 'true');
-              savePlayerDataToFirestore({ treasureBoxCount: 1 });
-            }
-            setTreasureBoxCount(count);
-            try {
-              localStorage.setItem(STORAGE_KEY_TREASURE_BOX, String(count));
-            } catch {}
-          }
-          // 9. 회독(cycleCount), 무한 모드(isInfiniteMode), 스테이지(stageIndex) 반영
-          if (typeof remoteData.cycleCount === 'number') {
-            setCycleCount(remoteData.cycleCount);
-            try {
-              localStorage.setItem(STORAGE_KEY_CYCLE_COUNT, String(remoteData.cycleCount));
-            } catch {}
-          }
-          if (typeof remoteData.isInfiniteMode === 'boolean') {
-            setIsInfiniteMode(remoteData.isInfiniteMode);
-            try {
-              localStorage.setItem(STORAGE_KEY_INFINITE_MODE, String(remoteData.isInfiniteMode));
-            } catch {}
-          }
-          if (typeof remoteData.stageIndex === 'number') {
-            setStageIndex(remoteData.stageIndex);
-            try {
-              localStorage.setItem(STORAGE_KEY_STAGE_INDEX, String(remoteData.stageIndex));
-            } catch {}
-          }
-          // 10. 서포트 파트너 반영
-          if (remoteData.equippedPartnerId !== undefined) {
-            setEquippedPartnerId(remoteData.equippedPartnerId);
-            setStoredEquippedPartner(remoteData.equippedPartnerId);
-          }
-          // 11. 일일 듀얼 퀘스트 및 산수 스테이지 반영
-          if (remoteData.dailyDualQuest && typeof remoteData.dailyDualQuest === 'object') {
-            const today = getTodayDateStr();
-            const q = remoteData.dailyDualQuest as Partial<DailyDualQuest>;
-            if (q.date === today) {
-              setDailyDualQuest((prev) => {
-                const merged: DailyDualQuest = {
-                  date: today,
-                  languageDone: prev.languageDone || Boolean(q.languageDone),
-                  mathDone: prev.mathDone || Boolean(q.mathDone),
-                };
-                try {
-                  localStorage.setItem(STORAGE_KEY_DUAL_QUEST, JSON.stringify(merged));
-                } catch {}
-                return merged;
-              });
-            }
-          }
-          if (typeof remoteData.mathStageIndex === 'number') {
-            setMathStageIndex(remoteData.mathStageIndex);
-            try {
-              localStorage.setItem(STORAGE_KEY_MATH_STAGE, String(remoteData.mathStageIndex));
-            } catch {}
-          }
-        } else {
-          // Firestore 문서가 아직 없으면 현재 로컬스토리지 데이터를 최초 백업
-          const localMonsters = getStoredUnlockedMonsters();
-          const localCoupons = loadCoupons();
-          const currentWeekClaimed = checkClaimedWeeklyReward() ? getCurrentWeekKey() : null;
-          await savePlayerDataToFirestore({
-            gameState,
-            eggCount,
-            treasureBoxCount: 1,
-            attendanceRecords: records,
-            weeklyRewardClaimedWeek: currentWeekClaimed,
-            unlockedMonsters: localMonsters,
-            coupons: localCoupons,
-            hasClaimedCodexReward: getStoredHasClaimedCodexReward(),
-            cycleCount,
-            isInfiniteMode,
-            stageIndex,
-            equippedPartnerId: getStoredEquippedPartner(),
-            dailyDualQuest,
-            mathStageIndex,
-          });
+        const initialFallback: Partial<PlayerFirestoreData> = {
+          gameState,
+          eggCount,
+          treasureBoxCount: 1,
+          attendanceRecords: records,
+          weeklyRewardClaimedWeek: currentWeekClaimed,
+          unlockedMonsters: localMonsters,
+          coupons: localCoupons,
+          hasClaimedCodexReward: getStoredHasClaimedCodexReward(),
+          cycleCount,
+          isInfiniteMode,
+          stageIndex,
+          equippedPartnerId: getStoredEquippedPartner(),
+          dailyDualQuest,
+          mathStageIndex,
+        };
+
+        // 로그인 시 해당 UID 문서가 없으면 기본값으로 초기 문서 생성
+        const result = await ensurePlayerDocument(currentUser.uid, initialFallback);
+        if (!isMounted || !result) return;
+
+        syncedUidRef.current = currentUser.uid;
+        isFirestoreInitialized.current = true;
+
+        // 기존에 생성되어 있던 문서라면 원격 데이터를 로컬 상태에 동기화
+        if (!result.isNewlyCreated) {
+          applyRemoteDataToLocal(result.data);
         }
       } catch (err) {
-        console.warn('[Firestore] Sync initialization error (fallback to localStorage):', err);
-      } finally {
-        if (isMounted) {
-          isFirestoreInitialized.current = true;
-        }
+        console.warn(`[Firestore] UID (${currentUser.uid}) 동기화 실패 (로컬 스토리지 유지):`, err);
       }
-    };
-
-    initFirestore();
+    });
 
     return () => {
       isMounted = false;
+      unsubscribe();
     };
-  }, []);
+  }, [
+    applyRemoteDataToLocal,
+    gameState,
+    eggCount,
+    records,
+    cycleCount,
+    isInfiniteMode,
+    stageIndex,
+    dailyDualQuest,
+    mathStageIndex,
+  ]);
 
   // 음성 공격 모드 ON/OFF 토글
   const handleToggleVoiceAttack = useCallback(() => {
