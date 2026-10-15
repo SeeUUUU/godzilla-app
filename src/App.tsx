@@ -10,7 +10,16 @@ import { MathDefenseStage } from './components/MathDefenseStage';
 import { TOTAL_MATH_STAGES } from './data/mathData';
 import { InstallAppBanner, InstallGuideModal } from './components/InstallAppBanner';
 import { usePwaInstall } from './hooks/usePwaInstall';
-import { useAttendance, setStoredAttendanceRecords, getTodayDateStr } from './hooks/useAttendance';
+import {
+  useAttendance,
+  setStoredAttendanceRecords,
+  setStoredStampCount,
+  setStoredCumulativeDays,
+  STORAGE_KEY_ATTENDANCE,
+  STORAGE_KEY_STAMP_COUNT,
+  STORAGE_KEY_CUMULATIVE_DAYS,
+  getTodayDateStr,
+} from './hooks/useAttendance';
 
 // 대형 모달 컴포넌트 동적 코드 스플리팅 (초기 로딩 속도 최적화)
 const ParentModal = lazy(() => import('./components/ParentModal').then((m) => ({ default: m.ParentModal })));
@@ -393,11 +402,28 @@ export function App() {
     return currentStageNum % 5 === 0 || currentStageNum === 34;
   }, [isReviewMode, currentStageNum]);
 
+  // 현재 스테이지에서 3단 매칭 완료된 단어 ID 목록
+  const [clearedIds, setClearedIds] = useState<(string | number)[]>([]);
+
   // [망각 방지 데일리 데자뷰] 오답노트에서 1단어 기습 출제 (비복습, 비보스 일반 스테이지)
-  const dejaVuWord = useMemo<WordItem | null>(() => {
-    if (isReviewMode || isBossStage || normalizedWrongWords.length === 0) return null;
+  // 스테이지 배틀 진행 도중 오답 졸업으로 단어 세트가 갑자기 바뀌지 않도록 세션별로 1회 고정(Lock)
+  const [sessionDejaVuWord, setSessionDejaVuWord] = useState<WordItem | null>(null);
+
+  useEffect(() => {
+    // 이미 현재 스테이지에서 단어를 맞추기 시작했다면 중간에 데자뷰 단어를 바꾸지 않음 (단어 증발/뒤바뀜 방지)
+    if (clearedIds.length > 0) return;
+
+    if (isReviewMode || isBossStage || normalizedWrongWords.length === 0) {
+      setSessionDejaVuWord(null);
+      return;
+    }
+
     const target = normalizedWrongWords[0];
-    if (!target) return null;
+    if (!target) {
+      setSessionDejaVuWord(null);
+      return;
+    }
+
     const idStr = String(target.id);
     const defaultWord = DEFAULT_WORDS.find(
       (w) => String(w.id) === idStr || String(w.id).replace(/^w/, '') === idStr.replace(/^w/, '')
@@ -410,11 +436,12 @@ export function App() {
       WORD_EMOJIS[target.ko] ||
       WORD_EMOJIS[target.en] ||
       undefined;
-    return {
+
+    setSessionDejaVuWord({
       ...target,
       emoji,
-    };
-  }, [isReviewMode, isBossStage, normalizedWrongWords]);
+    });
+  }, [stageIndex, battleSessionId, isReviewMode, isBossStage, normalizedWrongWords, clearedIds.length]);
 
   // [중요] 단어 출제 방식:
   // - 1회독 (순차 진도 모드: cycleCount === 1): 200개 단어 중 6개씩 순차 슬라이싱 ((stage - 1) * 6 ~ stage * 6)
@@ -431,13 +458,13 @@ export function App() {
       baseList = slice.length > 0 ? slice : safeWords.slice(0, WORDS_PER_ROUND);
     }
 
-    if (dejaVuWord && !isBossStage) {
-      const filtered = baseList.filter((w) => w.id !== dejaVuWord.id);
-      return [dejaVuWord, ...filtered].slice(0, WORDS_PER_ROUND);
+    if (sessionDejaVuWord && !isBossStage) {
+      const filtered = baseList.filter((w) => w.id !== sessionDejaVuWord.id);
+      return [sessionDejaVuWord, ...filtered].slice(0, WORDS_PER_ROUND);
     }
 
     return baseList;
-  }, [isInfiniteMode, safeWords, stageIndex, totalStages, battleSessionId, cycleCount, dejaVuWord, isBossStage]);
+  }, [isInfiniteMode, safeWords, stageIndex, totalStages, battleSessionId, cycleCount, sessionDejaVuWord, isBossStage]);
 
   // 현재 활성화된 단어 세트:
   // - 복습 모드이고 reviewWords에 단어가 있으면 reviewWords 사용
@@ -625,15 +652,16 @@ export function App() {
   const {
     records,
     setRecords,
+    cumulativeAttendanceDays,
+    setCumulativeAttendanceDays,
+    stampCount,
+    setStampCount,
+    stampSlots,
     isTodayAttended,
     currentStreak: attendanceStreak,
     maxStreak: maxAttendanceStreak,
-    weekDays,
-    weekAttendedCount,
     checkTodayAttendance,
-    hasClaimedWeeklyReward,
-    setHasClaimedWeeklyReward,
-    claimWeeklyReward,
+    resetStampCycle,
   } = useAttendance();
   const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState(false);
   const [attendanceInitialShowCoupons, setAttendanceInitialShowCoupons] = useState(false);
@@ -668,21 +696,35 @@ export function App() {
         localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(remoteData.eggCount));
       } catch {}
     }
-    // 4. 출석 체크 기록 반영 (로컬과 병합)
+    // 4. 출석 체크 기록 및 누적 7일 스탬프 반영
     if (Array.isArray(remoteData.attendanceRecords)) {
       setRecords(remoteData.attendanceRecords);
       setStoredAttendanceRecords(remoteData.attendanceRecords);
+    }
+    if (typeof remoteData.cumulativeAttendanceDays === 'number') {
+      setCumulativeAttendanceDays(remoteData.cumulativeAttendanceDays);
+      setStoredCumulativeDays(remoteData.cumulativeAttendanceDays);
+    } else if (Array.isArray(remoteData.attendanceRecords)) {
+      const migrated = remoteData.attendanceRecords.length;
+      setCumulativeAttendanceDays(migrated);
+      setStoredCumulativeDays(migrated);
+    }
+    if (typeof remoteData.stampCount === 'number') {
+      setStampCount(remoteData.stampCount);
+      setStoredStampCount(remoteData.stampCount);
+    } else if (Array.isArray(remoteData.attendanceRecords)) {
+      const migratedStamps = remoteData.attendanceRecords.length % 7;
+      setStampCount(migratedStamps);
+      setStoredStampCount(migratedStamps);
     }
     // 4-1. 괴수 도감 반영
     if (remoteData.unlockedMonsters && typeof remoteData.unlockedMonsters === 'object') {
       setStoredUnlockedMonsters(remoteData.unlockedMonsters);
       setUnlockedMonsters(remoteData.unlockedMonsters);
     }
-    // 5. 이번 주 주간 보상 수령 상태 반영
+    // 5. 이번 주 주간 보상 수령 상태 반영 (하위 호환성)
     if (remoteData.weeklyRewardClaimedWeek) {
       setStoredWeeklyRewardClaimed(remoteData.weeklyRewardClaimedWeek);
-      const currentWeek = getCurrentWeekKey();
-      setHasClaimedWeeklyReward(remoteData.weeklyRewardClaimedWeek === currentWeek);
     }
     // 6. 획득 쿠폰 목록 반영 (ID 기준 병합: 한 번 사용된(isUsed: true) 쿠폰은 영구 보존)
     if (Array.isArray(remoteData.coupons)) {
@@ -805,6 +847,8 @@ export function App() {
           eggCount,
           treasureBoxCount: 1,
           attendanceRecords: records,
+          stampCount,
+          cumulativeAttendanceDays,
           weeklyRewardClaimedWeek: currentWeekClaimed,
           unlockedMonsters: localMonsters,
           coupons: localCoupons,
@@ -842,6 +886,8 @@ export function App() {
     gameState,
     eggCount,
     records,
+    stampCount,
+    cumulativeAttendanceDays,
     cycleCount,
     isInfiniteMode,
     stageIndex,
@@ -937,7 +983,6 @@ export function App() {
   // 6. 배틀 상태
   // ─────────────────────────────────────────────
   const [godzillaHp, setGodzillaHp] = useState(100);
-  const [clearedIds, setClearedIds] = useState<(string | number)[]>([]);
   const [battleStatus, setBattleStatus] = useState<BattleStatus>('PLAYING');
   const battleStatusRef = useRef<BattleStatus>('PLAYING');
   const attackedIdsRef = useRef(new Set<string | number>());
@@ -958,8 +1003,8 @@ export function App() {
   // 데일리 데자뷰 단어 출현 안내 알림 (단어명 스포일러 방지)
   const hasShownDejaVuNoticeRef = useRef<string | null>(null);
   useEffect(() => {
-    if (dejaVuWord && !isReviewMode && !isBossStage && battleStatus === 'PLAYING') {
-      const dejaVuKey = `${stageIndex}-${dejaVuWord.id}`;
+    if (sessionDejaVuWord && !isReviewMode && !isBossStage && battleStatus === 'PLAYING') {
+      const dejaVuKey = `${stageIndex}-${sessionDejaVuWord.id}`;
       if (hasShownDejaVuNoticeRef.current !== dejaVuKey) {
         hasShownDejaVuNoticeRef.current = dejaVuKey;
         const timer = setTimeout(() => {
@@ -971,7 +1016,7 @@ export function App() {
         return () => clearTimeout(timer);
       }
     }
-  }, [dejaVuWord, isReviewMode, isBossStage, battleStatus, stageIndex, triggerPartnerNotice]);
+  }, [sessionDejaVuWord, isReviewMode, isBossStage, battleStatus, stageIndex, triggerPartnerNotice]);
 
   const resetBattle = useCallback(() => {
     if (attackTimerRef.current !== null) {
@@ -999,8 +1044,11 @@ export function App() {
   }, []);
 
   // 킹 기도라 HP: 활성 단어 진행률에 1:1 비례 및 파트너 추가 데미지 반영
+  // 단어가 남아있는 상태에서는 파트너 보너스 데미지가 있더라도 최소 1%를 유지하여 보스가 쓰러지지 않도록 보장
   const ghidorahHp = activeWords.length > 0
-    ? Math.max(0, Math.round(((activeWords.length - clearedIds.length) / activeWords.length) * 100) - bonusBossDamage)
+    ? clearedIds.length >= activeWords.length
+      ? 0
+      : Math.max(1, Math.round(((activeWords.length - clearedIds.length) / activeWords.length) * 100) - bonusBossDamage)
     : 0;
 
   // 오답 데미지
@@ -1061,9 +1109,14 @@ export function App() {
         STORAGE_KEY_EQUIPPED_PARTNER,
         STORAGE_KEY_DUAL_QUEST,
         STORAGE_KEY_MATH_STAGE,
+        STORAGE_KEY_STAMP_COUNT,
+        STORAGE_KEY_CUMULATIVE_DAYS,
+        STORAGE_KEY_ATTENDANCE,
         'godzilla_unlocked_monsters',
         'godzilla_earned_coupons',
         'godzilla_attendance_records',
+        'godzilla_attendance_stamp_count',
+        'godzilla_cumulative_attendance_days',
         'godzilla_weekly_reward_claimed_week',
         'godzilla_weekly_reward_claimed',
         'godzilla_language_state_v2',
@@ -1087,7 +1140,9 @@ export function App() {
       localStorage.setItem(STORAGE_KEY_WRONG_WORDS, JSON.stringify([]));
       localStorage.setItem('godzilla_unlocked_monsters', JSON.stringify({}));
       localStorage.setItem('godzilla_earned_coupons', JSON.stringify([]));
-      localStorage.setItem('godzilla_attendance_records', JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEY_STAMP_COUNT, '0');
+      localStorage.setItem(STORAGE_KEY_CUMULATIVE_DAYS, '0');
     } catch (e) {
       console.error('Failed to clear local storage:', e);
     }
@@ -1099,6 +1154,8 @@ export function App() {
         eggCount: 0,
         treasureBoxCount: 1,
         attendanceRecords: [],
+        stampCount: 0,
+        cumulativeAttendanceDays: 0,
         weeklyRewardClaimedWeek: null,
         unlockedMonsters: {},
         coupons: [],
@@ -1122,7 +1179,8 @@ export function App() {
     setEquippedPartnerId(null);
     setWrongWordList([]);
     setRecords([]);
-    setHasClaimedWeeklyReward(false);
+    setStampCount(0);
+    setCumulativeAttendanceDays(0);
     setHasClaimedCodexReward(false);
     setCycleCount(1);
     setIsInfiniteMode(false);
@@ -1131,7 +1189,7 @@ export function App() {
     setGodzillaHp(100);
 
     window.location.reload();
-  }, [setRecords, setHasClaimedWeeklyReward]);
+  }, [setRecords, setStampCount, setCumulativeAttendanceDays]);
 
   // ─────────────────────────────────────────────
   // 8. 실제 공격 실행 (일반 공격 또는 음성 포효 크리티컬 공격)
@@ -1140,7 +1198,8 @@ export function App() {
     (matchedId: string | number, isCritical: boolean, roarPower?: RoarPowerResult | null) => {
       if (battleStatusRef.current !== 'PLAYING' || !activeWords.some((word) => word.id === matchedId) || attackedIdsRef.current.has(matchedId)) return;
       attackedIdsRef.current.add(matchedId);
-      const isFinalHit = attackedIdsRef.current.size === activeWords.length;
+      // 현재 보드에 깔린 activeWords의 모든 단어가 빠짐없이 매칭(공격) 완료되었는지 정밀 검증
+      const isFinalHit = activeWords.length > 0 && activeWords.every((word) => attackedIdsRef.current.has(word.id));
       if (isFinalHit) {
         battleStatusRef.current = 'FINISHING';
         setBattleStatus('FINISHING');
@@ -1205,7 +1264,7 @@ export function App() {
       }
 
       // [망각 방지 데일리 데자뷰]: 이전 오답 단어를 일반 스테이지에서 정답 매칭 시 오답노트에서 명예 졸업!
-      if (!isReviewMode && dejaVuWord && matchedId === dejaVuWord.id) {
+      if (!isReviewMode && sessionDejaVuWord && matchedId === sessionDejaVuWord.id) {
         setWrongWordList((prev) => {
           const updated = prev.filter((item) => item.id !== matchedId);
           try {
@@ -1217,7 +1276,7 @@ export function App() {
           return updated;
         });
 
-        triggerPartnerNotice(`🎓 깜짝 데자뷰 마스터! '${dejaVuWord.ko}' 오답노트 완벽 졸업! 🎉`, '🎓');
+        triggerPartnerNotice(`🎓 깜짝 데자뷰 마스터! '${sessionDejaVuWord.ko}' 오답노트 완벽 졸업! 🎉`, '🎓');
         try {
           confetti({
             particleCount: 80,
@@ -1278,7 +1337,7 @@ export function App() {
         triggerPartnerNotice('고질라 -1.0 압축 폭발! 보너스 EXP +10!', '💥');
       }
     },
-    [activeWords, isReviewMode, equippedPartnerId, triggerPartnerNotice]
+    [activeWords, isReviewMode, sessionDejaVuWord, equippedPartnerId, triggerPartnerNotice]
   );
 
   const handleComboComplete = useCallback(() => {
@@ -1654,7 +1713,10 @@ export function App() {
   // ─────────────────────────────────────────────
   // 12. 승리 / 게임오버 판정
   // ─────────────────────────────────────────────
-  const isAllCleared = activeWords.length > 0 && battleStatus === 'CLEARED';
+  const isAllCleared =
+    activeWords.length > 0 &&
+    battleStatus === 'CLEARED' &&
+    activeWords.every((w) => clearedIds.includes(w.id));
   const isGameOver = godzillaHp <= 0;
 
   // 마지막 6번째 단어 격파 시 배틀 연출(고질라 열선 발사, 보스 피격, 보스 체력 0% 감소, 격파 쓰러짐)을
@@ -1733,19 +1795,36 @@ export function App() {
             return next;
           });
 
+          // 7일 스탬프 완성 시: 황금 보물상자 1개 지급!
+          if (attendanceResult.shouldRewardChest) {
+            setTreasureBoxCount((prev) => {
+              const next = prev + 1;
+              try {
+                localStorage.setItem(STORAGE_KEY_TREASURE_BOX, String(next));
+              } catch {}
+              savePlayerDataToFirestore({ treasureBoxCount: next });
+              return next;
+            });
+          }
+
           playVictoryFanfare();
           confetti({
-            particleCount: 150,
+            particleCount: 160,
             spread: 120,
             origin: { y: 0.4 },
             colors: ['#38bdf8', '#f59e0b', '#10b981', '#ef4444', '#a855f7'],
           });
 
-          if (isBurning) {
+          if (attendanceResult.shouldRewardChest) {
+            triggerPartnerNotice(
+              '🎉 7일 스탬프 완성! 황금 보물상자를 획득했습니다! 🎁',
+              '🎁'
+            );
+          } else if (isBurning) {
             triggerPartnerNotice('🔥 버닝 고질라: 보너스 알 획득! (총 2개 지급)', '🔥');
           } else {
             triggerPartnerNotice(
-              `🏆 일일 듀얼 훈련(언어+산수) 완주! 출석 도장 쾅! 🐾 🥚 알 +${eggBonus}개 획득!`,
+              `🏆 일일 듀얼 훈련(언어+산수) 완주! 출석 도장 쾅! 🐾 🥚 알 +${eggBonus}개 획득! (${attendanceResult.stampCount}/7일)`,
               '🎉'
             );
           }
@@ -1872,6 +1951,7 @@ export function App() {
   // 12-5. 2회독 무한 마스터 모드 시작 핸들러
   const handleStartNextCycle = useCallback(() => {
     setIsCycleCompletionModalOpen(false);
+    resetBattle();
     setIsInfiniteMode(true);
     setCycleCount(2);
     setStageIndex(0);
@@ -1899,7 +1979,7 @@ export function App() {
       spread: 80,
       origin: { y: 0.6 },
     });
-  }, []);
+  }, [resetBattle]);
 
   // 12-6. 34스테이지(200단어 1회독) 최종 완주 세리머니 & 마스터 보상 (+1 황금 보물상자, +3 괴수 알)
   useEffect(() => {
@@ -2029,6 +2109,8 @@ export function App() {
         }}
         unusedCouponCount={unusedCouponCount}
         attendanceStreak={attendanceStreak}
+        stampCount={stampCount}
+        cumulativeAttendanceDays={cumulativeAttendanceDays}
         isTodayAttended={isTodayAttended}
         unlockedMonsterCount={MONSTER_CARDS.filter((monster) => (unlockedMonsters[monster.id]?.count ?? 0) >= 1).length}
         totalMonsterCount={MONSTER_CARDS.length}
@@ -2603,7 +2685,7 @@ export function App() {
 
         {comboWord && <MiniComboModal key={String(comboWord.id)} word={comboWord} onComplete={handleComboComplete} />}
 
-        {/* 9. 주간 캘린더 & 고질라 발자국 스탬프 출석부 모달 */}
+        {/* 9. 누적 7일 스탬프 & 고질라 발자국 출석부 모달 */}
         {isAttendanceModalOpen && (
           <AttendanceModal
             isOpen={isAttendanceModalOpen}
@@ -2614,8 +2696,9 @@ export function App() {
             }}
             currentStreak={attendanceStreak}
             maxStreak={maxAttendanceStreak}
-            weekDays={weekDays}
-            weekAttendedCount={weekAttendedCount}
+            stampCount={stampCount}
+            cumulativeAttendanceDays={cumulativeAttendanceDays}
+            stampSlots={stampSlots}
             isTodayAttended={isTodayAttended}
             isNewlyAttended={isNewlyAttendedToday}
             onOpenLuckyGacha={() => {
@@ -2623,7 +2706,8 @@ export function App() {
               setGoldenChestSource('attendance');
               setIsGoldenChestOpen(true);
             }}
-            hasClaimedWeeklyReward={hasClaimedWeeklyReward}
+            onResetStampCycle={resetStampCycle}
+            treasureBoxCount={treasureBoxCount}
             initialShowCoupons={attendanceInitialShowCoupons}
             onCouponsChanged={refreshCouponCount}
           />
@@ -2657,7 +2741,7 @@ export function App() {
               });
             }}
             onWeeklyRewardClaimed={() => {
-              claimWeeklyReward();
+              resetStampCycle();
               refreshCouponCount();
             }}
             onCodexRewardClaimed={() => {

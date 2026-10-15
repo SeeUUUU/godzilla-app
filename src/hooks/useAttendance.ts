@@ -1,13 +1,12 @@
 import { useState, useCallback, useMemo } from 'react';
-import {
-  hasClaimedWeeklyReward as checkClaimedWeeklyReward,
-  markWeeklyRewardClaimed as saveWeeklyRewardClaimed,
-  resetWeeklyRewardClaimed as clearWeeklyRewardClaimed,
-} from '../data/gachaRewards';
+import type { AttendanceStampSlot } from '../types';
 import { savePlayerDataToFirestore } from '../firebase';
 
 export const STORAGE_KEY_ATTENDANCE = 'godzilla_attendance_records';
+export const STORAGE_KEY_STAMP_COUNT = 'godzilla_attendance_stamp_count';
+export const STORAGE_KEY_CUMULATIVE_DAYS = 'godzilla_cumulative_attendance_days';
 
+// localStorage 헬퍼 함수들
 export const setStoredAttendanceRecords = (records: string[]): void => {
   try {
     localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(records));
@@ -16,16 +15,21 @@ export const setStoredAttendanceRecords = (records: string[]): void => {
   }
 };
 
-export interface AttendanceDayInfo {
-  dateStr: string;
-  dayName: '월' | '화' | '수' | '목' | '금' | '토' | '일';
-  month: number;
-  day: number;
-  isToday: boolean;
-  isAttended: boolean;
-  isFuture: boolean;
-  isPast: boolean;
-}
+export const setStoredStampCount = (count: number): void => {
+  try {
+    localStorage.setItem(STORAGE_KEY_STAMP_COUNT, String(Math.max(0, Math.min(7, count))));
+  } catch (e) {
+    console.error('Failed to save stamp count:', e);
+  }
+};
+
+export const setStoredCumulativeDays = (days: number): void => {
+  try {
+    localStorage.setItem(STORAGE_KEY_CUMULATIVE_DAYS, String(Math.max(0, days)));
+  } catch (e) {
+    console.error('Failed to save cumulative attendance days:', e);
+  }
+};
 
 // 오늘 날짜 문자열 ('YYYY-MM-DD')
 export const getTodayDateStr = (): string => {
@@ -107,69 +111,39 @@ export const calculateMaxStreak = (records: string[]): number => {
   return max;
 };
 
-// 이번 주 월~일 7개 날짜 문자열 ('YYYY-MM-DD') 반환
-export const getThisWeekDates = (): string[] => {
-  const now = new Date();
-  const dayOfWeek = now.getDay();
-  const mondayOffset = (dayOfWeek + 6) % 7;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - mondayOffset);
-  monday.setHours(0, 0, 0, 0);
-
+// 7일 누적 순환 스탬프 슬롯 정보 생성 (1일차 ~ 7일차)
+export const getAttendanceStampSlots = (stampCount: number): AttendanceStampSlot[] => {
+  const normalizedCount = Math.max(0, Math.min(7, stampCount));
   return Array.from({ length: 7 }).map((_, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return formatDateToStr(d);
-  });
-};
-
-// 이번 주 월~일 7개 날짜 정보 생성
-export const getThisWeekDays = (records: string[]): AttendanceDayInfo[] => {
-  const now = new Date();
-  const dayOfWeek = now.getDay(); // 0(일) ~ 6(토)
-  // 월요일 인덱스 (월=0, 화=1, ... 일=6)
-  const mondayOffset = (dayOfWeek + 6) % 7;
-
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - mondayOffset);
-  monday.setHours(0, 0, 0, 0);
-
-  const todayStr = getTodayDateStr();
-  const recordSet = new Set(records);
-  const dayNames: ('월' | '화' | '수' | '목' | '금' | '토' | '일')[] = [
-    '월',
-    '화',
-    '수',
-    '목',
-    '금',
-    '토',
-    '일',
-  ];
-
-  return Array.from({ length: 7 }).map((_, i) => {
-    const targetDate = new Date(monday);
-    targetDate.setDate(monday.getDate() + i);
-
-    const dateStr = formatDateToStr(targetDate);
-    const isToday = dateStr === todayStr;
-    const isAttended = recordSet.has(dateStr);
-    const isFuture = dateStr > todayStr;
-    const isPast = dateStr < todayStr;
+    const dayIndex = i + 1;
+    const isStamped = normalizedCount >= dayIndex;
+    const isCurrentTarget = normalizedCount < 7 && dayIndex === normalizedCount + 1;
+    const isRewardSlot = dayIndex === 7;
 
     return {
-      dateStr,
-      dayName: dayNames[i],
-      month: targetDate.getMonth() + 1,
-      day: targetDate.getDate(),
-      isToday,
-      isAttended,
-      isFuture,
-      isPast,
+      dayIndex,
+      label: `${dayIndex}일차`,
+      isStamped,
+      isCurrentTarget,
+      isRewardSlot,
     };
   });
 };
 
+// 하위 호환성을 위한 AttendanceDayInfo 타입 정의
+export interface AttendanceDayInfo {
+  dateStr: string;
+  dayName: string;
+  month: number;
+  day: number;
+  isToday: boolean;
+  isAttended: boolean;
+  isFuture: boolean;
+  isPast: boolean;
+}
+
 export const useAttendance = () => {
+  // 1. 날짜별 출석 기록 목록 ('YYYY-MM-DD')
   const [records, setRecords] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_ATTENDANCE);
@@ -177,16 +151,14 @@ export const useAttendance = () => {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
           const today = getTodayDateStr();
-          const cleaned = Array.from(new Set(parsed.filter((date): date is string =>
-            typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= today
-          )));
-          if (JSON.stringify(cleaned) !== saved) {
-            try {
-              localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(cleaned));
-            } catch (e) {
-              console.error('Failed to repair attendance records:', e);
-            }
-          }
+          const cleaned = Array.from(
+            new Set(
+              parsed.filter(
+                (date): date is string =>
+                  typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= today
+              )
+            )
+          );
           return cleaned;
         }
       }
@@ -196,108 +168,164 @@ export const useAttendance = () => {
     return [];
   });
 
+  // 2. 총 누적 출석일수 (기존 사용자 자동 마이그레이션: records.length)
+  const [cumulativeAttendanceDays, setCumulativeAttendanceDays] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_CUMULATIVE_DAYS);
+      if (saved !== null) {
+        const num = Number(saved);
+        if (!isNaN(num) && num >= 0) return num;
+      }
+      // 마이그레이션: 기존 출석 기록 개수로 보존
+      const initialCumulative = records.length;
+      try {
+        localStorage.setItem(STORAGE_KEY_CUMULATIVE_DAYS, String(initialCumulative));
+      } catch {}
+      return initialCumulative;
+    } catch {
+      return records.length;
+    }
+  });
+
+  // 3. 현재 7일 스탬프 판에 찍힌 개수 (0 ~ 7)
+  // (기존 사용자 자동 마이그레이션: records.length % 7)
+  const [stampCount, setStampCount] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_STAMP_COUNT);
+      if (saved !== null) {
+        const num = Number(saved);
+        if (!isNaN(num) && num >= 0 && num <= 7) return num;
+      }
+      // 마이그레이션
+      const migratedStamps = records.length % 7;
+      try {
+        localStorage.setItem(STORAGE_KEY_STAMP_COUNT, String(migratedStamps));
+      } catch {}
+      return migratedStamps;
+    } catch {
+      return records.length % 7;
+    }
+  });
+
   const todayStr = getTodayDateStr();
   const isTodayAttended = useMemo(() => records.includes(todayStr), [records, todayStr]);
   const currentStreak = useMemo(() => calculateCurrentStreak(records), [records]);
   const maxStreak = useMemo(() => calculateMaxStreak(records), [records]);
-  const weekDays = useMemo(() => getThisWeekDays(records), [records]);
-  const weekAttendedCount = useMemo(
-    () => weekDays.filter((d) => d.isAttended).length,
-    [weekDays]
-  );
 
-  // 이번 주 7일 출석 최고 보상(황금 보물상자) 수령 상태 관리
-  const [hasClaimedWeeklyReward, setHasClaimedWeeklyReward] = useState<boolean>(() =>
-    checkClaimedWeeklyReward()
-  );
+  // 7일 스탬프 슬롯 배열 (DAY 1 ~ DAY 7)
+  const stampSlots = useMemo(() => getAttendanceStampSlots(stampCount), [stampCount]);
 
-  const claimWeeklyReward = useCallback(() => {
-    saveWeeklyRewardClaimed();
-    setHasClaimedWeeklyReward(true);
+  // 하위 호환성: weekDays와 weekAttendedCount
+  const weekDays = useMemo<AttendanceDayInfo[]>(() => {
+    return stampSlots.map((slot) => ({
+      dateStr: `day-${slot.dayIndex}`,
+      dayName: slot.label,
+      month: 0,
+      day: slot.dayIndex,
+      isToday: slot.isCurrentTarget,
+      isAttended: slot.isStamped,
+      isFuture: !slot.isStamped && !slot.isCurrentTarget,
+      isPast: slot.isStamped,
+    }));
+  }, [stampSlots]);
+
+  const weekAttendedCount = stampCount;
+
+  // 7일 순환 스탬프 판 초기화 (0으로 리셋하여 다음 7일 모으기 시작)
+  const resetStampCycle = useCallback(() => {
+    setStampCount(0);
+    setStoredStampCount(0);
+    savePlayerDataToFirestore({ stampCount: 0 });
   }, []);
 
-  // 오늘 출석 체크 실행 함수
+  // 오늘 1회 출석 체크 실행 함수 (누적 7일 스탬프 무한 순환 시스템)
   const checkTodayAttendance = useCallback((): {
     isNewlyAttended: boolean;
     streak: number;
-    isWeekCompleted: boolean;
+    cumulativeAttendanceDays: number;
+    stampCount: number;
+    isSevenDaysCompleted: boolean;
     shouldRewardEgg: boolean;
-    shouldRewardChest?: boolean;
+    shouldRewardChest: boolean;
   } => {
     const today = getTodayDateStr();
+
+    // 오늘 이미 출석 체크를 완료한 경우 중복 처리 방지
     if (records.includes(today)) {
       return {
         isNewlyAttended: false,
         streak: calculateCurrentStreak(records),
-        isWeekCompleted: weekAttendedCount === 7,
+        cumulativeAttendanceDays,
+        stampCount,
+        isSevenDaysCompleted: stampCount >= 7,
         shouldRewardEgg: false,
         shouldRewardChest: false,
       };
     }
 
-    const updated = [...records, today];
-    setRecords(updated);
-    try {
-      localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to save attendance record:', e);
-    }
+    const updatedRecords = [...records, today];
+    const updatedCumulative = cumulativeAttendanceDays + 1;
 
-    const nextStreak = calculateCurrentStreak(updated);
+    // 만약 이전 스탬프 판이 이미 7개로 완성된 상태였다면 새로운 판(0에서 +1 = 1일차)으로 순환 시작
+    const baseStamp = stampCount >= 7 ? 0 : stampCount;
+    const nextStampCount = baseStamp + 1;
 
-    // 이번 주 7일 출석 완료 여부 판정 (오늘 출석 포함)
-    const updatedWeekDays = getThisWeekDays(updated);
-    const updatedWeekCount = updatedWeekDays.filter((d) => d.isAttended).length;
-    const isWeekCompleted = updatedWeekCount === 7;
+    // 스탬프가 7개에 도달했는지 판정 (황금 보물상자 지급 조건)
+    const isSevenDaysCompleted = nextStampCount === 7;
+    const shouldRewardChest = isSevenDaysCompleted;
 
-    // 이번 주 7일 완성 여부 판정 (주간 황금 보물상자 개봉 자격 획득)
-    const alreadyClaimed = checkClaimedWeeklyReward();
-    const shouldRewardChest = isWeekCompleted && !alreadyClaimed;
+    setRecords(updatedRecords);
+    setCumulativeAttendanceDays(updatedCumulative);
+    setStampCount(nextStampCount);
+
+    setStoredAttendanceRecords(updatedRecords);
+    setStoredCumulativeDays(updatedCumulative);
+    setStoredStampCount(nextStampCount);
 
     savePlayerDataToFirestore({
-      attendanceRecords: updated,
+      attendanceRecords: updatedRecords,
+      cumulativeAttendanceDays: updatedCumulative,
+      stampCount: nextStampCount,
     });
 
     return {
       isNewlyAttended: true,
-      streak: nextStreak,
-      isWeekCompleted,
-      shouldRewardEgg: shouldRewardChest,
+      streak: calculateCurrentStreak(updatedRecords),
+      cumulativeAttendanceDays: updatedCumulative,
+      stampCount: nextStampCount,
+      isSevenDaysCompleted,
+      shouldRewardEgg: true,
       shouldRewardChest,
     };
-  }, [records, weekAttendedCount]);
+  }, [records, cumulativeAttendanceDays, stampCount]);
 
-  // 테스트용: 이번 주 7일 출석 강제 완료
-  const forceFillWeekAttendance = useCallback(() => {
-    const weekDates = getThisWeekDates();
-    const updated = Array.from(new Set([...records, ...weekDates]));
-    setRecords(updated);
-    try {
-      localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to force fill attendance:', e);
-    }
-    savePlayerDataToFirestore({ attendanceRecords: updated });
-    return updated;
-  }, [records]);
+  // 테스트용: 7일 스탬프 강제 완성
+  const forceFillSevenStamps = useCallback(() => {
+    const nextStamp = 7;
+    const nextCumulative = cumulativeAttendanceDays + (7 - stampCount);
+    setStampCount(nextStamp);
+    setCumulativeAttendanceDays(nextCumulative);
+    setStoredStampCount(nextStamp);
+    setStoredCumulativeDays(nextCumulative);
+    savePlayerDataToFirestore({
+      stampCount: nextStamp,
+      cumulativeAttendanceDays: nextCumulative,
+    });
+    return nextStamp;
+  }, [cumulativeAttendanceDays, stampCount]);
 
-  const resetWeeklyReward = useCallback(() => {
-    clearWeeklyRewardClaimed();
-    setHasClaimedWeeklyReward(false);
-  }, []);
-
-  // 출석 기록 및 주간 보상 완전 초기화 (Firestore 및 localStorage 동시 반영)
+  // 출석 데이터 전체 초기화 (학부모 관리자 모드용)
   const resetAllAttendance = useCallback(() => {
     setRecords([]);
-    try {
-      localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify([]));
-    } catch (e) {
-      console.error('Failed to reset attendance in storage:', e);
-    }
-    clearWeeklyRewardClaimed();
-    setHasClaimedWeeklyReward(false);
+    setCumulativeAttendanceDays(0);
+    setStampCount(0);
+    setStoredAttendanceRecords([]);
+    setStoredCumulativeDays(0);
+    setStoredStampCount(0);
     savePlayerDataToFirestore({
       attendanceRecords: [],
+      cumulativeAttendanceDays: 0,
+      stampCount: 0,
       weeklyRewardClaimedWeek: null,
     });
   }, []);
@@ -305,17 +333,24 @@ export const useAttendance = () => {
   return {
     records,
     setRecords,
+    cumulativeAttendanceDays,
+    setCumulativeAttendanceDays,
+    stampCount,
+    setStampCount,
+    stampSlots,
     isTodayAttended,
     currentStreak,
     maxStreak,
+    checkTodayAttendance,
+    resetStampCycle,
+    forceFillSevenStamps,
+    resetAllAttendance,
+    // 하위 호환성 유지용 프로퍼티
     weekDays,
     weekAttendedCount,
-    checkTodayAttendance,
-    forceFillWeekAttendance,
-    hasClaimedWeeklyReward,
-    setHasClaimedWeeklyReward,
-    claimWeeklyReward,
-    resetWeeklyReward,
-    resetAllAttendance,
+    hasClaimedWeeklyReward: stampCount < 7,
+    setHasClaimedWeeklyReward: () => {},
+    claimWeeklyReward: resetStampCycle,
+    resetWeeklyReward: resetStampCycle,
   };
 };

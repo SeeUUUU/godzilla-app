@@ -101,8 +101,9 @@ export const SentenceComboModal: React.FC<SentenceComboModalProps> = ({
         cleanText = getCleanTtsText(sentenceData.enSentence, 'en-US');
         speechLang = 'en-US';
       } else if (lang === 'jp') {
-        // 괄호 및 후리가나 기호를 제거한 순수 한자/가나 텍스트로 TTS 재생
-        cleanText = getCleanTtsText(sentenceData.jpSentence, 'ja-JP');
+        // 후리가나/히라가나가 정의되어 있다면 우선 적용하여 한자 음독 오류 방지
+        const rawJp = sentenceData.jpFurigana || sentenceData.jpSentence;
+        cleanText = getCleanTtsText(rawJp, 'ja-JP');
         speechLang = 'ja-JP';
       }
 

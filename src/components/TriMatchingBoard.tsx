@@ -33,10 +33,10 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
 }) => {
   const { speak } = useSpeech();
 
-  // 안전장치: words prop으로 들어온 배열의 유효성을 검증하고 정확히 6개만 슬라이스 (undefined 방어)
+  // 안전장치: words prop으로 들어온 배열의 유효성을 검증 (undefined 방어)
   const displayWords = useMemo<WordItem[]>(() => {
     if (!Array.isArray(words) || words.length === 0) return [];
-    return words.filter((w): w is WordItem => !!w && typeof w === 'object' && 'id' in w).slice(0, 6);
+    return words.filter((w): w is WordItem => !!w && typeof w === 'object' && 'id' in w);
   }, [words]);
 
   // 셔플된 카드 열 상태 (State로 관리하여 단어 매칭/선택 시 카드 위치가 변하지 않도록 고정 유지)
@@ -98,7 +98,9 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
       en: 'en-US',
       ja: 'ja-JP',
     };
-    const speechPromise = speak(card.text, langMap[card.lang]);
+    // 일본어는 한자 음독 오류(예: '雲' -> '운')를 방지하기 위해 후리가나/히라가나(subText)를 우선 전달
+    const textToSpeak = card.lang === 'ja' && card.subText ? card.subText : card.text;
+    const speechPromise = speak(textToSpeak, langMap[card.lang], undefined, card.subText);
 
     const currentSelectedId = selected[card.lang];
     const newSelectedId = currentSelectedId === card.id ? null : card.id;
@@ -318,9 +320,10 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                   </div>
                 </div>
 
-                {/* 2. 6개 낱말 카드 균등 분할 그리드 (높이 동일 일치 & 화면 잘림 완전 해결) */}
+                {/* 2. 낱말 카드 균등 분할 그리드 (단어 개수에 맞춤 동적 행 & 화면 잘림 방지) */}
                 <div
-                  className="flex-1 min-h-0 grid grid-rows-6 gap-1.5 sm:gap-2"
+                  className="flex-1 min-h-0 grid gap-1.5 sm:gap-2"
+                  style={{ gridTemplateRows: `repeat(${displayWords.length || 6}, minmax(0, 1fr))` }}
                 >
                   {list.map((card) => {
                     const isCleared = clearedIds.includes(card.id);
@@ -447,7 +450,8 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                                   en: 'en-US',
                                   ja: 'ja-JP',
                                 };
-                                speak(card.text, langMap[card.lang]);
+                                const textToSpeak = card.lang === 'ja' && card.subText ? card.subText : card.text;
+                                speak(textToSpeak, langMap[card.lang], undefined, card.subText);
                               }}
                               className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg sm:rounded-xl flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm hover:scale-110 active:scale-90 ${
                                 isSelected
