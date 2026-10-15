@@ -60,7 +60,7 @@ export const createIndependentShuffledColumns = (words: WordItem[]): {
   const baseJa: ShuffledCard[] = words.map((w) => ({
     id: w.id,
     text: w.ja || '',
-    subText: w.jaKana || '',
+    subText: w.jaKana || w.jpKana || w.reading || w.furigana || '',
     emoji: resolveEmoji(w),
     lang: 'ja',
   }));

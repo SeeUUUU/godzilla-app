@@ -12,6 +12,9 @@ export interface WordItem {
   en: string;
   ja: string;
   jaKana?: string;
+  jpKana?: string;
+  reading?: string;
+  furigana?: string;
   emoji?: string;
   krSentence?: string;
   enSentence?: string;
@@ -302,3 +305,21 @@ export interface MonsterCollectionState {
   monsters: Record<string, UnlockedMonsterRecord>;
   treasureBoxes: number;
 }
+
+// 7일 누적 순환 출석 스탬프 슬롯 정보
+export interface AttendanceStampSlot {
+  dayIndex: number; // 1 ~ 7
+  label: string; // '1일차' ~ '7일차' (DAY 1 ~ DAY 7)
+  isStamped: boolean;
+  isCurrentTarget: boolean;
+  isRewardSlot: boolean; // 7일차 황금 보물상자 슬롯
+}
+
+// 누적 출석 상태
+export interface AttendanceState {
+  cumulativeAttendanceDays: number; // 총 누적 출석일수
+  stampCount: number; // 현재 스탬프 판에 찍힌 개수 (0 ~ 7)
+  lastAttendanceDate?: string | null;
+  records: string[]; // 출석 날짜 기록 ('YYYY-MM-DD')
+}
+

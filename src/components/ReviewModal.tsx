@@ -200,7 +200,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
                         </div>
                         <button
                           type="button"
-                          onClick={() => handleSpeak(word.ja, 'ja-JP')}
+                          onClick={() => handleSpeak(word.jaKana || word.jpKana || word.reading || word.furigana || word.ja, 'ja-JP')}
                           title="일본어 발음 듣기"
                           className="p-1 text-emerald-400 hover:text-emerald-200 hover:bg-emerald-950/40 rounded transition-colors flex-none cursor-pointer"
                         >

@@ -1,13 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import confetti from 'canvas-confetti';
-import { X, Flame, Award, Sparkles, CheckCircle2, Lock, Gift, Ticket } from 'lucide-react';
+import { X, Flame, Award, Sparkles, CheckCircle2, Lock, Gift, Ticket, RotateCcw } from 'lucide-react';
+import type { AttendanceStampSlot } from '../types';
 import type { AttendanceDayInfo } from '../hooks/useAttendance';
-import {
-  loadCoupons,
-  hasClaimedWeeklyReward,
-  type EarnedCoupon,
-} from '../data/gachaRewards';
-import { playStampThudSound } from '../utils/soundEffects';
+import { getAttendanceStampSlots } from '../hooks/useAttendance';
+import { loadCoupons, type EarnedCoupon } from '../data/gachaRewards';
+import { playStampThudSound, playVictoryFanfare } from '../utils/soundEffects';
 import { CouponModal } from './CouponModal';
 
 export { CouponModal };
@@ -17,14 +15,20 @@ interface AttendanceModalProps {
   onClose: () => void;
   currentStreak: number;
   maxStreak: number;
-  weekDays: AttendanceDayInfo[];
-  weekAttendedCount: number;
+  stampCount?: number;
+  cumulativeAttendanceDays?: number;
+  stampSlots?: AttendanceStampSlot[];
   isTodayAttended: boolean;
   isNewlyAttended?: boolean;
   onOpenLuckyGacha?: () => void;
-  hasClaimedWeeklyReward?: boolean;
+  onResetStampCycle?: () => void;
+  treasureBoxCount?: number;
   initialShowCoupons?: boolean;
   onCouponsChanged?: () => void;
+  // 하위 호환성용 props
+  weekDays?: AttendanceDayInfo[];
+  weekAttendedCount?: number;
+  hasClaimedWeeklyReward?: boolean;
 }
 
 // 귀여운 고질라 발자국 스탬프 SVG
@@ -82,39 +86,50 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
   onClose,
   currentStreak,
   maxStreak,
-  weekDays,
-  weekAttendedCount,
+  stampCount: rawStampCount,
+  cumulativeAttendanceDays = 0,
+  stampSlots: propStampSlots,
   isTodayAttended,
   isNewlyAttended = false,
   onOpenLuckyGacha,
-  hasClaimedWeeklyReward: hasClaimedWeeklyRewardProp,
+  onResetStampCycle,
+  treasureBoxCount = 0,
   initialShowCoupons = false,
   onCouponsChanged,
+  weekAttendedCount,
 }) => {
   const [shouldAnimateStamp, setShouldAnimateStamp] = useState(false);
   const [showCoupons, setShowCoupons] = useState(initialShowCoupons);
   const [coupons, setCoupons] = useState<EarnedCoupon[]>([]);
-  const [claimedWeekly, setClaimedWeekly] = useState(() => hasClaimedWeeklyReward());
 
-  const isWeekComplete = weekAttendedCount === 7;
-  const isAlreadyClaimed = hasClaimedWeeklyRewardProp !== undefined ? hasClaimedWeeklyRewardProp : claimedWeekly;
+  // stampCount 결정 (props 또는 weekAttendedCount 하위 호환)
+  const stampCount = Math.max(0, Math.min(7, rawStampCount !== undefined ? rawStampCount : (weekAttendedCount ?? 0)));
+  const isSevenDaysComplete = stampCount >= 7;
 
-  useEffect(() => {
-    if (isOpen) {
-      setClaimedWeekly(hasClaimedWeeklyReward());
-    }
-  }, [isOpen, hasClaimedWeeklyRewardProp]);
+  // 스탬프 슬롯 배열 (props 또는 내부 생성)
+  const slots = propStampSlots || getAttendanceStampSlots(stampCount);
 
   useEffect(() => {
     if (isOpen && isNewlyAttended) {
       setShouldAnimateStamp(true);
       playStampThudSound();
-      confetti({
-        particleCount: 80,
-        spread: 75,
-        origin: { y: 0.55 },
-        colors: ['#10b981', '#34d399', '#fde047', '#06b6d4'],
-      });
+
+      if (isSevenDaysComplete) {
+        playVictoryFanfare();
+        confetti({
+          particleCount: 160,
+          spread: 100,
+          origin: { y: 0.5 },
+          colors: ['#fbbf24', '#f59e0b', '#10b981', '#38bdf8', '#ef4444'],
+        });
+      } else {
+        confetti({
+          particleCount: 80,
+          spread: 75,
+          origin: { y: 0.55 },
+          colors: ['#10b981', '#34d399', '#fde047', '#06b6d4'],
+        });
+      }
     } else {
       setShouldAnimateStamp(false);
     }
@@ -123,11 +138,11 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
       setCoupons(loadCoupons());
       setShowCoupons(initialShowCoupons);
     }
-  }, [isOpen, isNewlyAttended, initialShowCoupons]);
+  }, [isOpen, isNewlyAttended, isSevenDaysComplete, initialShowCoupons]);
 
   if (!isOpen) return null;
 
-  const weeklyProgressPercent = Math.round((weekAttendedCount / 7) * 100);
+  const progressPercent = Math.round((stampCount / 7) * 100);
   const unusedCoupons = coupons.filter((c) => !c.isUsed && c.minutes > 0);
 
   return (
@@ -148,17 +163,20 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
         style={{
           position: 'relative',
           width: '100%',
-          maxWidth: '490px',
+          maxWidth: '500px',
           maxHeight: '94vh',
           overflowY: 'auto',
           backgroundColor: '#0f172a',
-          border: '2px solid rgba(16, 185, 129, 0.5)',
+          border: isSevenDaysComplete ? '2.5px solid #f59e0b' : '2px solid rgba(16, 185, 129, 0.5)',
           borderRadius: '24px',
-          boxShadow: '0 0 40px rgba(16, 185, 129, 0.35)',
+          boxShadow: isSevenDaysComplete
+            ? '0 0 50px rgba(245, 158, 11, 0.45)'
+            : '0 0 40px rgba(16, 185, 129, 0.35)',
           padding: '20px 18px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
+          transition: 'all 0.3s ease',
         }}
       >
         {/* 닫기 버튼 */}
@@ -234,7 +252,7 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
             }}
           />
         ) : (
-          /* ─── 메인 출석부 뷰 ─── */
+          /* ─── 메인 7일 누적 출석부 뷰 ─── */
           <>
             <div style={{ height: '20px' }} />
 
@@ -246,19 +264,23 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                 gap: '6px',
                 padding: '4px 14px',
                 borderRadius: '9999px',
-                background: 'linear-gradient(90deg, #047857, #10b981)',
+                background: isSevenDaysComplete
+                  ? 'linear-gradient(90deg, #b45309, #f59e0b)'
+                  : 'linear-gradient(90deg, #047857, #10b981)',
                 marginBottom: '8px',
-                border: '1.5px solid #6ee7b7',
-                boxShadow: '0 0 14px rgba(16, 185, 129, 0.6)',
+                border: isSevenDaysComplete ? '1.5px solid #fde047' : '1.5px solid #6ee7b7',
+                boxShadow: isSevenDaysComplete
+                  ? '0 0 16px rgba(245, 158, 11, 0.7)'
+                  : '0 0 14px rgba(16, 185, 129, 0.6)',
               }}
             >
               <Sparkles size={14} color="#fef08a" />
               <span style={{ fontSize: '12px', fontWeight: 900, color: '#ffffff' }}>
-                🐾 고질라의 주간 출석부
+                🐾 고질라의 누적 7일 스탬프 판
               </span>
             </div>
 
-            {/* 스트릭 헤더 */}
+            {/* 메인 타이틀 */}
             <h2
               style={{
                 fontSize: '22px',
@@ -272,22 +294,57 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                 gap: '6px',
               }}
             >
-              <Flame size={24} color="#f59e0b" />
-              <span>{currentStreak}일 연속 출석 중!</span>
+              {isSevenDaysComplete ? (
+                <>
+                  <span style={{ fontSize: '24px' }}>🎉</span>
+                  <span style={{ color: '#fde047' }}>7일 스탬프 완성!</span>
+                </>
+              ) : (
+                <>
+                  <Flame size={24} color="#f59e0b" />
+                  <span>{stampCount} / 7일 스탬프 모음!</span>
+                </>
+              )}
             </h2>
 
+            {/* 든든한 상단 안내 문구: "하루 빠져도 괜찮아요! 언제든 7일을 채우면 황금 보물상자 100% 지급! 🐾" */}
+            <div
+              style={{
+                width: '100%',
+                backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                border: '1px solid rgba(56, 189, 248, 0.35)',
+                borderRadius: '12px',
+                padding: '8px 12px',
+                margin: '4px 0 12px 0',
+                textAlign: 'center',
+              }}
+            >
+              <p
+                style={{
+                  fontSize: '12px',
+                  color: '#7dd3fc',
+                  fontWeight: 800,
+                  margin: 0,
+                  lineHeight: '1.4',
+                }}
+              >
+                🐾 하루 빠져도 괜찮아요! 언제든 7일을 채우면 황금 보물상자 100% 지급! 🎁
+              </p>
+            </div>
+
+            {/* 오늘 출석 상태 안내 */}
             <p
               style={{
                 fontSize: '12px',
                 color: '#cbd5e1',
                 fontWeight: 700,
-                margin: '0 0 16px 0',
+                margin: '0 0 14px 0',
                 textAlign: 'center',
               }}
             >
               {isTodayAttended ? (
                 <span style={{ color: '#4ade80' }}>
-                  🎉 오늘 출석 완료! 고질라가 힘차게 발자국을 남겼어요!
+                  🎉 오늘 출석 완료! 스탬프 판에 고질라 발자국이 쾅 찍혔어요!
                 </span>
               ) : (
                 <span style={{ color: '#fde047' }}>
@@ -320,42 +377,59 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
               </div>
             )}
 
-            {/* 스트릭 요약 카드 */}
+            {/* 누적 통계 요약 카드 (현재 스탬프, 총 누적 출석, 연속 출석) */}
             <div
               style={{
                 width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-around',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '8px',
                 backgroundColor: '#020617',
                 borderRadius: '16px',
-                padding: '10px 14px',
+                padding: '10px 12px',
                 border: '1px solid rgba(255, 255, 255, 0.1)',
                 marginBottom: '16px',
+                textAlign: 'center',
               }}
             >
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700 }}>현재 연속 출석</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                  <Flame size={16} color="#ef4444" />
-                  <span style={{ fontSize: '18px', fontWeight: 900, color: '#fca5a5' }}>
+                <span style={{ fontSize: '10.5px', color: '#94a3b8', fontWeight: 700 }}>현재 스탬프</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px' }}>
+                  <span style={{ fontSize: '14px' }}>🐾</span>
+                  <span style={{ fontSize: '17px', fontWeight: 900, color: '#6ee7b7' }}>
+                    {stampCount}/7
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ borderLeft: '1px solid #334155', borderRight: '1px solid #334155', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <span style={{ fontSize: '10.5px', color: '#94a3b8', fontWeight: 700 }}>총 누적 출석</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px' }}>
+                  <Award size={15} color="#f59e0b" />
+                  <span style={{ fontSize: '17px', fontWeight: 900, color: '#fde047' }}>
+                    {cumulativeAttendanceDays}일
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <span style={{ fontSize: '10.5px', color: '#94a3b8', fontWeight: 700 }}>연속 출석</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px' }}>
+                  <Flame size={15} color="#ef4444" />
+                  <span
+                    style={{ fontSize: '17px', fontWeight: 900, color: '#fca5a5' }}
+                    title={`역대 최장 연속 기록: ${maxStreak}일`}
+                  >
                     {currentStreak}일
                   </span>
                 </div>
-              </div>
-              <div style={{ width: '1px', height: '28px', backgroundColor: '#334155' }} />
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700 }}>역대 최장 기록</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                  <Award size={16} color="#f59e0b" />
-                  <span style={{ fontSize: '18px', fontWeight: 900, color: '#fde047' }}>
-                    {maxStreak}일
-                  </span>
-                </div>
+                <span style={{ fontSize: '9px', color: '#64748b', fontWeight: 700, marginTop: '1px' }}>
+                  최고 {maxStreak}일
+                </span>
               </div>
             </div>
 
-            {/* 이번 주 7일 캘린더 그리드 */}
+            {/* ─── 7일 누적 스탬프 슬롯 그리드 (DAY 1 ~ DAY 7) ─── */}
             <div
               style={{
                 width: '100%',
@@ -365,63 +439,62 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                 marginBottom: '16px',
               }}
             >
-              {weekDays.map((dayInfo) => {
-                const isTargetAnimate = shouldAnimateStamp && dayInfo.isToday && dayInfo.isAttended;
+              {slots.map((slot) => {
+                const isTargetAnimate = shouldAnimateStamp && slot.dayIndex === stampCount;
+                const isGoldenSlot = slot.isRewardSlot;
 
                 return (
                   <div
-                    key={dayInfo.dateStr}
+                    key={slot.dayIndex}
                     style={{
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'center',
                       padding: '8px 4px',
                       borderRadius: '12px',
-                      backgroundColor: dayInfo.isAttended
-                        ? 'rgba(16, 185, 129, 0.18)'
-                        : dayInfo.isToday
+                      backgroundColor: slot.isStamped
+                        ? isGoldenSlot
+                          ? 'rgba(245, 158, 11, 0.25)'
+                          : 'rgba(16, 185, 129, 0.18)'
+                        : isGoldenSlot
+                        ? 'rgba(245, 158, 11, 0.1)'
+                        : slot.isCurrentTarget
                         ? 'rgba(245, 158, 11, 0.15)'
                         : 'rgba(30, 41, 59, 0.4)',
-                      border: dayInfo.isAttended
-                        ? '1.5px solid #10b981'
-                        : dayInfo.isToday
+                      border: slot.isStamped
+                        ? isGoldenSlot
+                          ? '2px solid #fbbf24'
+                          : '1.5px solid #10b981'
+                        : isGoldenSlot
+                        ? '1.5px dashed #f59e0b'
+                        : slot.isCurrentTarget
                         ? '2px dashed #f59e0b'
                         : '1px solid #334155',
-                      boxShadow: dayInfo.isAttended
-                        ? '0 0 12px rgba(16, 185, 129, 0.3)'
-                        : dayInfo.isToday
-                        ? '0 0 14px rgba(245, 158, 11, 0.3)'
+                      boxShadow: slot.isStamped
+                        ? isGoldenSlot
+                          ? '0 0 16px rgba(251, 191, 36, 0.6)'
+                          : '0 0 12px rgba(16, 185, 129, 0.3)'
+                        : slot.isCurrentTarget
+                        ? '0 0 12px rgba(245, 158, 11, 0.3)'
                         : 'none',
                       transition: 'all 0.25s ease',
+                      position: 'relative',
                     }}
                   >
+                    {/* 상단 라벨 (DAY 1 ~ DAY 7) */}
                     <span
                       style={{
-                        fontSize: '11px',
+                        fontSize: '10.5px',
                         fontWeight: 900,
-                        color:
-                          dayInfo.dayName === '일'
-                            ? '#f87171'
-                            : dayInfo.dayName === '토'
-                            ? '#60a5fa'
-                            : '#cbd5e1',
-                        marginBottom: '1px',
+                        color: isGoldenSlot ? '#fde047' : '#cbd5e1',
+                        marginBottom: '4px',
+                        letterSpacing: '-0.02em',
                       }}
                     >
-                      {dayInfo.dayName}
+                      DAY {slot.dayIndex}
                     </span>
 
-                    <span
-                      style={{
-                        fontSize: '10px',
-                        color: '#94a3b8',
-                        fontWeight: 700,
-                        marginBottom: '6px',
-                      }}
-                    >
-                      {dayInfo.day}일
-                    </span>
-
+                    {/* 중앙 스탬프 / 보물상자 아이콘 영역 */}
                     <div
                       style={{
                         width: '38px',
@@ -431,9 +504,36 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                         justifyContent: 'center',
                       }}
                     >
-                      {dayInfo.isAttended ? (
-                        <GodzillaFootprintStamp size={36} color="#10b981" isAnimated={isTargetAnimate} />
-                      ) : dayInfo.isToday ? (
+                      {isGoldenSlot ? (
+                        // 7일차 황금 보물상자 슬롯
+                        slot.isStamped ? (
+                          <div
+                            style={{
+                              fontSize: '28px',
+                              animation: 'chestBounce 1.5s infinite',
+                              filter: 'drop-shadow(0 0 8px rgba(251, 191, 36, 0.9))',
+                            }}
+                          >
+                            🎁
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              fontSize: '24px',
+                              opacity: slot.isCurrentTarget ? 0.95 : 0.65,
+                              filter: slot.isCurrentTarget
+                                ? 'drop-shadow(0 0 6px rgba(245, 158, 11, 0.6))'
+                                : 'grayscale(30%)',
+                            }}
+                          >
+                            🎁
+                          </div>
+                        )
+                      ) : slot.isStamped ? (
+                        // 1~6일차 일반 고질라 발자국 스탬프
+                        <GodzillaFootprintStamp size={34} color="#10b981" isAnimated={isTargetAnimate} />
+                      ) : slot.isCurrentTarget ? (
+                        // 다음 찍힐 슬롯 (펄스 링)
                         <div
                           style={{
                             width: '28px',
@@ -443,60 +543,65 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: '13px',
+                            fontSize: '12px',
                             color: '#fde047',
+                            fontWeight: 900,
                           }}
                         >
-                          ?
+                          🐾
                         </div>
-                      ) : dayInfo.isFuture ? (
-                        <Lock size={16} color="#475569" />
                       ) : (
-                        <span style={{ fontSize: '13px', color: '#475569', fontWeight: 900 }}>-</span>
+                        // 미달성 미래 슬롯
+                        <Lock size={15} color="#475569" />
                       )}
                     </div>
 
+                    {/* 하단 상태 텍스트 */}
                     <span
                       style={{
                         fontSize: '9px',
                         fontWeight: 800,
                         marginTop: '4px',
-                        color: dayInfo.isAttended
-                          ? '#6ee7b7'
-                          : dayInfo.isToday
+                        color: slot.isStamped
+                          ? isGoldenSlot
+                            ? '#fef08a'
+                            : '#6ee7b7'
+                          : slot.isCurrentTarget
                           ? '#fde047'
                           : '#64748b',
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {dayInfo.isAttended
-                        ? '완료'
-                        : dayInfo.isToday
-                        ? '오늘'
-                        : dayInfo.isFuture
-                        ? '예정'
-                        : '미출석'}
+                      {slot.isStamped
+                        ? isGoldenSlot
+                          ? '달성! 🎁'
+                          : '완료 🐾'
+                        : isGoldenSlot
+                        ? '황금상자'
+                        : slot.isCurrentTarget
+                        ? '오늘 차례'
+                        : '대기'}
                     </span>
                   </div>
                 );
               })}
             </div>
 
-            {/* 주간 미션 섹션 */}
+            {/* ─── 7일 스탬프 미션 & 순환 보상 안내 섹션 ─── */}
             <div
               style={{
                 width: '100%',
                 backgroundColor: '#020617',
                 borderRadius: '16px',
-                border: isWeekComplete
+                border: isSevenDaysComplete
                   ? '2px solid #f59e0b'
                   : '1.5px solid rgba(255, 255, 255, 0.1)',
-                padding: '12px 14px',
+                padding: '14px',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '10px',
                 marginBottom: '16px',
-                boxShadow: isWeekComplete ? '0 0 20px rgba(251, 191, 36, 0.4)' : 'none',
+                boxShadow: isSevenDaysComplete ? '0 0 25px rgba(251, 191, 36, 0.45)' : 'none',
                 transition: 'all 0.3s ease',
               }}
             >
@@ -509,17 +614,22 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                   fontWeight: 800,
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#fef08a' }}>
-                  <Gift size={15} color="#facc15" />
-                  <span>주간 미션: 7일 출석 완료 시 🎁 황금 보물상자(실물 쿠폰 당첨) 획득!</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#fef08a' }}>
+                  <Gift size={16} color="#facc15" />
+                  <span>
+                    {isSevenDaysComplete
+                      ? '🎉 7일 스탬프 완성! 황금 보물상자를 획득했습니다! 🎁'
+                      : '7일 스탬프 완성 시: 🎁 황금 보물상자(실물 쿠폰 당첨) 100% 지급!'}
+                  </span>
                 </div>
                 <span
                   style={{
-                    color: isWeekComplete ? '#fbbf24' : '#38bdf8',
+                    color: isSevenDaysComplete ? '#fbbf24' : '#38bdf8',
                     fontWeight: 900,
+                    fontSize: '13px',
                   }}
                 >
-                  {weekAttendedCount} / 7일
+                  {stampCount} / 7일
                 </span>
               </div>
 
@@ -536,77 +646,88 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
               >
                 <div
                   style={{
-                    width: `${weeklyProgressPercent}%`,
+                    width: `${progressPercent}%`,
                     height: '100%',
-                    background: isWeekComplete
+                    background: isSevenDaysComplete
                       ? 'linear-gradient(90deg, #d97706 0%, #f59e0b 50%, #fbbf24 100%)'
                       : 'linear-gradient(90deg, #06b6d4 0%, #10b981 100%)',
                     borderRadius: '9999px',
                     transition: 'width 0.4s ease',
-                    boxShadow: isWeekComplete ? '0 0 8px rgba(251, 191, 36, 0.7)' : 'none',
+                    boxShadow: isSevenDaysComplete ? '0 0 8px rgba(251, 191, 36, 0.8)' : 'none',
                   }}
                 />
               </div>
 
-              {/* 7일 달성 시: 황금 보물상자 버튼 분기 */}
-              {isWeekComplete && (
-                isAlreadyClaimed ? (
-                  <button
-                    type="button"
-                    disabled
-                    style={{
-                      width: '100%',
-                      padding: '14px',
-                      borderRadius: '16px',
-                      backgroundColor: '#1e293b',
-                      color: '#94a3b8',
-                      fontWeight: 800,
-                      fontSize: '13px',
-                      border: '1.5px solid #334155',
-                      cursor: 'not-allowed',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px',
-                      opacity: 0.85,
-                    }}
-                  >
-                    <span>🎉 이번 주 7일 출석 완료! 🎁 황금 보물상자 수령 완료 (다음 주 월요일에 새로 시작)</span>
-                  </button>
-                ) : onOpenLuckyGacha ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      setTimeout(() => onOpenLuckyGacha(), 150);
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '12px',
-                      borderRadius: '14px',
-                      background: 'linear-gradient(90deg, #92400e 0%, #d97706 40%, #f59e0b 70%, #fbbf24 100%)',
-                      color: '#ffffff',
-                      fontWeight: 900,
-                      fontSize: '15px',
-                      border: '2px solid #fde047',
-                      boxShadow: '0 0 25px rgba(251, 191, 36, 0.8)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px',
-                      animation: 'weeklyGlowPulse 2s infinite',
-                    }}
-                  >
-                    <span style={{ fontSize: '20px' }}>🎁</span>
-                    <span>황금 보물상자 열러 가기! (실물 쿠폰 당첨)</span>
-                    <Sparkles size={16} color="#fde047" />
-                  </button>
-                ) : null
+              {/* 7일 완성 시 액션 버튼들 */}
+              {isSevenDaysComplete ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                  {onOpenLuckyGacha && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        setTimeout(() => onOpenLuckyGacha(), 150);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '13px',
+                        borderRadius: '14px',
+                        background: 'linear-gradient(90deg, #92400e 0%, #d97706 40%, #f59e0b 70%, #fbbf24 100%)',
+                        color: '#ffffff',
+                        fontWeight: 900,
+                        fontSize: '15px',
+                        border: '2px solid #fde047',
+                        boxShadow: '0 0 25px rgba(251, 191, 36, 0.8)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        animation: 'stampGlowPulse 2s infinite',
+                      }}
+                    >
+                      <span style={{ fontSize: '20px' }}>🎁</span>
+                      <span>황금 보물상자 열러 가기! (보유: {treasureBoxCount}개)</span>
+                      <Sparkles size={16} color="#fde047" />
+                    </button>
+                  )}
+
+                  {onResetStampCycle && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onResetStampCycle();
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: '12px',
+                        backgroundColor: '#1e293b',
+                        color: '#cbd5e1',
+                        fontWeight: 800,
+                        fontSize: '12px',
+                        border: '1px solid #475569',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        transition: 'all 0.2s',
+                      }}
+                    >
+                      <RotateCcw size={13} color="#94a3b8" />
+                      <span>새로운 7일 스탬프 판 바로 시작하기 🐾</span>
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p style={{ fontSize: '11px', color: '#94a3b8', margin: '2px 0 0 0', textAlign: 'center' }}>
+                  💡 7일차 스탬프가 찍히면 황금 보물상자가 즉시 지급되고 새로운 7일 스탬프 판이 시작돼요!
+                </p>
               )}
             </div>
 
-            {/* 하단 계속하기 버튼 */}
+            {/* 하단 모험 계속하기 버튼 */}
             <button
               type="button"
               onClick={onClose}
@@ -641,9 +762,13 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
           80% { transform: scale(1.15) rotate(-5deg); }
           100% { transform: scale(1) rotate(-4deg); opacity: 1; }
         }
-        @keyframes weeklyGlowPulse {
+        @keyframes stampGlowPulse {
           0%, 100% { box-shadow: 0 0 20px rgba(251, 191, 36, 0.6); }
           50% { box-shadow: 0 0 35px rgba(251, 191, 36, 0.95); }
+        }
+        @keyframes chestBounce {
+          0%, 100% { transform: translateY(0) scale(1); }
+          50% { transform: translateY(-4px) scale(1.08); }
         }
       `}</style>
     </div>

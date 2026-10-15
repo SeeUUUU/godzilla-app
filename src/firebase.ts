@@ -3,13 +3,15 @@ import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
 import type { GameState, UnlockedMonsterRecord, WordItem, DailyDualQuest } from "./types";
 import type { EarnedCoupon } from "./data/gachaRewards";
 
+const env = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : ({} as Record<string, string>);
+
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: env.VITE_FIREBASE_API_KEY || "mock-api-key",
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || "mock-domain",
+  projectId: env.VITE_FIREBASE_PROJECT_ID || "mock-project",
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || "mock-bucket",
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || "mock-sender",
+  appId: env.VITE_FIREBASE_APP_ID || "mock-app-id",
 };
 
 const app = initializeApp(firebaseConfig);
@@ -23,6 +25,8 @@ export interface PlayerFirestoreData {
   gameState?: GameState;
   eggCount?: number;
   attendanceRecords?: string[];
+  stampCount?: number;
+  cumulativeAttendanceDays?: number;
   weeklyRewardClaimedWeek?: string | null;
   unlockedMonsters?: Record<string, UnlockedMonsterRecord>;
   coupons?: EarnedCoupon[];

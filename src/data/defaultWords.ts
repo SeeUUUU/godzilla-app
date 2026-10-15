@@ -340,7 +340,7 @@ export const defaultWords: WordItem[] = [
   { id: 'w104', ko: '별', en: 'Star', ja: '星', jaKana: 'ほし' },
   { id: 'w105', ko: '우주', en: 'Space', ja: '宇宙', jaKana: 'うちゅう' },
   { id: 'w106', ko: '지구', en: 'Earth', ja: '地球', jaKana: 'ちきゅう' },
-  { id: 'w107', ko: '구름', en: 'Cloud', ja: '雲', jaKana: 'くも' },
+  { id: 'w107', ko: '구름', en: 'Cloud', ja: '雲', jaKana: 'くも', jpKana: 'くも', reading: 'くも' },
   { id: 'w108', ko: '비', en: 'Rain', ja: '雨', jaKana: 'あめ' },
   { id: 'w109', ko: '눈 (날씨)', en: 'Snow', ja: '雪', jaKana: 'ゆき' },
   { id: 'w110', ko: '바람', en: 'Wind', ja: '風', jaKana: 'かぜ' },
@@ -448,3 +448,11 @@ export const defaultWords: WordItem[] = [
 }));
 
 export const DEFAULT_WORDS = defaultWords;
+
+/**
+ * 일본어 단어 객체에서 우선순위에 따른 정확한 히라가나/후리가나 발음을 추출합니다.
+ */
+export const getJapaneseReading = (word?: Partial<WordItem> | null): string => {
+  if (!word) return '';
+  return word.jaKana || word.jpKana || word.reading || word.furigana || word.ja || '';
+};

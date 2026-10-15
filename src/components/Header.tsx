@@ -17,6 +17,8 @@ interface HeaderProps {
   onOpenCouponModal?: () => void;
   unusedCouponCount?: number;
   attendanceStreak?: number;
+  stampCount?: number;
+  cumulativeAttendanceDays?: number;
   isTodayAttended?: boolean;
   unlockedMonsterCount?: number;
   totalMonsterCount?: number;
@@ -49,6 +51,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCouponModal,
   unusedCouponCount = 0,
   attendanceStreak = 0,
+  stampCount,
+  cumulativeAttendanceDays = 0,
   isTodayAttended = false,
   unlockedMonsterCount = 0,
   totalMonsterCount = 10,
@@ -334,20 +338,20 @@ export const Header: React.FC<HeaderProps> = ({
           {/* 구분선 */}
           <div className="w-px h-3.5 bg-slate-800 mx-0.5 shrink-0" />
 
-          {/* [유틸리티 1] 📅 출석부 */}
+          {/* [유틸리티 1] 🐾 출석부 (누적 7일 스탬프) */}
           {onOpenAttendanceModal && (
             <button
               type="button"
               onClick={onOpenAttendanceModal}
-              title={`고질라 주간 출석부 (${attendanceStreak}일 연속 출석)`}
+              title={`고질라 7일 출석 스탬프 (${stampCount !== undefined ? `${stampCount}/7일` : `${attendanceStreak}일`}, 총 ${cumulativeAttendanceDays}일 출석, 연속 ${attendanceStreak}일)`}
               className={`relative flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[11px] font-black transition-all active:scale-95 border cursor-pointer shrink-0 ${
                 isTodayAttended
                   ? 'bg-emerald-950/40 border-emerald-500/60 text-emerald-300'
                   : 'bg-slate-900/90 border-amber-500/70 text-amber-300 shadow-[0_0_6px_rgba(245,158,11,0.2)]'
               }`}
             >
-              <span className="leading-none text-xs">📅</span>
-              <span>{attendanceStreak}일</span>
+              <span className="leading-none text-xs">🐾</span>
+              <span>{stampCount !== undefined ? `${stampCount}/7일` : `${attendanceStreak}일`}</span>
               {!isTodayAttended && (
                 <span className="absolute -top-1 -right-1 flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />

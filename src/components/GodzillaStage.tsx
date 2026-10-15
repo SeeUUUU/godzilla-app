@@ -84,8 +84,9 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
 
   // 보스 HP (남은 단어 수 및 파트너 추가 데미지 보너스 반영)
   const effectiveBossHp = Math.max(0, ghidorahHp);
-  const isBossDefeated = isAllCleared && !isGameOver;
-  // 마지막 6번째 단어 격파 시 1.8초 배틀 연출(열선 발사, 보스 HP 0% 감소, 격파 연출)이 완전히 끝난 뒤에만 결과창 오버레이 오픈
+  const isAllWordsCleared = totalCount > 0 && clearedCount >= totalCount;
+  const isBossDefeated = isAllCleared && !isGameOver && isAllWordsCleared;
+  // 마지막 단어 격파 시 1.8초 배틀 연출(열선 발사, 보스 HP 0% 감소, 격파 연출)이 완전히 끝나고 모든 카드가 완료된 뒤에만 결과창 오버레이 오픈
   const shouldShowClearOverlay = isBossDefeated && isStageClearReady;
 
   // 1. 공식 파워 랭킹에 따른 고질라 5단계 진화 정보
