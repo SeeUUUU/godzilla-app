@@ -147,9 +147,9 @@ export const useSpeech = () => {
           const targetText = getSpokenText(text, lang, reading);
           const utterance = new SpeechSynthesisUtterance(targetText);
           utterance.lang = lang;
-          // 언어별 최적 발화 속도 분기: 일본어는 늘어지지 않게 0.8, 한국어/영어는 또박또박 따라 읽기 좋은 0.6
-          utterance.rate = lang === 'ja-JP' ? 0.8 : 0.6;
-          utterance.pitch = 1.1;
+          // 언어별 최적 발화 속도 분기: 일본어 0.8, 한국어는 문장 길이에 맞춰 자연스럽고 또박또박한 속도(0.75~0.82)
+          utterance.rate = lang === 'ja-JP' ? 0.8 : targetText.length > 20 ? 0.82 : 0.72;
+          utterance.pitch = 1.05;
 
           // 브라우저에서 해당 언어 음성 선택 최적화
           const availableVoices =
@@ -161,10 +161,11 @@ export const useSpeech = () => {
             utterance.voice = matchedVoice;
           }
 
-          // 안전 폴백 타이머: 모바일 브라우저/음성 엔진 결함으로 onend 미발생 대비 (최대 3초)
+          // 안전 폴백 타이머: 문장 길이에 맞춰 여유 있게 책정 (최소 4.5초 ~ 글자 수 비례)
+          const fallbackDuration = Math.max(4500, Math.ceil(targetText.length * 280));
           fallbackTimerRef.current = window.setTimeout(() => {
             finish();
-          }, 3000);
+          }, fallbackDuration);
 
           utterance.onend = () => {
             finish();

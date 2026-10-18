@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 플레이어 문서 격리 및 데이터 무결성(Delta) 검증 규칙
+    match /players/{userId} {
+      // 1. 본인 인증(익명/소셜) 문서만 읽기 허용
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      // 2. 최초 문서 생성 시 스키마 및 초기 상한치 검증
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && isValidPlayerSchema(request.resource.data);
+
+      // 3. 문서 업데이트 시 본인 UID 확인 + 스키마 검증 + 급격한 재화/레벨 점프(Delta) 치팅 방어
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && isValidPlayerSchema(request.resource.data)
+        && isSafeDelta(resource.data, request.resource.data);
+
+      function isValidPlayerSchema(data) {
+        return (!('gameState' in data) || (
+            data.gameState is map
+            && data.gameState.level is int
+            && data.gameState.level >= 1
+            && data.gameState.level <= 9999
+            && data.gameState.exp is int
+            && data.gameState.exp >= 0
+            && data.gameState.exp < 100
+          ))
+          && (!('eggCount' in data) || (
+            data.eggCount is int
+            && data.eggCount >= 0
+            && data.eggCount <= 9999
+          ))
+          && (!('treasureBoxCount' in data) || (
+            data.treasureBoxCount is int
+            && data.treasureBoxCount >= 0
+            && data.treasureBoxCount <= 999
+          ))
+          && (!('stampCount' in data) || (
+            data.stampCount is int
+            && data.stampCount >= 0
+            && data.stampCount <= 7
+          ))
+          && (!('coupons' in data) || data.coupons is list);
+      }
+
+      function isSafeDelta(prev, next) {
+        // 오프라인 다중 스테이지 복귀 동기화, 학부모 모드 레벨 테스트 설정, Ground Zero 초기화를 모두 수용하되 비정상 범위 폭증을 방어
+        let levelOk = !('gameState' in next) || !('gameState' in prev)
+          || (next.gameState.level >= 1 && next.gameState.level <= 9999);
+
+        let eggOk = !('eggCount' in next) || !('eggCount' in prev)
+          || next.eggCount <= prev.eggCount + 50;
+
+        let chestOk = !('treasureBoxCount' in next) || !('treasureBoxCount' in prev)
+          || next.treasureBoxCount <= prev.treasureBoxCount + 20;
+
+        let couponOk = !('coupons' in next) || !('coupons' in prev)
+          || next.coupons.size() <= prev.coupons.size() + 20;
+
+        return levelOk && eggOk && chestOk && couponOk;
+      }
+    }
+  }
+}

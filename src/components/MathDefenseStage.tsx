@@ -161,18 +161,21 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   const nextRoundTimerRef = useRef<number | null>(null);
   const warningTimerRef = useRef<number | null>(null);
   const speechTimerRef = useRef<number | null>(null);
+  const clockSpeechSafetyTimerRef = useRef<number | null>(null);
+  const speechSessionRef = useRef<number>(0);
   const answerSpeechFallbackRef = useRef<number | null>(null);
   const transitionVersionRef = useRef(0);
   const lastSpokenProblemIdRef = useRef<string | null>(null);
-  const comboPopupTimerRef = useRef<number | null>(null);
+
+  // 🕰️ 킹 기도라 시한폭탄: 문제 전부 말해주고 나서 낙하 시작하는 상태
+  const [isClockReading, setIsClockReading] = useState(false);
 
   // 콤보 및 버닝 피버(Fever) 모드 상태
   const [combo, setCombo] = useState(0);
   const [maxCombo, setMaxCombo] = useState(0);
-  const [comboPopup, setComboPopup] = useState<{ count: number; isFever: boolean } | null>(null);
   // 정답 맞춤 시 3개 국어(한국어·영어·일본어) 숫자 낭독 & 팝업 연출 상태
   const [solvedAnswerDisplay, setSolvedAnswerDisplay] = useState<{
-    num: number;
+    num: number | string;
     kr: string;
     en: string;
     ja: string;
@@ -241,6 +244,12 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
 
   const clearAllTimers = useCallback(() => {
     transitionVersionRef.current += 1;
+    speechSessionRef.current += 1;
+    setIsClockReading(false);
+    if (clockSpeechSafetyTimerRef.current !== null) {
+      window.clearTimeout(clockSpeechSafetyTimerRef.current);
+      clockSpeechSafetyTimerRef.current = null;
+    }
     if (answerSpeechFallbackRef.current !== null) {
       window.clearTimeout(answerSpeechFallbackRef.current);
       answerSpeechFallbackRef.current = null;
@@ -264,10 +273,6 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     if (speechTimerRef.current !== null) {
       window.clearTimeout(speechTimerRef.current);
       speechTimerRef.current = null;
-    }
-    if (comboPopupTimerRef.current !== null) {
-      window.clearTimeout(comboPopupTimerRef.current);
-      comboPopupTimerRef.current = null;
     }
     if (mathQuickTipTimerRef.current !== null) {
       window.clearTimeout(mathQuickTipTimerRef.current);
@@ -324,7 +329,6 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     setPhase('IMPACT');
     playMeteorExplosionSound();
     setCombo(0);
-    setComboPopup(null);
     showQuickTip(currentProblem);
 
     if (mothraShieldActive) {
@@ -365,6 +369,38 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     });
   }, [clearAllTimers, cancel, mothraShieldActive, onPartnerNotice, triggerDamageFeedback, isWordProblem, showQuickTip, currentProblem]);
 
+  const isPageHiddenRef = useRef<boolean>(false);
+  const hasSubmittedClearRef = useRef<boolean>(false);
+
+  // 3-1. 화면 꺼짐, 탭 전환, 백그라운드 이동 시 루프 일시정지 및 복귀 시 Time-Delta 폭탄 방어
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        isPageHiddenRef.current = true;
+        cancel();
+      } else {
+        isPageHiddenRef.current = false;
+        lastTickTimeRef.current = performance.now();
+      }
+    };
+    const handleBlur = () => {
+      isPageHiddenRef.current = true;
+    };
+    const handleFocus = () => {
+      isPageHiddenRef.current = false;
+      lastTickTimeRef.current = performance.now();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [cancel]);
+
   // 3-2. 수 모형 힌트 모달 / 아토믹 격납고 오픈 시 게임 루프 일시 정지 (PAUSE) 처리
   useEffect(() => {
     const isPaused = isHintModalOpen || isHangarOpen;
@@ -397,19 +433,24 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       return;
     }
 
+    // 🕰️ 킹 기도라의 시한폭탄(시계 문제): 16초의 넉넉한 낙하 시간 제공, 일반 문제는 기본 FALL_DURATION_MS(8.5초)
+    const isClock = Boolean(currentProblem?.clockQuestion);
+    const fallDuration = isClock ? 16000 : FALL_DURATION_MS;
+
     const loop = (time: number) => {
-      // 모달(수모형 / 격납고)이 열려있으면 일시정지 상태 유지 (운석 고정 & 시간 정지)
-      if (isPausedRef.current) {
+      // 모달(수모형 / 격납고)이 열려있거나 화면이 백그라운드 상태면 일시정지 유지 (운석 고정 & 시간 정지)
+      if (isPausedRef.current || isPageHiddenRef.current || document.visibilityState === 'hidden') {
         lastTickTimeRef.current = time; // 정지 중 흐른 시간을 스킵
         animFrameRef.current = requestAnimationFrame(loop);
         return;
       }
 
-      const delta = lastTickTimeRef.current > 0 ? time - lastTickTimeRef.current : 0;
+      const rawDelta = lastTickTimeRef.current > 0 ? time - lastTickTimeRef.current : 0;
+      const delta = Math.min(Math.max(0, rawDelta), 100);
       lastTickTimeRef.current = time;
       accumulatedElapsedRef.current += delta;
 
-      const progress = Math.min(100, (accumulatedElapsedRef.current / FALL_DURATION_MS) * 100);
+      const progress = Math.min(100, (accumulatedElapsedRef.current / fallDuration) * 100);
       setMeteorProgress(progress);
 
       if (progress < 100) {
@@ -420,43 +461,100 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     };
 
     animFrameRef.current = requestAnimationFrame(loop);
-  }, [handleImpact, isWordProblem]);
+  }, [handleImpact, isWordProblem, currentProblem]);
 
-  // 5. 문제 시작 및 변경 시: 운석 낙하 애니메이션 시작 (isStarted가 true이고 PLAYING일 때만)
+  // 5. 문제 시작 및 변경 시: 운석 낙하 & TTS 낭독 연계 제어 (isStarted가 true이고 PLAYING일 때만)
   useEffect(() => {
-    if (isStarted && phase === 'PLAYING') {
-      startMeteorFall();
+    if (!isStarted || phase !== 'PLAYING' || !currentProblem || !currentProblem.id) {
+      return;
     }
-  }, [isStarted, phase, roundIndex, startMeteorFall]);
 
-  // 6. 문제 식별자 추적 및 브라우저 TTS 대기열 초기화 후 1회 단독 낭독 (isStarted가 true이고 PLAYING일 때만)
-  useEffect(() => {
-    if (isStarted && phase === 'PLAYING' && currentProblem && currentProblem.id) {
-      // 문제가 실제로 바뀌었을 때만 1회 낭독 실행 (리렌더링 시 중복 발화 원천 차단)
-      if (lastSpokenProblemIdRef.current !== currentProblem.id) {
-        lastSpokenProblemIdRef.current = currentProblem.id;
+    const currentSession = ++speechSessionRef.current;
 
-        // 보스 운석 라운드(서술형) 진입 시 긴장감 넘치는 보스 출현 경고음!
-        if (isWordProblem) {
-          playCriticalRoarSound();
-        }
+    // 문제가 실제로 바뀌었을 때만 초기화 및 안내 실행
+    if (lastSpokenProblemIdRef.current !== currentProblem.id) {
+      lastSpokenProblemIdRef.current = currentProblem.id;
 
-        // [핵심] 브라우저 이전 TTS 대기열 즉시 강제 취소 및 힌트 모달 닫기
-        cancel();
-        setIsHintModalOpen(false);
+      // 보스 운석 라운드(서술형) 진입 시 긴장감 넘치는 보스 출현 경고음!
+      if (isWordProblem) {
+        playCriticalRoarSound();
+      }
 
-        // 80ms(보스는 280ms) 여유를 두고 새로운 문제만 단독 낭독
-        if (speechTimerRef.current !== null) {
-          window.clearTimeout(speechTimerRef.current);
-        }
+      // 이전 TTS 및 힌트 모달 정리
+      cancel();
+      setIsHintModalOpen(false);
+
+      if (speechTimerRef.current !== null) {
+        window.clearTimeout(speechTimerRef.current);
+        speechTimerRef.current = null;
+      }
+      if (clockSpeechSafetyTimerRef.current !== null) {
+        window.clearTimeout(clockSpeechSafetyTimerRef.current);
+        clockSpeechSafetyTimerRef.current = null;
+      }
+
+      const isClock = Boolean(currentProblem.clockQuestion);
+
+      // 📖 문제 카드 즉시 노출: 이전 라운드의 폭발/빔 연출 상태를 음성 시작 전에 즉시 해제
+      // (이전에는 startMeteorFall()에서만 리셋되어, 시한폭탄 문제는 TTS가 끝날 때까지 카드가 opacity-0으로 숨겨져 있었음)
+      setIsExploding(false);
+      setIsShootingBeam(false);
+      setIsImpactShaking(false);
+      setSelectedWrongChoices([]);
+      setSolvedAnswerDisplay(null);
+      setMeteorProgress(0);
+
+      if (isClock) {
+        // 🕰️ 킹 기도라의 시한폭탄: TTS가 문제를 전부 낭독할 때까지 낙하하지 않고 대기!
+        setIsClockReading(true);
+        setMeteorProgress(0);
+
+        // 음성 낭독 시작 및 완료 콜백 처리
         speechTimerRef.current = window.setTimeout(() => {
-          if (isStarted && phase === 'PLAYING') {
+          if (speechSessionRef.current !== currentSession) return;
+
+          // TTS 완료 시 낙하 시작하는 함수
+          const beginFallAfterSpeech = () => {
+            if (speechSessionRef.current !== currentSession) return;
+            if (clockSpeechSafetyTimerRef.current !== null) {
+              window.clearTimeout(clockSpeechSafetyTimerRef.current);
+              clockSpeechSafetyTimerRef.current = null;
+            }
+            setIsClockReading(false);
+            // 듣기가 끝난 후 약 350ms의 자연스러운 버퍼를 두고 시한폭탄 낙하 시작
+            window.setTimeout(() => {
+              if (speechSessionRef.current === currentSession) {
+                startMeteorFall();
+              }
+            }, 350);
+          };
+
+          // 안전장치: 혹시 브라우저 TTS 이벤트가 유실되더라도 최대 6.5초 후에는 낙하 시작
+          clockSpeechSafetyTimerRef.current = window.setTimeout(() => {
+            beginFallAfterSpeech();
+          }, 6500);
+
+          speak(currentProblem.readKr, 'ko-KR')
+            .then(() => {
+              beginFallAfterSpeech();
+            })
+            .catch(() => {
+              beginFallAfterSpeech();
+            });
+        }, 120);
+      } else {
+        // 일반 문제 및 서술형: 즉시 낙하(서술형은 상단 고정) 시작 및 음성 병행
+        setIsClockReading(false);
+        startMeteorFall();
+
+        speechTimerRef.current = window.setTimeout(() => {
+          if (speechSessionRef.current === currentSession) {
             speak(currentProblem.readKr, 'ko-KR');
           }
-        }, isWordProblem ? 280 : 80);
+        }, 80);
       }
     }
-  }, [isStarted, phase, currentProblem, speak, cancel, isWordProblem]);
+  }, [isStarted, phase, roundIndex, currentProblem, isWordProblem, speak, cancel, startMeteorFall]);
 
   // 7. 게임 시작 전이거나 배틀 상태가 PLAYING이 아닐 때, 언마운트 시 브라우저 TTS 즉시 정리
   useEffect(() => {
@@ -477,6 +575,15 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     (choice: string) => {
       if (!isStarted || phase !== 'PLAYING' || isShootingBeam || isExploding) return;
 
+      // 조기 선택 시 읽기 상태 즉시 해제 및 TTS/안전 타이머 취소
+      setIsClockReading(false);
+      if (clockSpeechSafetyTimerRef.current !== null) {
+        window.clearTimeout(clockSpeechSafetyTimerRef.current);
+        clockSpeechSafetyTimerRef.current = null;
+      }
+      speechSessionRef.current++;
+      cancel();
+
       setIsHintModalOpen(false);
       playCardTapSound();
 
@@ -487,13 +594,6 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         setMaxCombo((prev) => Math.max(prev, nextCombo));
         const currentIsFever = nextCombo >= 3;
 
-        setComboPopup({ count: nextCombo, isFever: currentIsFever });
-        if (comboPopupTimerRef.current !== null) {
-          window.clearTimeout(comboPopupTimerRef.current);
-        }
-        comboPopupTimerRef.current = window.setTimeout(() => {
-          setComboPopup(null);
-        }, 1300);
 
         // [정답] 고질라 대각선 아토믹 레이저 빔 발사 & 운석 공중 요격 폭발
         clearAllTimers();
@@ -502,22 +602,18 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         setPhase('INTERCEPTING');
         setIsShootingBeam(true);
 
-        // 3개 국어(한국어·영어·일본어) 숫자 낭독 & 피드백 정보 생성
+        // 3개 국어(한국어·영어·일본어) 숫자 또는 시계 정답 낭독 & 피드백 정보 생성
         const transitionVersion = transitionVersionRef.current;
         let answerSpeechFinished: Promise<number> = Promise.resolve(performance.now());
-        const ansNum = parseInt(String(currentProblem.answer), 10);
-        if (!isNaN(ansNum) && ansNum >= 0 && ansNum <= 100) {
-          const krStr = readSino(ansNum);
-          const enStr = readEnglish(ansNum);
-          const jaStr = readJapanese(ansNum);
+        if (currentProblem.clockQuestion) {
+          const { targetHour, targetMinute } = currentProblem.clockQuestion;
+          const ansText = String(currentProblem.answer);
           setSolvedAnswerDisplay({
-            num: ansNum,
-            kr: krStr,
-            en: enStr,
-            ja: jaStr,
+            num: ansText,
+            kr: ansText,
+            en: `${targetHour}:${String(targetMinute).padStart(2, '0')}`,
+            ja: `${targetHour}じ ${targetMinute === 0 ? 'ちょうど' : `${targetMinute}ふん`}`,
           });
-
-          // 정답 음성: 한국어 또는 영어로 정답 수치 낭독 (짝수 콤보는 영어, 홀수는 한국어)
           answerSpeechFinished = new Promise<number>((resolve) => {
             let finished = false;
             const finish = () => {
@@ -529,16 +625,47 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
               }
               resolve(performance.now());
             };
-            // Ensure progress if speech is canceled or its completion event is lost.
             answerSpeechFallbackRef.current = window.setTimeout(finish, 4500);
             speechTimerRef.current = window.setTimeout(() => {
               speechTimerRef.current = null;
-              void speak(
-                nextCombo % 2 === 0 ? enStr : `${krStr}!`,
-                nextCombo % 2 === 0 ? 'en-US' : 'ko-KR'
-              ).then(finish);
+              void speak(`시한폭탄 해체 성공! ${ansText}!`, 'ko-KR').then(finish);
             }, 350);
           });
+        } else {
+          const ansNum = parseInt(String(currentProblem.answer), 10);
+          if (!isNaN(ansNum) && ansNum >= 0 && ansNum <= 100) {
+            const krStr = readSino(ansNum);
+            const enStr = readEnglish(ansNum);
+            const jaStr = readJapanese(ansNum);
+            setSolvedAnswerDisplay({
+              num: ansNum,
+              kr: krStr,
+              en: enStr,
+              ja: jaStr,
+            });
+
+            // 정답 음성: 한국어 또는 영어로 정답 수치 낭독 (짝수 콤보는 영어, 홀수는 한국어)
+            answerSpeechFinished = new Promise<number>((resolve) => {
+              let finished = false;
+              const finish = () => {
+                if (finished || transitionVersionRef.current !== transitionVersion) return;
+                finished = true;
+                if (answerSpeechFallbackRef.current !== null) {
+                  window.clearTimeout(answerSpeechFallbackRef.current);
+                  answerSpeechFallbackRef.current = null;
+                }
+                resolve(performance.now());
+              };
+              answerSpeechFallbackRef.current = window.setTimeout(finish, 4500);
+              speechTimerRef.current = window.setTimeout(() => {
+                speechTimerRef.current = null;
+                void speak(
+                  nextCombo % 2 === 0 ? enStr : `${krStr}!`,
+                  nextCombo % 2 === 0 ? 'en-US' : 'ko-KR'
+                ).then(finish);
+              }, 350);
+            });
+          }
         }
 
         setMathQuickTip(null);
@@ -642,7 +769,6 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         playErrorBuzzer();
         setSelectedWrongChoices((prev) => [...prev, choice]);
         setCombo(0);
-        setComboPopup(null);
         showQuickTip(currentProblem);
 
         if (mothraShieldActive) {
@@ -710,7 +836,6 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     lastSpokenProblemIdRef.current = null;
     setCombo(0);
     setMaxCombo(0);
-    setComboPopup(null);
     setMathQuickTip(null);
     setIsStarted(true);
     setPhase('PLAYING');
@@ -729,7 +854,6 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     setLives(2);
     setReviveCount((prev) => prev + 1);
     setCombo(0);
-    setComboPopup(null);
     setMathQuickTip(null);
     setIsStarted(true);
     setPhase('PLAYING');
@@ -739,6 +863,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   const handleRestart = useCallback(() => {
     clearAllTimers();
     cancel();
+    hasSubmittedClearRef.current = false;
     lastSpokenProblemIdRef.current = null;
     setSelectedWrongChoices([]);
     setMeteorProgress(0);
@@ -751,7 +876,6 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     setGameSession((prev) => prev + 1);
     setCombo(0);
     setMaxCombo(0);
-    setComboPopup(null);
     setMathQuickTip(null);
     setIsStarted(true);
     setPhase('PLAYING');
@@ -765,11 +889,14 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   const isMecha = equippedPartnerId === 'mechagodzilla';
   const earnedExp = isMecha ? Math.round(baseExp * 1.2) : baseExp;
 
-  // 11-2. 클리어 확인 버튼
-  const handleConfirmClear = () => {
+  // 11-2. 클리어 확인 버튼 (연타 시 중복 보상 지급 방어)
+  const handleConfirmClear = (): boolean => {
+    if (hasSubmittedClearRef.current) return false;
+    hasSubmittedClearRef.current = true;
     clearAllTimers();
     cancel();
     onClear(earnedExp);
+    return true;
   };
 
   return (
@@ -817,8 +944,8 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             수식 운석 요격 디펜스
           </span>
 
-          {/* 콤보 배지 */}
-          {combo >= 2 && (
+          {/* 콤보 배지 (서술형/보스전 및 1콤보 미만일 때는 숨김) */}
+          {combo >= 2 && !isWordProblem && (
             <span
               className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black flex items-center gap-1 shadow-sm transition-all animate-bounce ${
                 isFever
@@ -1040,25 +1167,6 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                 >
                   ✕
                 </button>
-              </div>
-            </div>
-          )}
-
-          {/* 콤보 달성 중앙 팝업 배너 */}
-          {comboPopup && (
-            <div className="absolute left-1/2 -translate-x-1/2 top-3 sm:top-5 z-35 animate-bounce pointer-events-none whitespace-nowrap">
-              <div
-                className={`px-4 py-1.5 rounded-2xl border-2 font-black text-xs sm:text-sm flex items-center gap-1.5 shadow-2xl backdrop-blur-md transition-all ${
-                  comboPopup.isFever
-                    ? 'bg-gradient-to-r from-red-600 via-orange-500 to-amber-500 text-white border-yellow-300 shadow-[0_0_25px_rgba(249,115,22,0.9)] scale-110'
-                    : 'bg-slate-900/95 border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.6)]'
-                }`}
-              >
-                <span className="text-base sm:text-lg">{comboPopup.isFever ? '🔥' : '⚡'}</span>
-                <span>
-                  {comboPopup.count} COMBO! {comboPopup.isFever ? 'BURNING FEVER!' : ''}
-                </span>
-                {comboPopup.isFever && <span className="text-xs text-yellow-200">(메가 빔 장전!)</span>}
               </div>
             </div>
           )}
@@ -1336,6 +1444,8 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
               className={`absolute flex flex-col items-center pointer-events-none z-20 ${
                 isWordProblem
                   ? 'left-1/2 -translate-x-1/2 w-[94%] max-w-xl top-2 sm:top-[25%]'
+                  : currentProblem.clockQuestion
+                  ? 'w-[94vw] max-w-2xl transition-transform duration-75'
                   : 'w-fit max-w-[92vw] transition-transform duration-75'
               } ${isExploding ? 'animate-ping opacity-0 scale-150 duration-300' : ''}`}
               style={
@@ -1374,6 +1484,8 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                 className={`relative rounded-2xl border-2 shadow-2xl transition-all ${
                   isWordProblem
                     ? 'w-full h-auto px-6 py-4 flex flex-col gap-3 overflow-hidden'
+                    : currentProblem.clockQuestion
+                    ? 'w-[94vw] max-w-2xl px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4 overflow-hidden'
                     : 'w-fit max-w-[92vw] sm:max-w-md px-3.5 sm:px-6 py-2 sm:py-2.5 flex items-center justify-center gap-2'
                 } ${
                   isShootingBeam
@@ -1432,8 +1544,12 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                   </div>
                 )}
 
-                <div className={`relative w-full min-w-0 flex gap-2.5 sm:gap-3 ${
-                  isWordProblem ? 'flex-wrap items-start sm:flex-nowrap' : 'items-center justify-center'
+                <div className={`relative w-full min-w-0 flex gap-2.5 sm:gap-4 ${
+                  isWordProblem
+                    ? 'flex-wrap items-start sm:flex-nowrap'
+                    : currentProblem.clockQuestion
+                    ? 'items-center justify-between'
+                    : 'items-center justify-center'
                 }`}>
                   <span
                     className={`text-xl sm:text-2xl flex-none ${
@@ -1466,6 +1582,98 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                             </span>
                           </div>
                         </div>
+                      ) : currentProblem.clockQuestion ? (
+                        <div className="flex flex-row items-center gap-3 sm:gap-4 justify-center w-full text-center">
+                          {/* 아날로그 시계 시한폭탄 SVG 다이어그램 */}
+                          {(() => {
+                            const { hour, minute, deltaMinutes } = currentProblem.clockQuestion;
+                            const hourAngle = ((hour % 12) + minute / 60) * 30;
+                            const minuteAngle = minute * 6;
+                            return (
+                              <div className="relative flex items-center justify-center flex-shrink-0">
+                                <svg
+                                  viewBox="0 0 100 100"
+                                  className="w-[78px] h-[78px] sm:w-[92px] sm:h-[92px] drop-shadow-[0_0_12px_rgba(244,63,94,0.65)]"
+                                >
+                                  {/* 시계 외곽 테두리 */}
+                                  <circle
+                                    cx="50"
+                                    cy="50"
+                                    r="46"
+                                    fill="#0f172a"
+                                    stroke={deltaMinutes ? '#f43f5e' : '#38bdf8'}
+                                    strokeWidth="3.5"
+                                  />
+                                  {/* 12개 숫자 눈금 */}
+                                  {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((num, idx) => {
+                                    const rad = ((idx * 30 - 90) * Math.PI) / 180;
+                                    const tx = 50 + 35 * Math.cos(rad);
+                                    const ty = 50 + 35 * Math.sin(rad);
+                                    return (
+                                      <text
+                                        key={num}
+                                        x={tx}
+                                        y={ty}
+                                        textAnchor="middle"
+                                        dominantBaseline="central"
+                                        fill={num % 3 === 0 ? '#fde047' : '#e2e8f0'}
+                                        fontSize={num % 3 === 0 ? '10.5' : '8.5'}
+                                        fontWeight="900"
+                                      >
+                                        {num}
+                                      </text>
+                                    );
+                                  })}
+                                  {/* 긴 바늘 (분침 - 노란색) */}
+                                  <line
+                                    x1="50"
+                                    y1="50"
+                                    x2={50 + 28 * Math.cos(((minuteAngle - 90) * Math.PI) / 180)}
+                                    y2={50 + 28 * Math.sin(((minuteAngle - 90) * Math.PI) / 180)}
+                                    stroke="#facc15"
+                                    strokeWidth="3"
+                                    strokeLinecap="round"
+                                  />
+                                  {/* 짧은 바늘 (시침 - 하늘색) */}
+                                  <line
+                                    x1="50"
+                                    y1="50"
+                                    x2={50 + 18 * Math.cos(((hourAngle - 90) * Math.PI) / 180)}
+                                    y2={50 + 18 * Math.sin(((hourAngle - 90) * Math.PI) / 180)}
+                                    stroke="#38bdf8"
+                                    strokeWidth="4.5"
+                                    strokeLinecap="round"
+                                  />
+                                  {/* 중심점 */}
+                                  <circle cx="50" cy="50" r="3.5" fill="#f43f5e" stroke="#ffffff" strokeWidth="1" />
+                                </svg>
+                              </div>
+                            );
+                          })()}
+                          <div className="flex flex-col items-center sm:items-start text-center sm:text-left flex-1 min-w-0 sm:min-w-[260px]">
+                            <div className="flex items-center gap-1.5 flex-wrap justify-center sm:justify-start mb-1">
+                              <span className="px-2 py-0.5 rounded bg-rose-950/90 border border-rose-400 text-rose-200 text-[10px] sm:text-xs font-black animate-pulse whitespace-normal break-keep">
+                                🕰️ 킹 기도라의 시한폭탄 해체!
+                              </span>
+                              {isClockReading ? (
+                                <span className="px-2 py-0.5 rounded-full bg-cyan-950/90 border border-cyan-400 text-cyan-200 text-[10px] sm:text-xs font-black animate-pulse flex items-center gap-1 shadow-[0_0_10px_#22d3ee] whitespace-normal break-keep">
+                                  <span>🔊 문제 듣는 중... (다 읽으면 낙하 시작!)</span>
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full bg-amber-950/90 border border-amber-400 text-amber-200 text-[10px] sm:text-xs font-black animate-pulse flex items-center gap-1 whitespace-normal break-keep">
+                                  <span>💣 시한폭탄 낙하 중! 빠르게 해체하세요!</span>
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-base sm:text-xl font-black text-yellow-300 tracking-tight break-keep whitespace-normal leading-snug">
+                              {currentProblem.question}
+                            </span>
+                            <span className="text-[10px] text-slate-300 font-bold mt-0.5 whitespace-normal break-keep">
+                              🔹짧은바늘(시) · 🔸긴바늘(5분 단위)
+                            </span>
+                          </div>
+
+                        </div>
                       ) : currentProblem.isMissingNumber ? (
                         <div className="flex items-center gap-1.5 flex-wrap justify-center text-center">
                           <span className="px-2 py-0.5 rounded bg-purple-900/80 border border-purple-400 text-purple-200 text-[10px] sm:text-xs font-black animate-pulse whitespace-nowrap">
@@ -1496,7 +1704,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                           )}
                         </div>
                       )}
-                      {!solvedAnswerDisplay && (
+                      {!solvedAnswerDisplay && !currentProblem.clockQuestion && (
                         <span className="text-[10px] text-amber-200/90 font-bold truncate max-w-full">{currentProblem.readKr}</span>
                       )}
                     </div>
@@ -1513,18 +1721,24 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                       {isWordProblem ? <span className="text-lg leading-none">🔊</span> : <Volume2 size={16} />}
                     </button>
 
-                    {/* 수 모형(10개 묶음과 낱개) 힌트 돋보기 버튼 */}
+                    {/* 수 모형(10개 묶음과 낱개) 또는 시계 읽기 힌트 돋보기 버튼 */}
                     <button
                       type="button"
                       onClick={() => {
                         playCardTapSound();
-                        setIsHintModalOpen(true);
+                        if (currentProblem.clockQuestion) {
+                          showQuickTip(currentProblem);
+                        } else {
+                          setIsHintModalOpen(true);
+                        }
                       }}
-                      title="수 모형 힌트 보기 (10개 묶음과 낱개)"
+                      title={currentProblem.clockQuestion ? '시계 읽기 힌트 보기' : '수 모형 힌트 보기 (10개 묶음과 낱개)'}
                       className="relative pointer-events-auto flex-none p-1.5 sm:p-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/40 border border-cyan-400/60 text-cyan-300 cursor-pointer active:scale-90 transition-transform flex items-center gap-1 shadow-sm"
                     >
                       <Search size={16} className="text-cyan-300" />
-                      <span className="hidden sm:inline text-xs font-black">수 모형</span>
+                      <span className="hidden sm:inline text-xs font-black">
+                        {currentProblem.clockQuestion ? '시계 힌트' : '수 모형'}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -1680,8 +1894,9 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  handleConfirmClear();
-                  onGoToLanguage();
+                  if (handleConfirmClear()) {
+                    onGoToLanguage();
+                  }
                 }}
                 className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-black text-xs sm:text-sm shadow-xl active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-cyan-300 cursor-pointer animate-pulse"
               >
@@ -1694,8 +1909,9 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             <button
               type="button"
               onClick={() => {
-                handleConfirmClear();
-                if (onNextMathStage) onNextMathStage();
+                if (handleConfirmClear() && onNextMathStage) {
+                  onNextMathStage();
+                }
               }}
               className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs sm:text-sm shadow-lg active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-yellow-200 cursor-pointer"
             >

@@ -2,6 +2,11 @@
 
 let audioCtx: AudioContext | null = null;
 
+const isAudioContextSuspendedOrInterrupted = (ctx: AudioContext): boolean => {
+  const state = ctx.state as string;
+  return state === 'suspended' || state === 'interrupted';
+};
+
 const getAudioContext = (): AudioContext | null => {
   if (typeof window === 'undefined') return null;
   if (!audioCtx) {
@@ -12,27 +17,37 @@ const getAudioContext = (): AudioContext | null => {
       audioCtx = new AudioContextClass();
     }
   }
-  if (audioCtx && audioCtx.state === 'suspended') {
+  if (audioCtx && isAudioContextSuspendedOrInterrupted(audioCtx)) {
     audioCtx.resume().catch(() => {});
   }
   return audioCtx;
 };
 
-// 모바일 브라우저(iOS Safari 등) 첫 터치 시 AudioContext 자동 언락
+// 모바일 브라우저(iOS Safari 등) 첫 터치 및 백그라운드 복귀 시 AudioContext 자동 언락
 export const initAudioContextOnUserGesture = () => {
   if (typeof window === 'undefined') return;
   const unlock = () => {
     const ctx = getAudioContext();
-    if (ctx && ctx.state === 'suspended') {
+    if (ctx && isAudioContextSuspendedOrInterrupted(ctx)) {
       ctx.resume().catch(() => {});
     }
-    window.removeEventListener('pointerdown', unlock);
-    window.removeEventListener('touchstart', unlock);
-    window.removeEventListener('click', unlock);
   };
-  window.addEventListener('pointerdown', unlock, { once: true, passive: true });
-  window.addEventListener('touchstart', unlock, { once: true, passive: true });
-  window.addEventListener('click', unlock, { once: true, passive: true });
+  const handleVisibilityResume = () => {
+    if (document.visibilityState === 'visible') {
+      if (audioCtx && isAudioContextSuspendedOrInterrupted(audioCtx)) {
+        audioCtx.resume().catch(() => {});
+      }
+      if ('speechSynthesis' in window) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {}
+      }
+    }
+  };
+  window.addEventListener('pointerdown', unlock, { passive: true });
+  window.addEventListener('touchstart', unlock, { passive: true });
+  window.addEventListener('click', unlock, { passive: true });
+  document.addEventListener('visibilitychange', handleVisibilityResume);
 };
 
 // 1. 고질라 열선 발사 레이저음 (Pew-Pew & Roar Laser)

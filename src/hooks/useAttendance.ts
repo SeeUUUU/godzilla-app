@@ -299,21 +299,6 @@ export const useAttendance = () => {
     };
   }, [records, cumulativeAttendanceDays, stampCount]);
 
-  // 테스트용: 7일 스탬프 강제 완성
-  const forceFillSevenStamps = useCallback(() => {
-    const nextStamp = 7;
-    const nextCumulative = cumulativeAttendanceDays + (7 - stampCount);
-    setStampCount(nextStamp);
-    setCumulativeAttendanceDays(nextCumulative);
-    setStoredStampCount(nextStamp);
-    setStoredCumulativeDays(nextCumulative);
-    savePlayerDataToFirestore({
-      stampCount: nextStamp,
-      cumulativeAttendanceDays: nextCumulative,
-    });
-    return nextStamp;
-  }, [cumulativeAttendanceDays, stampCount]);
-
   // 출석 데이터 전체 초기화 (학부모 관리자 모드용)
   const resetAllAttendance = useCallback(() => {
     setRecords([]);
@@ -343,7 +328,6 @@ export const useAttendance = () => {
     maxStreak,
     checkTodayAttendance,
     resetStampCycle,
-    forceFillSevenStamps,
     resetAllAttendance,
     // 하위 호환성 유지용 프로퍼티
     weekDays,

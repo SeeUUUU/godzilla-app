@@ -7,6 +7,7 @@ import {
   saveMonsterToStorage,
   RARITY_METADATA,
   MonsterSvgIllustration,
+  getMonsterAwakening,
 } from '../data/monsterData';
 import {
   playEggTapSound,
@@ -35,21 +36,27 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
   const [isHatched, setIsHatched] = useState(false);
   const [pulledMonster, setPulledMonster] = useState<MonsterCardData | null>(null);
   const [isNewMonster, setIsNewMonster] = useState(false);
+  const [hatchedCount, setHatchedCount] = useState(1);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [hatchError, setHatchError] = useState('');
   const speechTimeoutRef = useRef<number | null>(null);
   const hatchTimerRef = useRef<number | null>(null);
   const shakeTimerRef = useRef<number | null>(null);
+  const tapCountRef = useRef<number>(0);
+  const isHatchingRef = useRef<boolean>(false);
 
   // 모달 열릴 때 상태 초기화 및 닫힐 때 음성 취소
   useEffect(() => {
     if (isOpen) {
+      tapCountRef.current = 0;
+      isHatchingRef.current = false;
       setTapCount(0);
       setIsShaking(false);
       setShowFlash(false);
       setIsHatched(false);
       setPulledMonster(null);
       setIsNewMonster(false);
+      setHatchedCount(1);
       setIsSpeaking(false);
       setHatchError('');
     } else {
@@ -130,11 +137,19 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
     window.speechSynthesis.speak(uttKo);
   }, []);
 
-  // 알 탭 핸들러 (3회 클릭 시 부화)
+  // 알 탭 핸들러 (3회 클릭 시 부화 - 멀티터치/연타 시 이중 차감 방어)
   const handleEggTap = () => {
-    if (isHatched || tapCount >= 3 || (eggCount !== undefined && eggCount <= 0)) return;
+    if (
+      isHatchingRef.current ||
+      tapCountRef.current >= 3 ||
+      isHatched ||
+      (eggCount !== undefined && eggCount <= 0)
+    ) {
+      return;
+    }
 
-    const nextCount = tapCount + 1;
+    const nextCount = tapCountRef.current + 1;
+    tapCountRef.current = nextCount;
     setTapCount(nextCount);
     setIsShaking(true);
     setHatchError('');
@@ -148,6 +163,7 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
 
     // 3번째 클릭 시 알 깨짐 & 가챠 연출
     if (nextCount === 3) {
+      isHatchingRef.current = true;
       setShowFlash(true);
       playEggHatchSound();
 
@@ -155,11 +171,16 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
         hatchTimerRef.current = null;
         let monster: MonsterCardData;
         let isNew: boolean;
+        let nextTotalCount: number;
         try {
           monster = rollRandomMonster();
-          isNew = saveMonsterToStorage(monster.id).isNew;
+          const saved = saveMonsterToStorage(monster.id);
+          isNew = saved.isNew;
+          nextTotalCount = saved.updatedRecords[monster.id]?.count || 1;
         } catch (error) {
           console.error('Failed to save hatched monster:', error);
+          isHatchingRef.current = false;
+          tapCountRef.current = 0;
           setShowFlash(false);
           setTapCount(0);
           setHatchError('괴수 저장에 실패했어요. 알을 다시 깨 주세요.');
@@ -169,6 +190,7 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
         setIsHatched(true);
         setShowFlash(false);
         setIsNewMonster(isNew);
+        setHatchedCount(nextTotalCount);
 
         // 알 보유 수량 1개 차감
         if (onConsumeEgg) {
@@ -194,6 +216,7 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
   if (!isOpen) return null;
 
   const rarityInfo = pulledMonster ? RARITY_METADATA[pulledMonster.rarity] : null;
+  const awakeningInfo = getMonsterAwakening(hatchedCount);
 
   return (
     <div
@@ -833,6 +856,49 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
                 </div>
                 <p style={{ margin: 0 }}>{pulledMonster.description}</p>
               </div>
+
+              {/* 🧬 중복 괴수 카드 각성 진화 게이지 */}
+              <div
+                style={{
+                  width: '100%',
+                  marginTop: '8px',
+                  padding: '8px 10px',
+                  borderRadius: '12px',
+                  backgroundColor: 'rgba(2, 6, 23, 0.85)',
+                  border: `1.5px solid ${awakeningInfo.borderColor}`,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: '11px',
+                    fontWeight: 900,
+                  }}
+                >
+                  <span style={{ color: '#fde047' }}>
+                    🧬 {awakeningInfo.label} (총 {hatchedCount}장)
+                  </span>
+                  <span
+                    style={{
+                      padding: '1px 6px',
+                      borderRadius: '6px',
+                      background: awakeningInfo.badgeBg,
+                      color: '#ffffff',
+                      fontSize: '10px',
+                    }}
+                  >
+                    파트너 효과 ×{awakeningInfo.multiplier}배
+                  </span>
+                </div>
+                <div style={{ fontSize: '10px', color: '#cbd5e1', fontWeight: 700, textAlign: 'center' }}>
+                  {awakeningInfo.progressText}
+                </div>
+              </div>
             </div>
 
             {/* 상단 알 보유 수량 배지 */}
@@ -861,6 +927,8 @@ export const EggGachaModal: React.FC<EggGachaModalProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    tapCountRef.current = 0;
+                    isHatchingRef.current = false;
                     setTapCount(0);
                     setIsShaking(false);
                     setShowFlash(false);

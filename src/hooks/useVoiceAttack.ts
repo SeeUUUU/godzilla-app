@@ -200,7 +200,16 @@ export const useVoiceVolume = (options: UseVoiceVolumeOptions = {}) => {
     } else {
       cleanupAudio();
     }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        cleanupAudio();
+      } else if (enabled) {
+        startAudioMonitoring();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       cleanupAudio();
     };
   }, [enabled, startAudioMonitoring, cleanupAudio]);

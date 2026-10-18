@@ -83,9 +83,13 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
   const [isListeningMode, setIsListeningMode] = useState(false);
   const isLockedRef = useRef(false);
   const mismatchTimerRef = useRef<number | null>(null);
+  const matchFallbackTimerRef = useRef<number | null>(null);
+  const matchDelayTimerRef = useRef<number | null>(null);
 
   useEffect(() => () => {
     if (mismatchTimerRef.current !== null) window.clearTimeout(mismatchTimerRef.current);
+    if (matchFallbackTimerRef.current !== null) window.clearTimeout(matchFallbackTimerRef.current);
+    if (matchDelayTimerRef.current !== null) window.clearTimeout(matchDelayTimerRef.current);
   }, []);
 
   const handleCardClick = (card: ShuffledCard) => {
@@ -120,6 +124,7 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
         newSelected.ko === newSelected.en &&
         newSelected.en === newSelected.ja
       ) {
+        isLockedRef.current = true;
         setIsMatchingSuccess(true);
         playDingDongSuccess();
         const matchedId = newSelected.ko;
@@ -129,25 +134,32 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
         const complete = () => {
           if (isCompleted) return;
           isCompleted = true;
+          if (matchFallbackTimerRef.current !== null) {
+            window.clearTimeout(matchFallbackTimerRef.current);
+            matchFallbackTimerRef.current = null;
+          }
+          if (matchDelayTimerRef.current !== null) {
+            window.clearTimeout(matchDelayTimerRef.current);
+            matchDelayTimerRef.current = null;
+          }
+          isLockedRef.current = false;
           setSelected({ ko: null, en: null, ja: null });
           setIsMatchingSuccess(false);
           onMatchSuccess(matchedWord || matchedId);
         };
 
         // 안전 폴백 타이머 (음성 합성 미지원/에러/지연 시 최대 2.8초 후 강제 완료)
-        const fallbackTimer = window.setTimeout(complete, 2800);
+        matchFallbackTimerRef.current = window.setTimeout(complete, 2800);
 
         // 마지막 단어(일본어 등) 발음 onend 이벤트 완료 대기
         speechPromise
           .then(() => {
             // 발음 종료 후 약 400ms(300~500ms 여유) 대기 후 정답 처리 및 모달 오픈
-            window.setTimeout(() => {
-              clearTimeout(fallbackTimer);
+            matchDelayTimerRef.current = window.setTimeout(() => {
               complete();
             }, 400);
           })
           .catch(() => {
-            clearTimeout(fallbackTimer);
             complete();
           });
       } else {

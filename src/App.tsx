@@ -5,8 +5,6 @@ import { WORD_EMOJIS } from './data/wordEmojis';
 import { Header } from './components/Header';
 import { GodzillaStage } from './components/GodzillaStage';
 import { TriMatchingBoard } from './components/TriMatchingBoard';
-import { BossMiniGame } from './components/BossMiniGame';
-import { MathDefenseStage } from './components/MathDefenseStage';
 import { TOTAL_MATH_STAGES } from './data/mathData';
 import { InstallAppBanner, InstallGuideModal } from './components/InstallAppBanner';
 import { usePwaInstall } from './hooks/usePwaInstall';
@@ -21,7 +19,9 @@ import {
   getTodayDateStr,
 } from './hooks/useAttendance';
 
-// 대형 모달 컴포넌트 동적 코드 스플리팅 (초기 로딩 속도 최적화)
+// 대형 모달 및 서브 스테이지 컴포넌트 동적 코드 스플리팅 (초기 로딩 속도 최적화)
+const BossMiniGame = lazy(() => import('./components/BossMiniGame').then((m) => ({ default: m.BossMiniGame })));
+const MathDefenseStage = lazy(() => import('./components/MathDefenseStage').then((m) => ({ default: m.MathDefenseStage })));
 const ParentModal = lazy(() => import('./components/ParentModal').then((m) => ({ default: m.ParentModal })));
 const ReviewModal = lazy(() => import('./components/ReviewModal').then((m) => ({ default: m.ReviewModal })));
 const EggGachaModal = lazy(() => import('./components/EggGachaModal').then((m) => ({ default: m.EggGachaModal })));
@@ -30,6 +30,7 @@ const VoiceAttackModal = lazy(() => import('./components/VoiceAttackModal').then
 const MiniComboModal = lazy(() => import('./components/MiniComboModal').then((m) => ({ default: m.MiniComboModal })));
 const AttendanceModal = lazy(() => import('./components/AttendanceModal').then((m) => ({ default: m.AttendanceModal })));
 const GoldenChestModal = lazy(() => import('./components/LuckyEggGachaModal').then((m) => ({ default: m.GoldenChestModal })));
+const SpeedQuizModal = lazy(() => import('./components/SpeedQuizModal').then((m) => ({ default: m.SpeedQuizModal })));
 import {
   getStoredUnlockedMonsters,
   setStoredUnlockedMonsters,
@@ -39,6 +40,7 @@ import {
   getStoredEquippedPartner,
   setStoredEquippedPartner,
   STORAGE_KEY_EQUIPPED_PARTNER,
+  getMonsterAwakening,
 } from './data/monsterData';
 import confetti from 'canvas-confetti';
 import { playVictoryFanfare, initAudioContextOnUserGesture } from './utils/soundEffects';
@@ -56,11 +58,22 @@ import {
   savePlayerDataToFirestore,
   resetAllPlayerDataToFirestore,
   ensurePlayerDocument,
+  signOutUser,
+  isEmailAllowed,
+  getAllowedEmails,
   auth,
   type PlayerFirestoreData,
 } from './firebase';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, type User } from 'firebase/auth';
+import { LoginScreen } from './components/LoginScreen';
 import { getRandomRaidBoss, type RaidBossInfo } from './data/raidBosses';
+import {
+  getUnlockedPartIds,
+  getUnlockedTitleIds,
+  getEquippedGear,
+  setEquippedGear,
+  DEFAULT_EQUIPPED_GEAR,
+} from './data/atomicPartsData';
 
 const STORAGE_KEY_WORDS = 'godzilla_language_words_v3';
 const STORAGE_KEY_STATE = 'godzilla_language_state_v6';
@@ -80,7 +93,8 @@ const STORAGE_VERSION = 'v1.2';
 const WORDS_PER_ROUND = 6;
 
 // 무한 마스터 모드용: 200개 단어 풀에서 중복 없이 무작위 6개 단어 랜덤 추출
-const getRandomSixWords = (pool: WordItem[]): WordItem[] => {
+const getRandomSixWords = (pool: WordItem[], _seed?: number): WordItem[] => {
+  void _seed;
   if (!pool || pool.length <= WORDS_PER_ROUND) return pool || [];
   const copy = [...pool];
   for (let i = copy.length - 1; i > copy.length - 1 - WORDS_PER_ROUND; i--) {
@@ -450,7 +464,7 @@ export function App() {
   const stageWords = useMemo<WordItem[]>(() => {
     let baseList: WordItem[];
     if (isInfiniteMode) {
-      baseList = getRandomSixWords(safeWords);
+      baseList = getRandomSixWords(safeWords, battleSessionId + cycleCount);
     } else {
       const safeIndex = stageIndex % totalStages;
       const startIndex = safeIndex * WORDS_PER_ROUND;
@@ -476,6 +490,8 @@ export function App() {
     }
     return stageWords.length > 0 ? stageWords : safeWords.slice(0, WORDS_PER_ROUND);
   }, [isReviewMode, reviewWords, stageWords, safeWords]);
+
+  const [godzillaHp, setGodzillaHp] = useState(100);
 
   // 오답 복습 모드인데 복습 단어가 비워졌다면 isReviewMode 플래그를 자동으로 false 리셋하여 일반 배틀로 안전 복귀
   useEffect(() => {
@@ -541,22 +557,33 @@ export function App() {
 
   const [isGachaOpen, setIsGachaOpen] = useState(false);
   const [isMonsterBookOpen, setIsMonsterBookOpen] = useState(false);
+  const [isSpeedQuizOpen, setIsSpeedQuizOpen] = useState(false);
+
+  const addBonusExp = useCallback((bonusExpAmount: number) => {
+    if (bonusExpAmount <= 0) return;
+    setGameState((prev) => {
+      const totalExp = prev.exp + bonusExpAmount;
+      const levelGain = Math.floor(totalExp / 100);
+      const nextState = {
+        ...prev,
+        level: prev.level + levelGain,
+        exp: totalExp % 100,
+      };
+      try {
+        localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(nextState));
+      } catch {}
+      savePlayerDataToFirestore({ gameState: nextState });
+      return nextState;
+    });
+  }, []);
   // 한 스테이지당 알 부화 보상 1회 제한 상태
   const [hasClaimedStageReward, setHasClaimedStageReward] = useState(false);
   // 한 스테이지당 괴수 알 자동 지급 1회 제한 상태
   const [hasAwardedStageEgg, setHasAwardedStageEgg] = useState(false);
-  // 도감 10종 완성 최고 보상(황금 보물상자) 수령 여부 (테스트 지원)
-  const [hasClaimedCodexReward, setHasClaimedCodexReward] = useState<boolean>(() => {
-    try {
-      const resetDone = localStorage.getItem('godzilla_reset_codex_claimed_for_test_v1');
-      if (!resetDone) {
-        localStorage.setItem('godzilla_reset_codex_claimed_for_test_v1', 'true');
-        localStorage.removeItem(STORAGE_KEY_CODEX_REWARD);
-        return false;
-      }
-    } catch {}
-    return getStoredHasClaimedCodexReward();
-  });
+  // 도감 10종 완성 최고 보상(황금 보물상자) 수령 여부
+  const [hasClaimedCodexReward, setHasClaimedCodexReward] = useState<boolean>(() =>
+    getStoredHasClaimedCodexReward()
+  );
   // 도감 10종 완성 축하 모달 오픈 상태
   const [isCodexCelebrationOpen, setIsCodexCelebrationOpen] = useState(false);
 
@@ -675,6 +702,9 @@ export function App() {
   const [isGoldenChestOpen, setIsGoldenChestOpen] = useState(false);
   const [goldenChestSource, setGoldenChestSource] = useState<'attendance' | 'codex'>('attendance');
 
+  const [authUser, setAuthUser] = useState<User | null>(() => auth.currentUser);
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
+
   // ─────────────────────────────────────────────
   // 5-5. Firebase Firestore 연동 & 로그인 사용자별 격리 동기화
   // ─────────────────────────────────────────────
@@ -682,45 +712,118 @@ export function App() {
   const syncedUidRef = useRef<string | null>(null);
 
   const applyRemoteDataToLocal = useCallback((remoteData: PlayerFirestoreData) => {
-    // 1. 레벨 / 경험치 반영
+    // 1. 레벨 / 경험치 스마트 병합 (오프라인 학습 중 오른 레벨/경험치 증발 방지: 누적 총 EXP 기준 비교)
     if (remoteData.gameState && typeof remoteData.gameState.level === 'number') {
-      setGameState(remoteData.gameState);
-      try {
-        localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(remoteData.gameState));
-      } catch {}
+      const rState = remoteData.gameState;
+      setGameState((prev) => {
+        const localTotalExp = (prev.level || 1) * 100 + (prev.exp || 0);
+        const remoteTotalExp = (rState.level || 1) * 100 + (rState.exp || 0);
+        const winner = remoteTotalExp >= localTotalExp ? rState : prev;
+        const mergedState: GameState = {
+          ...winner,
+          streak: Math.max(prev.streak || 0, rState.streak || 0),
+          cycleCount: Math.max(prev.cycleCount ?? 1, rState.cycleCount ?? 1),
+        };
+        try {
+          localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(mergedState));
+        } catch {}
+        return mergedState;
+      });
     }
-    // 3. 알 개수 반영
-    if (typeof remoteData.eggCount === 'number') {
-      setEggCount(remoteData.eggCount);
-      try {
-        localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(remoteData.eggCount));
-      } catch {}
+    // 2. 알 개수 스마트 반영
+    if (typeof remoteData.eggCount === 'number' && !isNaN(remoteData.eggCount)) {
+      const remoteEggs = Math.max(0, Math.floor(remoteData.eggCount));
+      setEggCount((prev) => {
+        const next = Math.max(prev, remoteEggs);
+        try {
+          localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(next));
+        } catch {}
+        return next;
+      });
     }
-    // 4. 출석 체크 기록 및 누적 7일 스탬프 반영
+    // 3. 출석 체크 기록(합집합) 및 누적 7일 스탬프(Math.max) 스마트 병합
     if (Array.isArray(remoteData.attendanceRecords)) {
-      setRecords(remoteData.attendanceRecords);
-      setStoredAttendanceRecords(remoteData.attendanceRecords);
+      setRecords((prev) => {
+        const merged = Array.from(new Set([...prev, ...(remoteData.attendanceRecords || [])])).sort();
+        setStoredAttendanceRecords(merged);
+        return merged;
+      });
     }
     if (typeof remoteData.cumulativeAttendanceDays === 'number') {
-      setCumulativeAttendanceDays(remoteData.cumulativeAttendanceDays);
-      setStoredCumulativeDays(remoteData.cumulativeAttendanceDays);
+      const remoteDays = Math.max(0, Math.floor(remoteData.cumulativeAttendanceDays));
+      setCumulativeAttendanceDays((prev) => {
+        const next = Math.max(prev, remoteDays);
+        setStoredCumulativeDays(next);
+        return next;
+      });
     } else if (Array.isArray(remoteData.attendanceRecords)) {
       const migrated = remoteData.attendanceRecords.length;
-      setCumulativeAttendanceDays(migrated);
-      setStoredCumulativeDays(migrated);
+      setCumulativeAttendanceDays((prev) => {
+        const next = Math.max(prev, migrated);
+        setStoredCumulativeDays(next);
+        return next;
+      });
     }
     if (typeof remoteData.stampCount === 'number') {
-      setStampCount(remoteData.stampCount);
-      setStoredStampCount(remoteData.stampCount);
+      const remoteStamps = Math.min(7, Math.max(0, Math.floor(remoteData.stampCount)));
+      setStampCount((prev) => {
+        const next = Math.max(prev, remoteStamps);
+        setStoredStampCount(next);
+        return next;
+      });
     } else if (Array.isArray(remoteData.attendanceRecords)) {
       const migratedStamps = remoteData.attendanceRecords.length % 7;
-      setStampCount(migratedStamps);
-      setStoredStampCount(migratedStamps);
+      setStampCount((prev) => {
+        const next = Math.max(prev, migratedStamps);
+        setStoredStampCount(next);
+        return next;
+      });
     }
-    // 4-1. 괴수 도감 반영
+    // 4. 괴수 도감 스마트 병합 (ID별 보유 수량 Math.max 보존)
     if (remoteData.unlockedMonsters && typeof remoteData.unlockedMonsters === 'object') {
-      setStoredUnlockedMonsters(remoteData.unlockedMonsters);
-      setUnlockedMonsters(remoteData.unlockedMonsters);
+      const localMonsters = getStoredUnlockedMonsters();
+      const mergedMonsters: Record<string, UnlockedMonsterRecord> = { ...localMonsters };
+      Object.entries(remoteData.unlockedMonsters).forEach(([id, remoteRec]) => {
+        if (!remoteRec) return;
+        const localRec = mergedMonsters[id];
+        if (!localRec) {
+          mergedMonsters[id] = remoteRec;
+        } else {
+          mergedMonsters[id] = {
+            ...localRec,
+            ...remoteRec,
+            count: Math.max(localRec.count || 0, remoteRec.count || 0),
+            unlockedAt: localRec.unlockedAt || remoteRec.unlockedAt,
+          };
+        }
+      });
+      setStoredUnlockedMonsters(mergedMonsters);
+      setUnlockedMonsters(mergedMonsters);
+    }
+    // 4-2. 오답 단어 목록(wrongWordList) 스마트 병합 (masteryLevel 최대값 보존)
+    if (Array.isArray(remoteData.wrongWordList) && remoteData.wrongWordList.length > 0) {
+      setWrongWordList((prev) => {
+        const map = new Map<string | number, WordItem>();
+        prev.forEach((w) => map.set(w.id, w));
+        remoteData.wrongWordList!.forEach((rw) => {
+          if (!rw || !rw.id) return;
+          const existing = map.get(rw.id);
+          if (!existing) {
+            map.set(rw.id, rw);
+          } else {
+            map.set(rw.id, {
+              ...existing,
+              ...rw,
+              reviewMastery: Math.max(existing.reviewMastery ?? 0, rw.reviewMastery ?? 0),
+            });
+          }
+        });
+        const merged = dedupeWordsById(Array.from(map.values()));
+        try {
+          localStorage.setItem(STORAGE_KEY_WRONG_WORDS, JSON.stringify(merged));
+        } catch {}
+        return merged;
+      });
     }
     // 5. 이번 주 주간 보상 수령 상태 반영 (하위 호환성)
     if (remoteData.weeklyRewardClaimedWeek) {
@@ -748,52 +851,61 @@ export function App() {
     }
     // 7. 도감 10종 완성 보상 수령 상태 반영
     if (typeof remoteData.hasClaimedCodexReward === 'boolean') {
-      const resetDone = localStorage.getItem('godzilla_reset_codex_claimed_for_test_v1');
-      const finalClaimed = resetDone ? remoteData.hasClaimedCodexReward : false;
-      setHasClaimedCodexReward(finalClaimed);
+      setHasClaimedCodexReward(remoteData.hasClaimedCodexReward);
       try {
-        localStorage.setItem(STORAGE_KEY_CODEX_REWARD, String(finalClaimed));
+        localStorage.setItem(STORAGE_KEY_CODEX_REWARD, String(remoteData.hasClaimedCodexReward));
       } catch {}
     }
-    // 8. 황금 보물상자 보유량 반영 (기존 테스트로 비정상 부풀려진 6개 이상 등 비정상 값을 1개로 1회 강제 교정)
-    if (typeof remoteData.treasureBoxCount === 'number') {
-      let count = remoteData.treasureBoxCount;
-      const fixApplied = localStorage.getItem('godzilla_force_fix_1_box_welcome_v1');
-      if (!fixApplied) {
-        count = 1;
-        localStorage.setItem('godzilla_force_fix_1_box_welcome_v1', 'true');
-        savePlayerDataToFirestore({ treasureBoxCount: 1 });
-      }
-      setTreasureBoxCount(count);
-      try {
-        localStorage.setItem(STORAGE_KEY_TREASURE_BOX, String(count));
-      } catch {}
+    // 8. 황금 보물상자 보유량 스마트 반영
+    if (typeof remoteData.treasureBoxCount === 'number' && !isNaN(remoteData.treasureBoxCount)) {
+      const remoteCount = Math.max(0, Math.floor(remoteData.treasureBoxCount));
+      setTreasureBoxCount((prev) => {
+        const next = Math.max(prev, remoteCount);
+        try {
+          localStorage.setItem(STORAGE_KEY_TREASURE_BOX, String(next));
+        } catch {}
+        return next;
+      });
     }
-    // 9. 회독(cycleCount), 무한 모드(isInfiniteMode), 스테이지(stageIndex) 반영
+    // 9. 회독(cycleCount), 무한 모드(isInfiniteMode), 스테이지(stageIndex) 스마트 병합
     if (typeof remoteData.cycleCount === 'number') {
-      setCycleCount(remoteData.cycleCount);
-      try {
-        localStorage.setItem(STORAGE_KEY_CYCLE_COUNT, String(remoteData.cycleCount));
-      } catch {}
+      const remoteCycle = Math.max(1, Math.floor(remoteData.cycleCount));
+      setCycleCount((prev) => {
+        const next = Math.max(prev, remoteCycle);
+        try {
+          localStorage.setItem(STORAGE_KEY_CYCLE_COUNT, String(next));
+        } catch {}
+        return next;
+      });
     }
     if (typeof remoteData.isInfiniteMode === 'boolean') {
-      setIsInfiniteMode(remoteData.isInfiniteMode);
-      try {
-        localStorage.setItem(STORAGE_KEY_INFINITE_MODE, String(remoteData.isInfiniteMode));
-      } catch {}
+      setIsInfiniteMode((prev) => {
+        const next = prev || Boolean(remoteData.isInfiniteMode);
+        try {
+          localStorage.setItem(STORAGE_KEY_INFINITE_MODE, String(next));
+        } catch {}
+        return next;
+      });
     }
     if (typeof remoteData.stageIndex === 'number') {
-      setStageIndex(remoteData.stageIndex);
-      try {
-        localStorage.setItem(STORAGE_KEY_STAGE_INDEX, String(remoteData.stageIndex));
-      } catch {}
+      const remoteStage = Math.max(0, Math.floor(remoteData.stageIndex));
+      setStageIndex((prev) => {
+        const next = Math.max(prev, remoteStage);
+        try {
+          localStorage.setItem(STORAGE_KEY_STAGE_INDEX, String(next));
+        } catch {}
+        return next;
+      });
     }
     // 10. 서포트 파트너 반영
     if (remoteData.equippedPartnerId !== undefined) {
-      setEquippedPartnerId(remoteData.equippedPartnerId);
-      setStoredEquippedPartner(remoteData.equippedPartnerId);
+      setEquippedPartnerId((prev) => {
+        const next = prev || remoteData.equippedPartnerId || null;
+        setStoredEquippedPartner(next);
+        return next;
+      });
     }
-    // 11. 일일 듀얼 퀘스트 및 산수 스테이지 반영
+    // 11. 일일 듀얼 퀘스트 및 산수 스테이지 스마트 반영
     if (remoteData.dailyDualQuest && typeof remoteData.dailyDualQuest === 'object') {
       const today = getTodayDateStr();
       const q = remoteData.dailyDualQuest as Partial<DailyDualQuest>;
@@ -812,12 +924,33 @@ export function App() {
       }
     }
     if (typeof remoteData.mathStageIndex === 'number') {
-      setMathStageIndex(remoteData.mathStageIndex);
+      const remoteMathStage = Math.max(0, Math.floor(remoteData.mathStageIndex));
+      setMathStageIndex((prev) => {
+        const next = Math.max(prev, remoteMathStage);
+        try {
+          localStorage.setItem(STORAGE_KEY_MATH_STAGE, String(next));
+        } catch {}
+        return next;
+      });
+    }
+    // 12. 산수 디펜스 아토믹 파츠 & 칭호 합집합 병합
+    if (Array.isArray(remoteData.atomicUnlockedParts)) {
       try {
-        localStorage.setItem(STORAGE_KEY_MATH_STAGE, String(remoteData.mathStageIndex));
+        const mergedParts = Array.from(new Set([...getUnlockedPartIds(), ...remoteData.atomicUnlockedParts]));
+        localStorage.setItem('godzilla_atomic_unlocked_parts', JSON.stringify(mergedParts));
       } catch {}
     }
-  }, [refreshCouponCount]);
+    if (Array.isArray(remoteData.atomicUnlockedTitles)) {
+      try {
+        const mergedTitles = Array.from(new Set([...getUnlockedTitleIds(), ...remoteData.atomicUnlockedTitles]));
+        localStorage.setItem('godzilla_atomic_unlocked_titles', JSON.stringify(mergedTitles));
+      } catch {}
+    }
+    if (remoteData.atomicEquippedGear && typeof remoteData.atomicEquippedGear === 'object') {
+      const localGear = getEquippedGear();
+      setEquippedGear({ ...remoteData.atomicEquippedGear, ...localGear });
+    }
+  }, [refreshCouponCount, setCumulativeAttendanceDays, setRecords, setStampCount]);
 
   useEffect(() => {
     let isMounted = true;
@@ -825,13 +958,28 @@ export function App() {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (!isMounted) return;
 
-      // 비로그인 상태 예외 처리: Firestore 동기화 건너뛰고 로컬 스토리지 데이터로 안정 동작
-      if (!currentUser) {
-        console.info('[Firestore] 비로그인 상태입니다. 로컬 스토리지 모드로 실행됩니다.');
+      // 로그아웃 상태이거나 익명 계정일 경우 (허용된 구글 계정만 접속 허용)
+      if (!currentUser || currentUser.isAnonymous) {
+        setAuthUser(null);
+        setIsAuthChecking(false);
         syncedUidRef.current = null;
         isFirestoreInitialized.current = false;
         return;
       }
+
+      // 구글 이메일이 허용 목록에 없는 경우 즉시 강제 로그아웃
+      if (!isEmailAllowed(currentUser.email)) {
+        console.warn(`[Auth] 허용되지 않은 구글 계정 접속 시도: ${currentUser.email}`);
+        await signOutUser();
+        if (isMounted) {
+          setAuthUser(null);
+          setIsAuthChecking(false);
+        }
+        return;
+      }
+
+      setAuthUser(currentUser);
+      setIsAuthChecking(false);
 
       // 이미 현재 UID로 동기화 완료되었으면 중복 실행 방지
       if (syncedUidRef.current === currentUser.uid) return;
@@ -845,13 +993,14 @@ export function App() {
         const initialFallback: Partial<PlayerFirestoreData> = {
           gameState,
           eggCount,
-          treasureBoxCount: 1,
+          treasureBoxCount,
           attendanceRecords: records,
           stampCount,
           cumulativeAttendanceDays,
           weeklyRewardClaimedWeek: currentWeekClaimed,
           unlockedMonsters: localMonsters,
           coupons: localCoupons,
+          wrongWordList: normalizedWrongWords,
           hasClaimedCodexReward: getStoredHasClaimedCodexReward(),
           cycleCount,
           isInfiniteMode,
@@ -859,16 +1008,19 @@ export function App() {
           equippedPartnerId: getStoredEquippedPartner(),
           dailyDualQuest,
           mathStageIndex,
+          atomicUnlockedParts: getUnlockedPartIds(),
+          atomicUnlockedTitles: getUnlockedTitleIds(),
+          atomicEquippedGear: getEquippedGear(),
         };
 
         // 로그인 시 해당 UID 문서가 없으면 기본값으로 초기 문서 생성
-        const result = await ensurePlayerDocument(currentUser.uid, initialFallback);
+        const result = await ensurePlayerDocument(initialFallback);
         if (!isMounted || !result) return;
 
         syncedUidRef.current = currentUser.uid;
         isFirestoreInitialized.current = true;
 
-        // 기존에 생성되어 있던 문서라면 원격 데이터를 로컬 상태에 동기화
+        // 기존에 생성되어 있던 문서라면 원격 데이터를 로컬 상태에 스마트 병합 동기화
         if (!result.isNewlyCreated) {
           applyRemoteDataToLocal(result.data);
         }
@@ -885,9 +1037,11 @@ export function App() {
     applyRemoteDataToLocal,
     gameState,
     eggCount,
+    treasureBoxCount,
     records,
     stampCount,
     cumulativeAttendanceDays,
+    normalizedWrongWords,
     cycleCount,
     isInfiniteMode,
     stageIndex,
@@ -982,7 +1136,6 @@ export function App() {
   // ─────────────────────────────────────────────
   // 6. 배틀 상태
   // ─────────────────────────────────────────────
-  const [godzillaHp, setGodzillaHp] = useState(100);
   const [battleStatus, setBattleStatus] = useState<BattleStatus>('PLAYING');
   const battleStatusRef = useRef<BattleStatus>('PLAYING');
   const attackedIdsRef = useRef(new Set<string | number>());
@@ -1000,23 +1153,7 @@ export function App() {
     }
   }, [equippedPartnerId, activeWords, battleStatus, stageIndex, triggerPartnerNotice]);
 
-  // 데일리 데자뷰 단어 출현 안내 알림 (단어명 스포일러 방지)
-  const hasShownDejaVuNoticeRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (sessionDejaVuWord && !isReviewMode && !isBossStage && battleStatus === 'PLAYING') {
-      const dejaVuKey = `${stageIndex}-${sessionDejaVuWord.id}`;
-      if (hasShownDejaVuNoticeRef.current !== dejaVuKey) {
-        hasShownDejaVuNoticeRef.current = dejaVuKey;
-        const timer = setTimeout(() => {
-          triggerPartnerNotice(
-            '⚡ 예전에 아쉽게 놓쳤던 복습 단어 1개가 몰래 숨어있어요! 맞춰서 졸업시켜 볼까요?',
-            '⚡'
-          );
-        }, 700);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [sessionDejaVuWord, isReviewMode, isBossStage, battleStatus, stageIndex, triggerPartnerNotice]);
+  // 데일리 데자뷰 단어 출현 안내는 배틀 필드 외부(TriMatchingBoard 상단 알약 뱃지)에서 표시됨
 
   const resetBattle = useCallback(() => {
     if (attackTimerRef.current !== null) {
@@ -1095,6 +1232,8 @@ export function App() {
     const confirmed = window.confirm('정말 모든 학습 기록과 도감을 지우고 처음부터 시작할까요?');
     if (!confirmed) return;
 
+    const today = getTodayDateStr();
+
     // 1) localStorage 내 앱 관련 모든 캐시 키 삭제
     try {
       const keysToRemove = [
@@ -1119,6 +1258,13 @@ export function App() {
         'godzilla_cumulative_attendance_days',
         'godzilla_weekly_reward_claimed_week',
         'godzilla_weekly_reward_claimed',
+        'godzilla_atomic_unlocked_parts',
+        'godzilla_atomic_unlocked_titles',
+        'godzilla_atomic_equipped_gear',
+        'godzilla_speed_quiz_best',
+        'godzilla_speed_quiz_egg_date',
+        'godzilla_parent_cheer_message',
+        'godzilla_island_theme',
         'godzilla_language_state_v2',
         'godzilla_language_state_v3',
         'godzilla_language_state_v5',
@@ -1166,6 +1312,10 @@ export function App() {
         stageIndex: 0,
         mathStageIndex: 0,
         equippedPartnerId: null,
+        dailyDualQuest: { date: today, languageDone: false, mathDone: false },
+        atomicUnlockedParts: ['part_head_helmet', 'part_fin_classic', 'part_weapon_standard'],
+        atomicUnlockedTitles: ['title_default'],
+        atomicEquippedGear: DEFAULT_EQUIPPED_GEAR,
       });
     } catch (e) {
       console.error('Failed to reset Firestore user document:', e);
@@ -1287,34 +1437,43 @@ export function App() {
         } catch {}
       }
 
-      // 1) 치비 고질라 패시브: [아기 고질라의 응원] - 매칭 성공 시 HP +5% 회복
+      const partnerAwakening = equippedPartnerId
+        ? getMonsterAwakening(unlockedMonsters[equippedPartnerId]?.count ?? 1)
+        : getMonsterAwakening(0);
+      const partnerMult = partnerAwakening.multiplier;
+
+      // 1) 치비 고질라 패시브: [아기 고질라의 응원] - 매칭 성공 시 HP 회복 (각성 배율 적용)
       if (equippedPartnerId === 'chibi-godzilla') {
-        setGodzillaHp((prev) => Math.min(100, prev + 5));
-        triggerPartnerNotice('치비 고질라의 응원! HP +5% 회복!', '🫧');
+        const healAmt = Math.round(5 * partnerMult);
+        setGodzillaHp((prev) => Math.min(100, prev + healAmt));
+        triggerPartnerNotice(`치비 고질라의 응원(${partnerAwakening.shortBadge})! HP +${healAmt}% 회복!`, '🫧');
       }
 
-      // 2) 킹기도라 패시브: [전격 파워] - 3단어 매칭 성공 시 보스 추가 데미지 (+5%)
+      // 2) 킹기도라 패시브: [전격 파워] - 3단어 매칭 성공 시 보스 추가 데미지 (각성 배율 적용)
       if (equippedPartnerId === 'king-ghidorah' && attackedIdsRef.current.size === 3) {
-        setBonusBossDamage((prev) => prev + 5);
-        triggerPartnerNotice('킹기도라의 전격 파워! 보스 추가 데미지 5%!', '⚡');
+        const extraDmg = Math.round(5 * partnerMult);
+        setBonusBossDamage((prev) => prev + extraDmg);
+        triggerPartnerNotice(`킹기도라의 전격 파워(${partnerAwakening.shortBadge})! 보스 추가 데미지 ${extraDmg}%!`, '⚡');
       }
 
       let triggeredEvilGodzilla = false;
+      const minusOneExpBonus = Math.round(10 * partnerMult);
+      const evilExtraDmg = Math.round(10 * partnerMult);
 
       setGameState((prev) => {
         // 3) 기본 고질라 패시브: [원조의 위엄] - 2연속부터 즉시 FEVER 돌입
         const isFeverHit = equippedPartnerId === 'classic-godzilla' ? prev.streak >= 1 : prev.streak >= 2;
 
-        // 3-1) 이블 고질라 패시브: [악령의 일격] - 피버 모드 시 보스 추가 데미지 (+10%)
+        // 3-1) 이블 고질라 패시브: [악령의 일격] - 피버 모드 시 보스 추가 데미지 (+10% × 각성배율)
         if (equippedPartnerId === 'evil-godzilla' && isFeverHit) {
           triggeredEvilGodzilla = true;
         }
 
         let expReward = isCritical ? (isFeverHit ? 85 : 60) : isFeverHit ? 50 : 25;
 
-        // 4) 고질라 -1.0 패시브: [압축 폭발] - 매칭 시 기본 EXP +10 추가
+        // 4) 고질라 -1.0 패시브: [압축 폭발] - 매칭 시 기본 EXP +10 추가 (각성 배율 적용)
         if (equippedPartnerId === 'godzilla-minusone') {
-          expReward += 10;
+          expReward += minusOneExpBonus;
         }
 
         const totalExp = prev.exp + expReward;
@@ -1329,24 +1488,32 @@ export function App() {
 
       // 이블 고질라 보스 추가 데미지 및 토스트 알림 연출
       if (triggeredEvilGodzilla) {
-        setBonusBossDamage((prev) => prev + 10);
-        triggerPartnerNotice('🔥 이블 고질라: 악령의 일격 발동! 보스 추가 데미지 +10%!', '😈');
+        setBonusBossDamage((prev) => prev + evilExtraDmg);
+        triggerPartnerNotice(`🔥 이블 고질라(${partnerAwakening.shortBadge}): 악령의 일격 발동! 보스 추가 데미지 +${evilExtraDmg}%!`, '😈');
       }
 
       if (equippedPartnerId === 'godzilla-minusone') {
-        triggerPartnerNotice('고질라 -1.0 압축 폭발! 보너스 EXP +10!', '💥');
+        triggerPartnerNotice(`고질라 -1.0 압축 폭발(${partnerAwakening.shortBadge})! 보너스 EXP +${minusOneExpBonus}!`, '💥');
       }
     },
-    [activeWords, isReviewMode, sessionDejaVuWord, equippedPartnerId, triggerPartnerNotice]
+    [activeWords, isReviewMode, sessionDejaVuWord, equippedPartnerId, unlockedMonsters, triggerPartnerNotice]
   );
 
-  const handleComboComplete = useCallback(() => {
-    const pending = pendingAttackRef.current;
-    pendingAttackRef.current = null;
-    setComboWord(null);
-    setTargetWord(null);
-    if (pending) executeAttack(pending.id, pending.isCritical, pending.roarPower);
-  }, [executeAttack]);
+  const handleComboComplete = useCallback(
+    (didSolvePuzzle?: boolean) => {
+      const pending = pendingAttackRef.current;
+      pendingAttackRef.current = null;
+      setComboWord(null);
+      setTargetWord(null);
+      if (didSolvePuzzle) {
+        addBonusExp(15);
+        setBonusBossDamage((prev) => prev + 5);
+        triggerPartnerNotice('🔐 기도라 암호 해독 성공! 보너스 EXP +15 & 보스 추가 타격 +5%!', '🧩');
+      }
+      if (pending) executeAttack(pending.id, pending.isCritical, pending.roarPower);
+    },
+    [executeAttack, addBonusExp, triggerPartnerNotice]
+  );
 
   // ─────────────────────────────────────────────
   // 8-2. 정답 매칭 완료 핸들러 (음성 공격 모달 분기)
@@ -1427,6 +1594,7 @@ export function App() {
           } catch (e) {
             console.error('Failed to save wrong words:', e);
           }
+          savePlayerDataToFirestore({ wrongWordList: updated });
           return updated;
         });
       }
@@ -1442,8 +1610,16 @@ export function App() {
     setBattleSessionId((prev) => prev + 1);
   }, [resetBattle]);
 
+  const isStageTransitioningRef = useRef(false);
+
   /** 다음 스테이지로 진행 */
   const handleNextStage = useCallback(() => {
+    if (isStageTransitioningRef.current) return;
+    isStageTransitioningRef.current = true;
+    window.setTimeout(() => {
+      isStageTransitioningRef.current = false;
+    }, 350);
+
     // 만약 1회독의 마지막 34스테이지를 클리어한 상태라면 완주 모달 오픈
     if (!isInfiniteMode && cycleCount === 1 && currentStageNum >= totalStages) {
       setIsCycleCompletionModalOpen(true);
@@ -1577,7 +1753,7 @@ export function App() {
       const isMecha = equippedPartnerId === 'mechagodzilla';
       const finalExp = bonusExp;
 
-      // 2. 보너스 EXP 지급
+      // 2. 보너스 EXP 지급 및 아토믹 파츠/칭호 클라우드 동기화
       setGameState((prev) => {
         const totalExp = prev.exp + finalExp;
         const levelGain = Math.floor(totalExp / 100);
@@ -1589,7 +1765,12 @@ export function App() {
         try {
           localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(nextState));
         } catch {}
-        savePlayerDataToFirestore({ gameState: nextState });
+        savePlayerDataToFirestore({
+          gameState: nextState,
+          atomicUnlockedParts: getUnlockedPartIds(),
+          atomicUnlockedTitles: getUnlockedTitleIds(),
+          atomicEquippedGear: getEquippedGear(),
+        });
         return nextState;
       });
 
@@ -1614,7 +1795,15 @@ export function App() {
     [triggerPartnerNotice, equippedPartnerId]
   );
 
+  const isMathTransitioningRef = useRef(false);
+
   const handleNextMathStage = useCallback(() => {
+    if (isMathTransitioningRef.current) return;
+    isMathTransitioningRef.current = true;
+    window.setTimeout(() => {
+      isMathTransitioningRef.current = false;
+    }, 350);
+
     setMathStageIndex((prev) => {
       const next = prev + 1;
       try {
@@ -1894,23 +2083,25 @@ export function App() {
     }
   }, [isReviewMode, isStageClearReady, isGameOver, hasClaimedReviewRaidReward, eggCount, gameState]);
 
+  const isClaimingCodexRef = useRef(false);
+
   // 12-4. 도감 10종 완성 최고 보상(황금 보물상자) 교환 핸들러
   const handleClaimCodexReward = useCallback(() => {
-    // 1. 황금 보물상자 보유량 +1 증가
-    let nextBoxCount = treasureBoxCount + 1;
-    setTreasureBoxCount((prev) => {
-      nextBoxCount = prev + 1;
-      try {
-        localStorage.setItem(STORAGE_KEY_TREASURE_BOX, String(nextBoxCount));
-      } catch {}
-      return nextBoxCount;
-    });
+    if (isClaimingCodexRef.current) return;
+    const currentMonsters = getStoredUnlockedMonsters();
+    const hasAllTen = MONSTER_CARDS.every((card) => (currentMonsters[card.id]?.count || 0) >= 1);
+    if (!hasAllTen) return;
 
-    // 2. 10종 괴수 카드의 보유 수량을 각각 1장씩 차감 (0장이 된 카드는 미발견 상태로 리셋)
+    isClaimingCodexRef.current = true;
+    window.setTimeout(() => {
+      isClaimingCodexRef.current = false;
+    }, 600);
+
+    // 1. 10종 괴수 카드의 보유 수량을 각각 1장씩 차감 (0장이 된 카드는 미발견 상태로 리셋)
     const updatedMonsters = deductOneEachForCodexExchange();
     setUnlockedMonsters(updatedMonsters);
 
-    // 2-1. 장착 중인 파트너 괴수의 보유 수량이 0이 되었다면 안전하게 장착 자동 해제
+    // 1-1. 장착 중인 파트너 괴수의 보유 수량이 0이 되었다면 안전하게 장착 자동 해제
     let nextPartnerId = equippedPartnerId;
     if (equippedPartnerId) {
       const partnerRecord = updatedMonsters[equippedPartnerId];
@@ -1921,21 +2112,28 @@ export function App() {
       }
     }
 
-    // 3. 교환 완료 플래그 초기화 (다음번에 또 10종을 모으면 즉시 재교환 가능한 순환 구조)
+    // 2. 교환 완료 플래그 초기화 (다음번에 또 10종을 모으면 즉시 재교환 가능한 순환 구조)
     setHasClaimedCodexReward(false);
     try {
       localStorage.removeItem(STORAGE_KEY_CODEX_REWARD);
     } catch {}
 
-    // 4. Firestore 영구 저장 (보물상자 증가, 차감된 도감, 교환 플래그 초기화, 파트너 상태)
-    savePlayerDataToFirestore({
-      treasureBoxCount: nextBoxCount,
-      unlockedMonsters: updatedMonsters,
-      hasClaimedCodexReward: false,
-      equippedPartnerId: nextPartnerId,
+    // 3. 황금 보물상자 보유량 +1 증가 및 Firestore 영구 저장
+    setTreasureBoxCount((prev) => {
+      const nextBoxCount = prev + 1;
+      try {
+        localStorage.setItem(STORAGE_KEY_TREASURE_BOX, String(nextBoxCount));
+      } catch {}
+      savePlayerDataToFirestore({
+        treasureBoxCount: nextBoxCount,
+        unlockedMonsters: updatedMonsters,
+        hasClaimedCodexReward: false,
+        equippedPartnerId: nextPartnerId,
+      });
+      return nextBoxCount;
     });
 
-    // 5. 축하 사운드 & 콘페티
+    // 4. 축하 사운드 & 콘페티
     playVictoryFanfare();
     confetti({
       particleCount: 160,
@@ -1944,9 +2142,9 @@ export function App() {
       colors: ['#fbbf24', '#f59e0b', '#ffffff', '#fde047', '#10b981', '#06b6d4'],
     });
 
-    // 6. 축하 알림 팝업 오픈
+    // 5. 축하 알림 팝업 오픈
     setIsCodexCelebrationOpen(true);
-  }, [treasureBoxCount, equippedPartnerId]);
+  }, [equippedPartnerId]);
 
   // 12-5. 2회독 무한 마스터 모드 시작 핸들러
   const handleStartNextCycle = useCallback(() => {
@@ -2063,6 +2261,24 @@ export function App() {
       : `전체 ${safeWords.length}개 중 ${currentStart}~${currentEnd}번 단어`
     : undefined;
 
+  if (isAuthChecking) {
+    return (
+      <div className="h-[100dvh] w-full bg-slate-950 flex flex-col items-center justify-center text-white select-none">
+        <div className="w-12 h-12 border-4 border-cyan-500/20 border-t-cyan-400 rounded-full animate-spin mb-3" />
+        <p className="text-xs text-slate-400 font-bold tracking-wide">보안 인증 상태 확인 중...</p>
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <LoginScreen
+        onLoginSuccess={(user) => setAuthUser(user)}
+        allowedEmails={getAllowedEmails()}
+      />
+    );
+  }
+
   return (
     <div
       className="h-[100dvh] max-h-[100dvh] w-full overflow-hidden flex flex-col select-none bg-slate-900 text-white font-sans"
@@ -2130,6 +2346,9 @@ export function App() {
         dailyDualQuest={dailyDualQuest}
         onOpenInstall={triggerInstall}
         isStandalone={isStandalone}
+        onOpenSpeedQuiz={() => setIsSpeedQuizOpen(true)}
+        userEmail={authUser?.email}
+        onSignOut={() => signOutUser()}
       />
 
       {/* 2. 메인 게임 영역 (일반 배틀: 2단 분할 / 보스 미니게임 / 산수 요격: 단일 전체화면 확장) */}
@@ -2144,34 +2363,38 @@ export function App() {
         {activeMode === 'math' ? (
           /* 산수 특화 운석 요격 디펜스 스테이지 (단일 풀스크린 와이드 아레나) */
           <div className="w-full h-full flex-1 min-h-0 flex flex-col overflow-hidden py-0.5 sm:py-1">
-            <MathDefenseStage
-              key={`math-stage-${mathStageNum}-${mathSessionId}`}
-              stageNum={mathStageNum}
-              level={gameState.level}
-              equippedPartnerId={equippedPartnerId}
-              onClear={handleMathStageClear}
-              onPartnerNotice={triggerPartnerNotice}
-              onGoToLanguage={() => setActiveMode('language')}
-              isLanguageDoneToday={dailyDualQuest.languageDone}
-              onNextMathStage={handleNextMathStage}
-            />
+            <Suspense fallback={null}>
+              <MathDefenseStage
+                key={`math-stage-${mathStageNum}-${mathSessionId}`}
+                stageNum={mathStageNum}
+                level={gameState.level}
+                equippedPartnerId={equippedPartnerId}
+                onClear={handleMathStageClear}
+                onPartnerNotice={triggerPartnerNotice}
+                onGoToLanguage={() => setActiveMode('language')}
+                isLanguageDoneToday={dailyDualQuest.languageDone}
+                onNextMathStage={handleNextMathStage}
+              />
+            </Suspense>
           </div>
         ) : isBossStage ? (
           /* 보스 특화 미니게임일 때: 배틀 영역 전체를 단일 풀스크린 와이드 아레나로 시원하게 100% 확장! */
           <div className="w-full h-full flex-1 min-h-0 flex flex-col overflow-hidden py-0.5 sm:py-1">
-            <BossMiniGame
-              key={`boss-stage-${currentStageNum}-${battleSessionId}`}
-              stageNum={currentStageNum}
-              stageWords={activeWords}
-              allWords={safeWords}
-              level={gameState.level}
-              equippedPartnerId={equippedPartnerId}
-              onClear={handleBossMiniGameClear}
-              onWrongWord={handleCollectWrongWord}
-              onPartnerNotice={triggerPartnerNotice}
-              onGoToMath={() => setActiveMode('math')}
-              isMathDoneToday={dailyDualQuest.mathDone}
-            />
+            <Suspense fallback={null}>
+              <BossMiniGame
+                key={`boss-stage-${currentStageNum}-${battleSessionId}`}
+                stageNum={currentStageNum}
+                stageWords={activeWords}
+                allWords={safeWords}
+                level={gameState.level}
+                equippedPartnerId={equippedPartnerId}
+                onClear={handleBossMiniGameClear}
+                onWrongWord={handleCollectWrongWord}
+                onPartnerNotice={triggerPartnerNotice}
+                onGoToMath={() => setActiveMode('math')}
+                isMathDoneToday={dailyDualQuest.mathDone}
+              />
+            </Suspense>
           </div>
         ) : (
           <>
@@ -2214,6 +2437,14 @@ export function App() {
                 isScreenShaking={isScreenShaking}
                 onGoToMath={() => setActiveMode('math')}
                 isMathDoneToday={dailyDualQuest.mathDone}
+                hasDejaVuNotice={
+                  Boolean(sessionDejaVuWord && !isReviewMode && !isBossStage)
+                }
+                dejaVuNoticeKey={
+                  sessionDejaVuWord && !isReviewMode && !isBossStage
+                    ? `${stageIndex}-${sessionDejaVuWord.id}`
+                    : null
+                }
               />
             </div>
 
@@ -2267,7 +2498,7 @@ export function App() {
         🦖 고질라 3개 국어 배틀 모험 (초등 2학년 맞춤) · 한국어 🇰🇷 / 영어 🇺🇸 / 일본어 🇯🇵
       </footer>
 
-      {/* 4. 학부모 단어 숙제 관리 모달 */}
+      {/* 4. 학부모 단어 숙제 관리 & 성장 리포트 모달 */}
       {isParentModalOpen && (
         <Suspense fallback={null}>
           <ParentModal
@@ -2278,6 +2509,13 @@ export function App() {
             currentLevel={gameState.level}
             onSetLevel={handleSetLevel}
             onResetAllData={handleResetAllData}
+            stageNum={currentStageNum}
+            totalStages={totalStages}
+            mathStageNum={mathStageNum}
+            wrongWords={normalizedWrongWords}
+            unlockedMonsterCount={Object.values(unlockedMonsters).filter((r) => (r?.count || 0) >= 1).length}
+            attendanceDays={cumulativeAttendanceDays}
+            dailyDualQuest={dailyDualQuest}
           />
         </Suspense>
       )}
@@ -2511,10 +2749,35 @@ export function App() {
             onClaimCodexReward={handleClaimCodexReward}
             equippedPartnerId={equippedPartnerId}
             onEquipPartner={handleEquipPartner}
+            onAddBonusExp={addBonusExp}
             onOpenCodexChest={() => {
               setIsMonsterBookOpen(false);
               setGoldenChestSource('codex');
               setIsGoldenChestOpen(true);
+            }}
+          />
+        )}
+
+        {/* 7-0. 30초 번개 스피드 퀴즈 모달 */}
+        {isSpeedQuizOpen && (
+          <SpeedQuizModal
+            isOpen={isSpeedQuizOpen}
+            onClose={() => setIsSpeedQuizOpen(false)}
+            words={safeWords}
+            onRewardEarned={(expEarned, bonusEggEarned) => {
+              if (expEarned > 0) {
+                addBonusExp(expEarned);
+              }
+              if (bonusEggEarned) {
+                setEggCount((prev) => {
+                  const next = prev + 1;
+                  try {
+                    localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(next));
+                  } catch {}
+                  savePlayerDataToFirestore({ eggCount: next });
+                  return next;
+                });
+              }
             }}
           />
         )}
@@ -2741,7 +3004,9 @@ export function App() {
               });
             }}
             onWeeklyRewardClaimed={() => {
-              resetStampCycle();
+              if (stampCount >= 7) {
+                resetStampCycle();
+              }
               refreshCouponCount();
             }}
             onCodexRewardClaimed={() => {

@@ -35,6 +35,9 @@ interface HeaderProps {
   dailyDualQuest?: { languageDone: boolean; mathDone: boolean };
   onOpenInstall?: () => void;
   isStandalone?: boolean;
+  onOpenSpeedQuiz?: () => void;
+  userEmail?: string | null;
+  onSignOut?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -69,6 +72,9 @@ export const Header: React.FC<HeaderProps> = ({
   dailyDualQuest,
   onOpenInstall,
   isStandalone = false,
+  onOpenSpeedQuiz,
+  userEmail,
+  onSignOut,
 }) => {
   const expProgress = Math.min(100, Math.max(0, exp));
   const evo = getGodzillaEvolution(level);
@@ -259,6 +265,21 @@ export const Header: React.FC<HeaderProps> = ({
                   </span>
                 )}
               </button>
+
+              {onOpenSpeedQuiz && (
+                <>
+                  <div className="w-px h-3 bg-slate-800" />
+                  <button
+                    type="button"
+                    onClick={onOpenSpeedQuiz}
+                    title="30초 번개 스피드 퀴즈! (보너스 EXP & 괴수 알 도전)"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-black transition-all cursor-pointer bg-purple-950/80 text-yellow-300 border border-yellow-400/60 hover:bg-purple-900 shadow-[0_0_8px_rgba(250,204,21,0.25)]"
+                  >
+                    <span>⚡</span>
+                    <span>번개퀴즈</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -451,6 +472,19 @@ export const Header: React.FC<HeaderProps> = ({
               ) : (
                 <MicOff className="w-3.5 h-3.5 text-slate-500 shrink-0" />
               )}
+            </button>
+          )}
+
+          {/* [유틸리티 5] 🚪 구글 로그인 계정 및 로그아웃 */}
+          {onSignOut && (
+            <button
+              type="button"
+              onClick={onSignOut}
+              title={`로그아웃 (${userEmail || '구글 계정'})`}
+              className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-md bg-slate-900/90 border border-slate-700/80 hover:border-rose-500/60 text-slate-400 hover:text-rose-400 transition-all active:scale-95 cursor-pointer shrink-0"
+              aria-label="로그아웃"
+            >
+              <LogOut className="w-3.5 h-3.5 shrink-0" />
             </button>
           )}
         </div>

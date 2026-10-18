@@ -160,6 +160,8 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
     return 'ko';
   }, [selectedVoiceLang]);
 
+  const handleCheckSpokenRef = useRef<((spoken: string) => void) | null>(null);
+
   // 마이크 청취 시작 헬퍼
   const restartMicForLang = useCallback(
     (targetLang: VoiceLang) => {
@@ -283,10 +285,9 @@ export const VoiceAttackModal: React.FC<VoiceAttackModalProps> = ({
         }
       }
     },
-    [word, stopListening, onAttack, onAttackSuccess, onClose, restartMicForLang]
+    [word, stopListening, onAttack, onAttackSuccess, onClose, restartMicForLang, cleanupAudio, currentVolume, peakVolume]
   );
 
-  const handleCheckSpokenRef = useRef(handleCheckSpoken);
   useEffect(() => {
     handleCheckSpokenRef.current = handleCheckSpoken;
   }, [handleCheckSpoken]);

@@ -1,5 +1,5 @@
 // Godzilla Language Adventure - Service Worker
-const CACHE_NAME = 'godzilla-cache-v1';
+const CACHE_NAME = 'godzilla-cache-v2';
 
 const STATIC_ASSETS = [
   '/',
@@ -13,7 +13,12 @@ const STATIC_ASSETS = [
   '/icons/icon-maskable-192.png',
   '/icons/icon-maskable-512.png',
   '/images/godzilla.png',
-  '/images/godzilla-chibi.png'
+  '/images/godzilla-chibi.png',
+  '/images/godzilla-classic.png',
+  '/images/godzilla-minusone.png',
+  '/images/godzilla-evil.png',
+  '/images/godzilla-burning.png',
+  '/images/ghidorah.png'
 ];
 
 // 설치 단계: 기본 정적 에셋 프리캐싱

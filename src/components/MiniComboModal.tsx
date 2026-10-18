@@ -6,7 +6,7 @@ import { playCardTapSound, playDingDongSuccess } from '../utils/soundEffects';
 
 interface MiniComboModalProps {
   word: WordItem;
-  onComplete: () => void;
+  onComplete: (didSolvePuzzle?: boolean) => void;
 }
 
 interface BlockToken {
@@ -247,7 +247,7 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
     if (!canFinish) return;
     completedRef.current = true;
     stopSpeech();
-    onComplete();
+    onComplete(isPuzzleSolved);
   };
 
   const canFire = heardCount === lines.length || canReadFallback || isPuzzleSolved;
@@ -279,7 +279,7 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
           <p style={{ fontSize: '13px', color: '#cbd5e1', margin: 0 }}>
             {activeTab === 'listen'
               ? '세 나라의 한 줄 문장을 듣고 열선을 발사해요!'
-              : '문장 블록을 순서대로 맞춰 어순을 완성해 보세요!'}
+              : '🔐 기도라의 문장 암호 블록을 순서대로 맞춰 보너스 EXP와 추가 타격을 날려요!'}
           </p>
 
           {/* 모드 전환 탭 (듣기 vs 블록 조립) */}
@@ -331,7 +331,7 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
                 transition: 'all 0.15s ease',
               }}
             >
-              <Puzzle size={15} /> 🧩 블록 조립 {isPuzzleSolved && '✓'}
+              <Puzzle size={15} /> 🧩 기도라 암호 해독 (+15 EXP) {isPuzzleSolved && '✓'}
             </button>
           </div>
         </div>
@@ -399,7 +399,7 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
                   gap: '6px',
                 }}
               >
-                <Puzzle size={15} /> 🧩 직접 단어 블록을 조립해 볼까요? (+보너스 파워!)
+                <Puzzle size={15} /> 🧩 기도라 문장 암호 해독 도전! (+15 EXP & 보스 추가 타격 5%!)
               </button>
             )}
           </>
@@ -448,7 +448,7 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
               }`}
             >
               <div className="text-[11px] font-bold text-cyan-400 mb-2 flex items-center justify-between">
-                <span>{isPuzzleSolved ? '🎉 문장 완성!' : '조립된 문장 (터치하면 취소)'}</span>
+                <span>{isPuzzleSolved ? '🎉 암호 해독 완료!' : '조립된 암호 문장 (터치하면 취소)'}</span>
                 <span className="text-[10px] text-slate-400">
                   {placedTokens.length} / {targetTokens.length} 블록
                 </span>
@@ -497,8 +497,8 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
                   <div>
-                    <div className="text-xs font-black text-emerald-300">어순 마스터 성공! (+보너스 파워)</div>
-                    <div className="text-[10px] text-slate-300">열선 공격이 즉시 해금되었어요!</div>
+                    <div className="text-xs font-black text-emerald-300">🔐 기도라 암호 해독 성공! (+15 EXP & 보스 추가 타격 5%!)</div>
+                    <div className="text-[10px] text-slate-300">초강력 암호 해독 열선 공격이 즉시 해금되었어요!</div>
                   </div>
                 </div>
                 <Sparkles className="w-4 h-4 text-amber-400 animate-bounce" />

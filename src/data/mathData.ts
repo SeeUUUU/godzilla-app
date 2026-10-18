@@ -1047,10 +1047,102 @@ const getStageMakerConfig = (stage: number): { maker: SpecMaker; onlyKind?: 'add
   }
 };
 
+const formatClockLabel = (h: number, m: number): string => {
+  const normH = ((h - 1 + 12) % 12) + 1;
+  const normM = ((m % 60) + 60) % 60;
+  return normM === 0 ? `${normH}시 정각` : `${normH}시 ${normM}분`;
+};
+
+/**
+ * 초등 2학년 교과 과정 '시각과 시간' 맞춤형 아날로그 시계 폭탄 문제 생성기
+ * - mode 'read': 짧은 바늘(시침)과 긴 바늘(5분 단위 분침)을 보고 시각 읽기
+ * - mode 'elapsed': 현재 시계 시각에서 15분 / 20분 / 30분 / 1시간 후 시각 구하기
+ */
+export const generateClockProblem = (
+  stageNum: number,
+  roundNumber: number,
+  sessionSeed = 0,
+  mode: 'read' | 'elapsed' = 'read'
+): MathProblemItem => {
+  const rng = makeRng(stageNum * 9973 + roundNumber * 313 + sessionSeed * 7919);
+  const hour = randInt(rng, 1, 12);
+  // 5분 단위 (5, 10, 15, ..., 55) 위주로 출제
+  const minuteSteps = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+  const minute = minuteSteps[randInt(rng, 1, minuteSteps.length - 1)];
+
+  const deltaCandidates = stageNum <= 4 ? [10, 20, 30] : [15, 20, 30, 60];
+  const deltaMinutes = mode === 'elapsed' ? deltaCandidates[randInt(rng, 0, deltaCandidates.length - 1)] : 0;
+
+  const totalMinutes = hour * 60 + minute + deltaMinutes;
+  const targetHour = ((Math.floor(totalMinutes / 60) - 1) % 12) + 1;
+  const targetMinute = totalMinutes % 60;
+
+  const answerStr = formatClockLabel(targetHour, targetMinute);
+
+  // 오답 보기 생성 (초2 흔한 실수: 시침이 다음 숫자로 다가갈 때 다음 시로 읽는 실수, 5분 단위 착각, 분침 숫자를 그대로 분으로 읽는 실수 등)
+  const wrongSet = new Set<string>();
+  // 1) 시침을 1시간 뒤로 잘못 읽은 오답
+  wrongSet.add(formatClockLabel(targetHour + 1, targetMinute));
+  // 2) 분을 +5분 / -5분 / +10분 착각한 오답
+  wrongSet.add(formatClockLabel(targetHour, (targetMinute + 5) % 60));
+  wrongSet.add(formatClockLabel(targetHour, (targetMinute + 50) % 60));
+  wrongSet.add(formatClockLabel(targetHour, (targetMinute + 10) % 60));
+  // 3) 경과 시간 문제일 때 현재 시각을 그대로 고르는 실수
+  if (deltaMinutes > 0) {
+    wrongSet.add(formatClockLabel(hour, minute));
+  }
+  wrongSet.delete(answerStr);
+
+  const distractors = Array.from(wrongSet).slice(0, 3);
+  while (distractors.length < 3) {
+    const fallbackH = ((targetHour + distractors.length) % 12) + 1;
+    const fallbackStr = formatClockLabel(fallbackH, targetMinute);
+    if (fallbackStr !== answerStr && !distractors.includes(fallbackStr)) {
+      distractors.push(fallbackStr);
+    } else {
+      distractors.push(formatClockLabel(fallbackH, (targetMinute + 15) % 60));
+    }
+  }
+
+  const allOptions = [answerStr, ...distractors.slice(0, 3)];
+  // 시드 기반 셔플
+  for (let i = allOptions.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [allOptions[i], allOptions[j]] = [allOptions[j], allOptions[i]];
+  }
+
+  const deltaLabel = deltaMinutes === 60 ? '1시간' : `${deltaMinutes}분`;
+  const question =
+    deltaMinutes > 0
+      ? `💣 시계에서 [${deltaLabel} 후] 폭발 시각은?`
+      : '💣 시한폭탄 시계가 가리키는 시각은?';
+  const readKr =
+    deltaMinutes > 0
+      ? `킹 기도라의 시한폭탄! 지금 시계 시각에서 ${deltaLabel} 뒤의 시각은 몇 시 몇 분일까요?`
+      : '킹 기도라의 시한폭탄! 시계의 짧은 바늘과 긴 바늘이 가리키는 시각은 몇 시 몇 분일까요?';
+
+  return {
+    id: `math_clock_s${stageNum}_r${roundNumber}_${sessionSeed}`,
+    stage: stageNum,
+    question,
+    answer: answerStr,
+    options: allOptions,
+    readKr,
+    clockQuestion: {
+      hour,
+      minute,
+      deltaMinutes,
+      targetHour,
+      targetMinute,
+    },
+  };
+};
+
 /**
  * 특정 스테이지(1~12)에 해당하는 10개 수학 문제를 반환합니다.
  * - sessionSeed: 게임 재시작, 재도전 또는 세션 변경 시 새로운 수식을 생성하도록 시드 오프셋 지원
  * - 모든 스테이지(1~12)의 9번, 10번 문제는 서술형 문장제(시간제한 없음)로 랜덤 출제됩니다!
+ * - 1~10 스테이지의 4번(시계 읽기), 8번(경과 시간 계산) 라운드에는 '킹 기도라의 시간 폭탄 해체(시각과 시간)' 문제가 출제됩니다!
  * - STAGE 11, 12는 10문제 전체가 서술형 문장제로 랜덤 출제됩니다.
  */
 export const getMathProblemsForStage = (
@@ -1066,7 +1158,7 @@ export const getMathProblemsForStage = (
     return generateRandomWordProblems(normalizedStage, PROBLEMS_PER_MATH_STAGE, 1, name);
   }
 
-  // 1~10 스테이지: 1~8번 계산 수식 문제 (sessionSeed를 통해 다시하기 시 매번 새로운 문제 출제)
+  // 1~10 스테이지: 1~8번 계산 수식 문제 + 4번/8번 라운드 시계 폭탄 문제 결합
   const config = getStageMakerConfig(normalizedStage);
   const baseCalcs = generateStage(
     normalizedStage,
@@ -1075,6 +1167,11 @@ export const getMathProblemsForStage = (
     config.onlyKind,
     sessionSeed
   );
+  // 4번 라운드(index 3): 아날로그 시계 바늘 읽기
+  baseCalcs[3] = generateClockProblem(normalizedStage, 4, sessionSeed, 'read');
+  // 8번 라운드(index 7): 몇 분 후 시간 계산
+  baseCalcs[7] = generateClockProblem(normalizedStage, 8, sessionSeed, 'elapsed');
+
   const wordProblems = generateRandomWordProblems(normalizedStage, 2, 9, name);
 
   return [...baseCalcs, ...wordProblems];
@@ -1135,10 +1232,21 @@ export const getProblemHintFormula = (item: MathProblemItem): MathHintFormula | 
 
 /**
  * 산수 오답 및 운석 피격 시 아이에게 직관적인 실마리를 주는 '1초 연산 풀이 팁'
- * - 초등 2학년 눈높이 맞춤: 받아올림, 받아내림, 거꾸로 셈(□), 세 수 연산, 문장제 핵심 원리 요약
+ * - 초등 2학년 눈높이 맞춤: 시계 읽기/시간 계산, 받아올림, 받아내림, 거꾸로 셈(□), 세 수 연산, 문장제 핵심 원리 요약
  */
 export const getMathQuickTip = (item: MathProblemItem): string => {
   if (!item) return '일의 자리부터 차근차근 묶음과 낱개로 계산해 보세요!';
+
+  // 0. 아날로그 시계 시한폭탄 문제
+  if (item.clockQuestion) {
+    const { hour, minute, deltaMinutes } = item.clockQuestion;
+    const minNum = minute === 0 ? 12 : minute / 5;
+    if (deltaMinutes && deltaMinutes > 0) {
+      const dLabel = deltaMinutes === 60 ? '1시간' : `${deltaMinutes}분`;
+      return `지금 시계는 [${hour}시 ${minute}분]! 여기서 ${dLabel}이 지나면 정답은 [${item.answer}]이에요!`;
+    }
+    return `짧은 바늘은 [${hour}시]를 지나고, 긴 바늘이 숫자 [${minNum}]을 가리키면 5×${minNum} = [${minute}분]이에요!`;
+  }
 
   const formula = getProblemHintFormula(item);
 

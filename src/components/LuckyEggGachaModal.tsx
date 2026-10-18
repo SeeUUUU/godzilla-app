@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import { Sparkles, X, Ticket, CheckCircle2 } from 'lucide-react';
 import {
@@ -48,32 +48,69 @@ export const GoldenChestModal: React.FC<GoldenChestModalProps> = ({
   const [isHatched, setIsHatched] = useState(false);
   const [reward, setReward] = useState<GachaReward | null>(null);
 
-  // 모달 열릴 때 상태 초기화
+  const tapCountRef = useRef<number>(0);
+  const isOpeningRef = useRef<boolean>(false);
+  const openTimerRef = useRef<number | null>(null);
+  const shakeTimerRef = useRef<number | null>(null);
+
+  // 모달 열릴 때 상태 초기화 및 닫힐 때 타이머 정리
   useEffect(() => {
     if (isOpen) {
+      tapCountRef.current = 0;
+      isOpeningRef.current = false;
       setTapCount(0);
       setIsShaking(false);
       setShowFlash(false);
       setIsHatched(false);
       setReward(null);
+    } else {
+      if (openTimerRef.current !== null) {
+        window.clearTimeout(openTimerRef.current);
+        openTimerRef.current = null;
+      }
+      if (shakeTimerRef.current !== null) {
+        window.clearTimeout(shakeTimerRef.current);
+        shakeTimerRef.current = null;
+      }
     }
   }, [isOpen]);
 
-  const handleChestTap = () => {
-    if (isHatched || tapCount >= 3) return;
+  useEffect(() => {
+    return () => {
+      if (openTimerRef.current !== null) window.clearTimeout(openTimerRef.current);
+      if (shakeTimerRef.current !== null) window.clearTimeout(shakeTimerRef.current);
+    };
+  }, []);
 
-    const next = tapCount + 1;
+  const handleChestTap = () => {
+    if (
+      isOpeningRef.current ||
+      tapCountRef.current >= 3 ||
+      isHatched ||
+      (treasureBoxCount !== undefined && treasureBoxCount <= 0)
+    ) {
+      return;
+    }
+
+    const next = tapCountRef.current + 1;
+    tapCountRef.current = next;
     setTapCount(next);
     setIsShaking(true);
-    setTimeout(() => setIsShaking(false), 400);
+    if (shakeTimerRef.current !== null) window.clearTimeout(shakeTimerRef.current);
+    shakeTimerRef.current = window.setTimeout(() => {
+      shakeTimerRef.current = null;
+      setIsShaking(false);
+    }, 400);
 
     playChestUnlockSound();
 
     if (next === 3) {
+      isOpeningRef.current = true;
       setShowFlash(true);
       playChestOpenSound();
 
-      setTimeout(() => {
+      openTimerRef.current = window.setTimeout(() => {
+        openTimerRef.current = null;
         // 기존 가챠 확률 테이블 기반 뽑기 (도감 10종 완성 최고 보상 교환 시에만 30분 전설 쿠폰 확정)
         const rolled = source === 'codex' ? createGoldenChestReward('codex') : rollGachaReward();
         setReward(rolled);
@@ -728,6 +765,8 @@ export const GoldenChestModal: React.FC<GoldenChestModalProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    tapCountRef.current = 0;
+                    isOpeningRef.current = false;
                     setTapCount(0);
                     setIsShaking(false);
                     setShowFlash(false);

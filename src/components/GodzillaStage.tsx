@@ -46,6 +46,8 @@ interface GodzillaStageProps {
   isScreenShaking?: boolean;
   onGoToMath?: () => void;
   isMathDoneToday?: boolean;
+  hasDejaVuNotice?: boolean;
+  dejaVuNoticeKey?: string | null;
 }
 
 export const GodzillaStage: React.FC<GodzillaStageProps> = ({
@@ -66,8 +68,6 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
   stageRangeLabel,
   currentStageNum,
   totalStages,
-  onOpenGacha: _onOpenGacha,
-  hasClaimedStageReward: _hasClaimedStageReward = false,
   isCriticalHit = false,
   raidBoss,
   isStageClearReady = true,
@@ -79,8 +79,36 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
   isScreenShaking = false,
   onGoToMath,
   isMathDoneToday = false,
+  hasDejaVuNotice = false,
+  dejaVuNoticeKey = null,
 }) => {
   const partnerMonster = equippedPartnerId ? MONSTER_MAP.get(equippedPartnerId) : null;
+
+  // 데일리 데자뷰 복습 단어 알약 뱃지 (3.2초 표시 후 자동 페이드아웃)
+  const [showDejaVu, setShowDejaVu] = React.useState(false);
+  const [isFadingDejaVu, setIsFadingDejaVu] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!hasDejaVuNotice && !dejaVuNoticeKey) {
+      setShowDejaVu(false);
+      setIsFadingDejaVu(false);
+      return;
+    }
+    setShowDejaVu(true);
+    setIsFadingDejaVu(false);
+
+    const fadeTimer = window.setTimeout(() => {
+      setIsFadingDejaVu(true);
+    }, 3200);
+    const hideTimer = window.setTimeout(() => {
+      setShowDejaVu(false);
+    }, 3600);
+
+    return () => {
+      window.clearTimeout(fadeTimer);
+      window.clearTimeout(hideTimer);
+    };
+  }, [hasDejaVuNotice, dejaVuNoticeKey]);
 
   // 보스 HP (남은 단어 수 및 파트너 추가 데미지 보너스 반영)
   const effectiveBossHp = Math.max(0, ghidorahHp);
@@ -277,14 +305,33 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
           }}
         />
 
-        {/* 파트너 스킬 발동 팝업 알림 (모스라 1회 방어, 메카고질라 EXP 등) */}
+        {/* 파트너 스킬 발동 알림 (모스라 1회 방어, 메카고질라 EXP 등) */}
         {partnerSkillNotification && (
           <div
             key={partnerSkillNotification.id}
-            className="absolute top-10 sm:top-12 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900/95 border-2 border-amber-400 text-amber-300 font-black text-xs sm:text-sm shadow-2xl shadow-amber-500/50 animate-bounce whitespace-nowrap backdrop-blur-sm pointer-events-none"
+            className="absolute top-11 sm:top-13 left-1/2 -translate-x-1/2 z-40 w-max max-w-[60%] sm:max-w-md flex items-center justify-center gap-1.5 px-3 py-1 rounded-xl bg-slate-900/95 border-2 border-amber-400 text-amber-300 font-bold text-xs sm:text-sm text-center break-keep shadow-2xl shadow-amber-500/50 animate-bounce backdrop-blur-sm pointer-events-none"
+            style={{ wordBreak: 'keep-all' }}
           >
-            <span className="text-base sm:text-lg">{partnerSkillNotification.icon}</span>
-            <span className="tracking-tight text-white">{partnerSkillNotification.message}</span>
+            {!partnerSkillNotification.message.startsWith(partnerSkillNotification.icon) && (
+              <span className="text-sm sm:text-base flex-shrink-0">{partnerSkillNotification.icon}</span>
+            )}
+            <span className="tracking-tight text-white text-center break-keep leading-snug">
+              {partnerSkillNotification.message}
+            </span>
+          </div>
+        )}
+
+        {/* 데일리 데자뷰 복습 단어 안내 알약 뱃지 (상단 배틀 연출 영역 내부 · FEVER/요격 카운트 부근 top-12 정중앙, 3.2초 표시 후 자동 페이드아웃) */}
+        {showDejaVu && !partnerSkillNotification && (
+          <div
+            className={`absolute top-11 sm:top-13 left-1/2 -translate-x-1/2 z-40 w-max max-w-[60%] sm:max-w-md flex items-center justify-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/95 border-2 border-amber-400/90 text-amber-200 font-bold text-xs sm:text-sm text-center break-keep shadow-xl shadow-amber-500/30 backdrop-blur-sm pointer-events-none transition-all duration-300 ${
+              isFadingDejaVu ? 'opacity-0 -translate-y-1 scale-95' : 'opacity-100 translate-y-0 scale-100'
+            }`}
+            style={{ wordBreak: 'keep-all' }}
+          >
+            <span className="text-amber-300 tracking-tight text-center break-keep leading-snug">
+              ⚡ 복습 단어 1개가 몰래 숨어있어요! 찾아내서 졸업시켜 볼까요?
+            </span>
           </div>
         )}
 

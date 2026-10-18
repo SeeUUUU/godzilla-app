@@ -480,5 +480,90 @@ export const saveMonsterToStorage = (
   return { isNew, updatedRecords: records };
 };
 
+export interface MonsterAwakeningInfo {
+  stage: 0 | 1 | 2 | 3;
+  label: string;
+  shortLabel: string;
+  shortBadge: string;
+  multiplier: number;
+  nextTarget: number | null;
+  progressText: string;
+  bonusText: string;
+  badgeGradient: string;
+  badgeBg: string;
+  borderColor: string;
+  glowColor: string;
+  borderGlow: string;
+}
+
+export const getMonsterAwakening = (count = 0): MonsterAwakeningInfo => {
+  if (count >= 5) {
+    return {
+      stage: 3,
+      label: '🌈 ★3 홀로그램 각성',
+      shortLabel: '🌈★3',
+      shortBadge: '🌈★3',
+      multiplier: 1.5,
+      nextTarget: null,
+      progressText: '최고 단계 각성 완료! (MAX)',
+      bonusText: '파트너 패시브 효과 1.5배 강화!',
+      badgeGradient: 'linear-gradient(90deg, #ec4899 0%, #8b5cf6 50%, #06b6d4 100%)',
+      badgeBg: 'linear-gradient(90deg, #ec4899 0%, #8b5cf6 50%, #06b6d4 100%)',
+      borderColor: '#ec4899',
+      glowColor: 'rgba(236, 72, 153, 0.85)',
+      borderGlow: '0 0 18px rgba(236, 72, 153, 0.8), 0 0 28px rgba(6, 182, 212, 0.5)',
+    };
+  }
+  if (count >= 3) {
+    return {
+      stage: 2,
+      label: '✨ ★2 슈퍼 각성',
+      shortLabel: '✨★2',
+      shortBadge: '✨★2',
+      multiplier: 1.25,
+      nextTarget: 5,
+      progressText: `🌈★3 홀로그램까지 ${5 - count}장 남음 (${count}/5)`,
+      bonusText: '파트너 패시브 효과 1.25배 강화!',
+      badgeGradient: 'linear-gradient(90deg, #d97706 0%, #eab308 100%)',
+      badgeBg: 'linear-gradient(90deg, #d97706 0%, #eab308 100%)',
+      borderColor: '#facc15',
+      glowColor: 'rgba(250, 204, 21, 0.75)',
+      borderGlow: '0 0 16px rgba(250, 204, 21, 0.75)',
+    };
+  }
+  if (count >= 1) {
+    return {
+      stage: 1,
+      label: '⭐ ★1 기본 각성',
+      shortLabel: '⭐★1',
+      shortBadge: '⭐★1',
+      multiplier: 1.0,
+      nextTarget: 3,
+      progressText: `✨★2 슈퍼 각성까지 ${3 - count}장 남음 (${count}/3)`,
+      bonusText: '3장 수집 시 패시브 1.25배 슈퍼 각성!',
+      badgeGradient: 'linear-gradient(90deg, #334155 0%, #475569 100%)',
+      badgeBg: 'linear-gradient(90deg, #334155 0%, #475569 100%)',
+      borderColor: '#475569',
+      glowColor: 'rgba(148, 163, 184, 0.35)',
+      borderGlow: 'none',
+    };
+  }
+  return {
+    stage: 0,
+    label: '미획득',
+    shortLabel: '-',
+    shortBadge: '-',
+    multiplier: 1.0,
+    nextTarget: 1,
+    progressText: '알 부화로 획득 가능',
+    bonusText: '',
+    badgeGradient: '#1e293b',
+    badgeBg: '#1e293b',
+    borderColor: '#334155',
+    glowColor: 'transparent',
+    borderGlow: 'none',
+  };
+};
+
 // SVG 일러스트 컴포넌트 re-export
 export { MonsterSvgIllustration } from '../components/MonsterSvgIllustration';

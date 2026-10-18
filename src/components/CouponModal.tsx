@@ -38,6 +38,12 @@ const formatDateTime = (isoString?: string): string => {
   return `${y}.${m}.${day} ${h}:${min}`;
 };
 
+const createStampGateChallenge = () => {
+  const a = 12 + Math.floor(Math.random() * 8); // 12 ~ 19
+  const b = 3 + Math.floor(Math.random() * 7);  // 3 ~ 9
+  return { a, b, answer: a * b };
+};
+
 export const CouponModal: React.FC<CouponModalProps> = ({
   isOpen = true,
   onClose,
@@ -50,6 +56,9 @@ export const CouponModal: React.FC<CouponModalProps> = ({
   const [confirmingCoupon, setConfirmingCoupon] = useState<EarnedCoupon | null>(null);
   const [stampingCouponId, setStampingCouponId] = useState<string | null>(null);
   const [isShaking, setIsShaking] = useState(false);
+  const [gateChallenge, setGateChallenge] = useState(() => createStampGateChallenge());
+  const [gateInput, setGateInput] = useState('');
+  const [gateError, setGateError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -71,14 +80,26 @@ export const CouponModal: React.FC<CouponModalProps> = ({
 
   const handleStartUse = (coupon: EarnedCoupon) => {
     if (stampingCouponId) return;
+    setGateChallenge(createStampGateChallenge());
+    setGateInput('');
+    setGateError(null);
     setConfirmingCoupon(coupon);
   };
 
   const handleConfirmStamp = () => {
     if (!confirmingCoupon) return;
+    const parsed = parseInt(gateInput.trim(), 10);
+    if (parsed !== gateChallenge.answer) {
+      setGateError('부모님 확인 정답이 일치하지 않아요. 새 문제를 확인해 주세요.');
+      setGateInput('');
+      setGateChallenge(createStampGateChallenge());
+      return;
+    }
     const targetCoupon = confirmingCoupon;
     const targetId = targetCoupon.id;
     setConfirmingCoupon(null);
+    setGateInput('');
+    setGateError(null);
     setStampingCouponId(targetId);
 
     // 1) 묵직한 물리 타격 사운드
@@ -516,7 +537,7 @@ export const CouponModal: React.FC<CouponModalProps> = ({
         </button>
       )}
 
-      {/* ─── 아빠 도장 확인 가벼운 팝업 (비밀번호 없음) ─── */}
+      {/* ─── 아빠 도장 확인 팝업 (학부모 곱셈 확인 게이트 포함) ─── */}
       {confirmingCoupon && (
         <div
           style={{
@@ -560,11 +581,11 @@ export const CouponModal: React.FC<CouponModalProps> = ({
                 fontSize: '13px',
                 fontWeight: 700,
                 color: '#e2e8f0',
-                margin: '0 0 14px 0',
+                margin: '0 0 12px 0',
                 lineHeight: '1.4',
               }}
             >
-              아빠에게 보여주고 도장을 찍으세요!
+              부모님께 보여드리고 아래 확인 문제를 풀어 도장을 찍으세요!
             </p>
 
             <div
@@ -573,7 +594,7 @@ export const CouponModal: React.FC<CouponModalProps> = ({
                 border: '1px dashed #ef4444',
                 borderRadius: '12px',
                 padding: '10px',
-                marginBottom: '16px',
+                marginBottom: '12px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -586,10 +607,60 @@ export const CouponModal: React.FC<CouponModalProps> = ({
               </span>
             </div>
 
+            {/* 학부모 확인 곱셈 게이트 */}
+            <div
+              style={{
+                backgroundColor: '#020617',
+                border: '1px solid #334155',
+                borderRadius: '12px',
+                padding: '10px 12px',
+                marginBottom: '14px',
+              }}
+            >
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', marginBottom: '6px' }}>
+                🔒 부모님 확인: <strong style={{ color: '#fde047', fontSize: '14px' }}>{gateChallenge.a} × {gateChallenge.b} = ?</strong>
+              </div>
+              <input
+                type="number"
+                inputMode="numeric"
+                value={gateInput}
+                onChange={(e) => setGateInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleConfirmStamp();
+                  }
+                }}
+                placeholder="정답 입력"
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: '8px',
+                  backgroundColor: '#0f172a',
+                  border: '1.5px solid #475569',
+                  color: '#ffffff',
+                  fontSize: '14px',
+                  fontWeight: 900,
+                  textAlign: 'center',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+              {gateError && (
+                <div style={{ fontSize: '11px', color: '#f87171', fontWeight: 700, marginTop: '6px' }}>
+                  {gateError}
+                </div>
+              )}
+            </div>
+
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
                 type="button"
-                onClick={() => setConfirmingCoupon(null)}
+                onClick={() => {
+                  setConfirmingCoupon(null);
+                  setGateInput('');
+                  setGateError(null);
+                }}
                 style={{
                   flex: 1,
                   padding: '10px',

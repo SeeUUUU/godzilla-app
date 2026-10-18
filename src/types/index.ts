@@ -32,6 +32,19 @@ export interface MathHintFormula {
   op2?: '+' | '-';
 }
 
+export interface ClockQuestionData {
+  /** 아날로그 시계 바늘이 가리키는 시 (1 ~ 12) */
+  hour: number;
+  /** 아날로그 시계 바늘이 가리키는 분 (0, 5, 10, ..., 55) */
+  minute: number;
+  /** 경과 시간(분) - 0 또는 undefined면 현재 시각 읽기, 양수면 N분 후 시각 구하기 */
+  deltaMinutes?: number;
+  /** 정답 시 (1 ~ 12) */
+  targetHour: number;
+  /** 정답 분 (0 ~ 55) */
+  targetMinute: number;
+}
+
 export interface MathProblemItem {
   id: string;
   stage: number;
@@ -48,6 +61,8 @@ export interface MathProblemItem {
   problemText?: string;
   /** 수 모형 힌트용 연산식 데이터 */
   hintFormula?: MathHintFormula;
+  /** 아날로그 시계 읽기 & 시간 계산 시한폭탄 문제 데이터 */
+  clockQuestion?: ClockQuestionData;
 }
 
 export interface DailyDualQuest {

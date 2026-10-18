@@ -40,11 +40,44 @@ interface MeteorRoundData {
 const TOTAL_ROUNDS = 5;
 const FALL_DURATION_MS = 7500; // 7.5초 (초등 2학년 맞춤 충분한 여유 시간)
 
+function buildRoundsData(poolWords: WordItem[]): MeteorRoundData[] {
+  const list: MeteorRoundData[] = [];
+  const usedIds = new Set<string | number>();
+
+  for (let i = 0; i < TOTAL_ROUNDS; i++) {
+    let target = poolWords.find((w) => !usedIds.has(w.id));
+    if (!target) target = poolWords[i % poolWords.length];
+    usedIds.add(target.id);
+
+    const questionLang: 'en' | 'ja' = i % 2 === 0 ? 'en' : 'ja';
+    const questionText = questionLang === 'en' ? target.en : target.ja;
+    const subText = questionLang === 'ja' && target.jaKana ? target.jaKana : undefined;
+    const correctAnswer = target.ko;
+
+    const distractors = poolWords
+      .filter((w) => w.id !== target!.id && w.ko !== correctAnswer)
+      .map((w) => w.ko)
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 3);
+
+    const choices = [correctAnswer, ...distractors].sort(() => Math.random() - 0.5);
+
+    list.push({
+      targetWord: target,
+      questionLang,
+      questionText,
+      subText,
+      correctAnswer,
+      choices,
+    });
+  }
+  return list;
+}
+
 export const BossMiniGame: React.FC<BossMiniGameProps> = ({
   stageNum,
   stageWords,
   allWords,
-  level: _level,
   equippedPartnerId,
   onClear,
   onWrongWord,
@@ -66,10 +99,42 @@ export const BossMiniGame: React.FC<BossMiniGameProps> = ({
   const [isImpactShaking, setIsImpactShaking] = useState(false);
 
   const animFrameRef = useRef<number | null>(null);
-  const startTimeRef = useRef<number>(0);
+  const accumulatedElapsedRef = useRef<number>(0);
+  const lastTickTimeRef = useRef<number>(0);
+  const isPageHiddenRef = useRef<boolean>(false);
+  const hasSubmittedClearRef = useRef<boolean>(false);
   const timeoutTimerRef = useRef<number | null>(null);
   const nextRoundTimerRef = useRef<number | null>(null);
   const warningTimerRef = useRef<number | null>(null);
+  const handleImpactRef = useRef<() => void>(() => {});
+
+  // 화면 꺼짐, 탭 전환, 백그라운드 이동 시 타이머 일시정지 및 복귀 시 Time-Delta 폭탄 방어
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        isPageHiddenRef.current = true;
+      } else {
+        isPageHiddenRef.current = false;
+        lastTickTimeRef.current = performance.now();
+      }
+    };
+    const handleBlur = () => {
+      isPageHiddenRef.current = true;
+    };
+    const handleFocus = () => {
+      isPageHiddenRef.current = false;
+      lastTickTimeRef.current = performance.now();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
 
   // 1. 유효 단어 목록 구성 (최소 5개 확보)
   const poolWords = useMemo<WordItem[]>(() => {
@@ -83,43 +148,7 @@ export const BossMiniGame: React.FC<BossMiniGameProps> = ({
   }, [stageWords, allWords]);
 
   // 2. 5개 라운드 문제 데이터 사전 생성
-  const roundsData = useMemo<MeteorRoundData[]>(() => {
-    const list: MeteorRoundData[] = [];
-    const usedIds = new Set<string | number>();
-
-    for (let i = 0; i < TOTAL_ROUNDS; i++) {
-      // 중복 최소화하여 문제 단어 선정
-      let target = poolWords.find((w) => !usedIds.has(w.id));
-      if (!target) target = poolWords[i % poolWords.length];
-      usedIds.add(target.id);
-
-      // 영어(en)와 일본어(ja) 번갈아 출제
-      const questionLang: 'en' | 'ja' = i % 2 === 0 ? 'en' : 'ja';
-      const questionText = questionLang === 'en' ? target.en : target.ja;
-      const subText = questionLang === 'ja' && target.jaKana ? target.jaKana : undefined;
-      const correctAnswer = target.ko;
-
-      // 오답 보기 3개 무작위 추출
-      const distractors = poolWords
-        .filter((w) => w.id !== target!.id && w.ko !== correctAnswer)
-        .map((w) => w.ko)
-        .sort(() => Math.random() - 0.5)
-        .slice(0, 3);
-
-      // 4개 보기 셔플
-      const choices = [correctAnswer, ...distractors].sort(() => Math.random() - 0.5);
-
-      list.push({
-        targetWord: target,
-        questionLang,
-        questionText,
-        subText,
-        correctAnswer,
-        choices,
-      });
-    }
-    return list;
-  }, [poolWords]);
+  const [roundsData, setRoundsData] = useState<MeteorRoundData[]>(() => buildRoundsData(poolWords));
 
   const currentRound = roundsData[roundIndex] || roundsData[0];
 
@@ -151,18 +180,29 @@ export const BossMiniGame: React.FC<BossMiniGameProps> = ({
     setIsShootingBeam(false);
     setIsExploding(false);
     setIsImpactShaking(false);
-    startTimeRef.current = performance.now();
+    accumulatedElapsedRef.current = 0;
+    lastTickTimeRef.current = performance.now();
 
     const loop = (time: number) => {
-      const elapsed = time - startTimeRef.current;
-      const progress = Math.min(100, (elapsed / FALL_DURATION_MS) * 100);
+      if (isPageHiddenRef.current || document.visibilityState === 'hidden') {
+        lastTickTimeRef.current = time;
+        animFrameRef.current = requestAnimationFrame(loop);
+        return;
+      }
+
+      const rawDelta = lastTickTimeRef.current > 0 ? time - lastTickTimeRef.current : 0;
+      const delta = Math.min(Math.max(0, rawDelta), 100);
+      lastTickTimeRef.current = time;
+      accumulatedElapsedRef.current += delta;
+
+      const progress = Math.min(100, (accumulatedElapsedRef.current / FALL_DURATION_MS) * 100);
       setMeteorProgress(progress);
 
       if (progress < 100) {
         animFrameRef.current = requestAnimationFrame(loop);
       } else {
         // 운석 지면 충돌 (타임아웃)
-        handleImpact();
+        handleImpactRef.current();
       }
     };
 
@@ -210,6 +250,10 @@ export const BossMiniGame: React.FC<BossMiniGameProps> = ({
       return nextLives;
     });
   }, [clearAllTimers, currentRound, mothraShieldActive, onPartnerNotice, onWrongWord, startMeteorFall]);
+
+  useEffect(() => {
+    handleImpactRef.current = handleImpact;
+  }, [handleImpact]);
 
   // 5. 보기 선택 처리 (정답 / 오답)
   const handleSelectChoice = useCallback(
@@ -310,6 +354,7 @@ export const BossMiniGame: React.FC<BossMiniGameProps> = ({
       mothraShieldActive,
       onPartnerNotice,
       onWrongWord,
+      meteorProgress,
     ]
   );
 
@@ -329,6 +374,8 @@ export const BossMiniGame: React.FC<BossMiniGameProps> = ({
   // 7. 다시 시작하기 (부활 / 재도전)
   const handleRestart = () => {
     clearAllTimers();
+    hasSubmittedClearRef.current = false;
+    setRoundsData(buildRoundsData(poolWords));
     setLives(3);
     setRoundIndex(0);
     setPhase('PLAYING');
@@ -337,14 +384,17 @@ export const BossMiniGame: React.FC<BossMiniGameProps> = ({
     startMeteorFall();
   };
 
-  // 8. 클리어 확인 버튼 클릭 (다음 스테이지로 복귀)
-  const handleConfirmClear = () => {
+  // 8. 클리어 확인 버튼 클릭 (다음 스테이지로 복귀 - 연타 시 중복 보상 지급 방어)
+  const handleConfirmClear = (): boolean => {
+    if (hasSubmittedClearRef.current) return false;
+    hasSubmittedClearRef.current = true;
     clearAllTimers();
     const isMecha = equippedPartnerId === 'mechagodzilla';
     const bonusExp = isMecha ? 90 : 75; // 메카고질라 20% 보너스
     const isBurning = equippedPartnerId === 'burning-godzilla';
     const bonusEggs = isBurning ? 2 : 1; // 버닝고질라 알 +1 추가
     onClear(bonusExp, bonusEggs);
+    return true;
   };
 
   return (
@@ -762,8 +812,9 @@ export const BossMiniGame: React.FC<BossMiniGameProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  handleConfirmClear();
-                  onGoToMath();
+                  if (handleConfirmClear()) {
+                    onGoToMath();
+                  }
                 }}
                 className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:brightness-110 active:scale-95 text-slate-950 font-black text-xs sm:text-sm border border-yellow-200 shadow-xl cursor-pointer animate-pulse"
               >
@@ -774,7 +825,9 @@ export const BossMiniGame: React.FC<BossMiniGameProps> = ({
 
             <button
               type="button"
-              onClick={handleConfirmClear}
+              onClick={() => {
+                handleConfirmClear();
+              }}
               className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 hover:brightness-110 active:scale-95 text-white font-black text-xs sm:text-sm border border-emerald-300 shadow-xl cursor-pointer"
             >
               <span>다음 스테이지로 이동</span>

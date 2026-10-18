@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Lock, Volume2, Sparkles, Calendar, Layers } from 'lucide-react';
+import { X, Lock, Volume2, Sparkles, Calendar, Layers, Heart } from 'lucide-react';
 import type { MonsterCardData, UnlockedMonsterRecord } from '../types';
 import {
   MONSTER_CARDS,
@@ -8,7 +8,140 @@ import {
   getStoredUnlockedMonsters,
   getStoredEquippedPartner,
   setStoredEquippedPartner,
+  getMonsterAwakening,
 } from '../data/monsterData';
+import { getStoredParentCheer } from './ParentModal';
+import { playVictoryFanfare } from '../utils/soundEffects';
+
+interface SnackMenuItem {
+  id: string;
+  emoji: string;
+  ko: string;
+  en: string;
+  ja: string;
+  price: number;
+}
+
+const SNACK_MENU: SnackMenuItem[] = [
+  { id: 'apple', emoji: '🍎', ko: '사과', en: 'Apple', ja: 'りんご', price: 300 },
+  { id: 'milk', emoji: '🥛', ko: '우유', en: 'Milk', ja: 'ぎゅうにゅう', price: 400 },
+  { id: 'bread', emoji: '🍞', ko: '빵', en: 'Bread', ja: 'パン', price: 500 },
+  { id: 'banana', emoji: '🍌', ko: '바나나', en: 'Banana', ja: 'バナナ', price: 200 },
+  { id: 'riceball', emoji: '🍙', ko: '주먹밥', en: 'Rice Ball', ja: 'おにぎり', price: 600 },
+  { id: 'juice', emoji: '🧃', ko: '주스', en: 'Juice', ja: 'ジュース', price: 300 },
+];
+
+interface SnackOrderQuestion {
+  customer: MonsterCardData;
+  orderType: 'sum' | 'change';
+  items: SnackMenuItem[];
+  paidAmount?: number;
+  promptKo: string;
+  promptSub: string;
+  correctAnswer: number;
+  choices: number[];
+}
+
+function createSnackOrder(availableMonsters: MonsterCardData[]): SnackOrderQuestion {
+  const pool = availableMonsters.length > 0 ? availableMonsters : [MONSTER_CARDS[0]];
+  const customer = pool[Math.floor(Math.random() * pool.length)];
+  const isChangeMode = Math.random() < 0.45;
+
+  if (isChangeMode) {
+    const item = SNACK_MENU[Math.floor(Math.random() * SNACK_MENU.length)];
+    const paidAmount = 1000;
+    const correctAnswer = paidAmount - item.price;
+    const choiceSet = new Set<number>([correctAnswer]);
+    const offsets = [-200, -100, 100, 200, 300];
+    for (const off of offsets) {
+      if (choiceSet.size >= 4) break;
+      const cand = correctAnswer + off;
+      if (cand >= 100 && cand <= 900) choiceSet.add(cand);
+    }
+    const choices = Array.from(choiceSet).sort((a, b) => a - b);
+    return {
+      customer,
+      orderType: 'change',
+      items: [item],
+      paidAmount,
+      promptKo: `${item.emoji} ${item.ko}(${item.en} · ${item.ja}) 1개를 사고 1,000원을 냈어요! 거스름돈은 얼마일까요?`,
+      promptSub: `💡 1,000원 - ${item.price}원(${item.ko}) = ?`,
+      correctAnswer,
+      choices,
+    };
+  } else {
+    const idx1 = Math.floor(Math.random() * SNACK_MENU.length);
+    let idx2 = Math.floor(Math.random() * SNACK_MENU.length);
+    if (idx2 === idx1) idx2 = (idx1 + 1) % SNACK_MENU.length;
+    const item1 = SNACK_MENU[idx1];
+    const item2 = SNACK_MENU[idx2];
+    const correctAnswer = item1.price + item2.price;
+    const choiceSet = new Set<number>([correctAnswer]);
+    const offsets = [-200, -100, 100, 200, 300];
+    for (const off of offsets) {
+      if (choiceSet.size >= 4) break;
+      const cand = correctAnswer + off;
+      if (cand >= 200 && cand <= 1500) choiceSet.add(cand);
+    }
+    const choices = Array.from(choiceSet).sort((a, b) => a - b);
+    return {
+      customer,
+      orderType: 'sum',
+      items: [item1, item2],
+      promptKo: `${item1.emoji} ${item1.ko}(${item1.en}) 1개랑 ${item2.emoji} ${item2.ko}(${item2.ja}) 1개 주세요! 모두 얼마인가요?`,
+      promptSub: `💡 ${item1.price}원(${item1.ko}) + ${item2.price}원(${item2.ko}) = ?`,
+      correctAnswer,
+      choices,
+    };
+  }
+}
+
+type IslandThemeId = 'volcano' | 'ocean' | 'space';
+
+const ISLAND_THEMES: Record<
+  IslandThemeId,
+  {
+    name: string;
+    emoji: string;
+    bgGradient: string;
+    borderColor: string;
+    accentColor: string;
+    subTitle: string;
+  }
+> = {
+  volcano: {
+    name: '화산 요새',
+    emoji: '🌋',
+    bgGradient: 'linear-gradient(180deg, #1c1917 0%, #450a0a 55%, #7c2d12 100%)',
+    borderColor: '#f97316',
+    accentColor: '#fdba74',
+    subTitle: '뜨거운 용암 에너지가 넘치는 고질라의 고향 기지!',
+  },
+  ocean: {
+    name: '심해 아틀란티스',
+    emoji: '🌊',
+    bgGradient: 'linear-gradient(180deg, #020617 0%, #083344 55%, #0e7490 100%)',
+    borderColor: '#06b6d4',
+    accentColor: '#67e8f9',
+    subTitle: '신비로운 푸른 바닷속 고대 괴수 안식처!',
+  },
+  space: {
+    name: '네온 우주 기지',
+    emoji: '🌌',
+    bgGradient: 'linear-gradient(180deg, #090d16 0%, #2e1065 55%, #4c1d95 100%)',
+    borderColor: '#a855f7',
+    accentColor: '#d8b4fe',
+    subTitle: '은하계 별빛과 플라즈마가 빛나는 우주 방위 기지!',
+  },
+};
+
+const MONSTER_CHEER_QUOTES: Record<string, { ko: string; en: string; ja: string }> = {
+  godzilla: { ko: '크아앙! 오늘도 끝까지 포기하지 마!', en: 'Never give up today!', ja: 'きょうも あきらめるな！' },
+  mothra: { ko: '반짝반짝 평화의 날개로 너를 응원해!', en: 'Cheering for you with wings of peace!', ja: 'へいわの つばさで おうえんしてるよ！' },
+  rodan: { ko: '마하의 속도로 단어와 산수를 돌파하자!', en: 'Speed through words and math!', ja: 'マッハの スピードで とっぱしよう！' },
+  ghidorah: { ko: '세 개의 머리로 3개 국어를 완벽 정복!', en: 'Master 3 languages with triple power!', ja: '３つの あたまで ３かこくご マスター！' },
+  mechagodzilla: { ko: '삐빅! 두뇌 풀가동! 정답률 100% 도전!', en: 'Full brain power! Aim for 100%!', ja: 'ずのう フルかどう！ １００パーセント！' },
+};
 
 interface MonsterBookModalProps {
   isOpen: boolean;
@@ -21,6 +154,7 @@ interface MonsterBookModalProps {
   onExchange?: () => boolean;
   equippedPartnerId?: string | null;
   onEquipPartner?: (partnerId: string | null) => void;
+  onAddBonusExp?: (exp: number) => void;
 }
 
 export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
@@ -31,10 +165,24 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
   onClaimCodexReward,
   equippedPartnerId: propEquippedPartnerId,
   onEquipPartner,
+  onAddBonusExp,
 }) => {
   const [records, setRecords] = useState<Record<string, UnlockedMonsterRecord>>({});
   const [equippedPartnerId, setEquippedPartnerId] = useState<string | null>(() => getStoredEquippedPartner());
   const [selectedMonster, setSelectedMonster] = useState<MonsterCardData | null>(null);
+  const [viewMode, setViewMode] = useState<'codex' | 'island' | 'snack'>('codex');
+  const [snackOrder, setSnackOrder] = useState<SnackOrderQuestion>(() => createSnackOrder([MONSTER_CARDS[0]]));
+  const [snackAnswerStatus, setSnackAnswerStatus] = useState<'idle' | 'correct' | 'wrong'>('idle');
+  const [snackServedCount, setSnackServedCount] = useState<number>(0);
+  const [islandTheme, setIslandTheme] = useState<IslandThemeId>(() => {
+    try {
+      const saved = localStorage.getItem('godzilla_island_theme');
+      if (saved === 'volcano' || saved === 'ocean' || saved === 'space') return saved;
+    } catch {}
+    return 'volcano';
+  });
+  const [cheeringMonster, setCheeringMonster] = useState<MonsterCardData | null>(null);
+  const [parentCheer, setParentCheer] = useState<string>('');
   const [isSpeaking, setIsSpeaking] = useState(false);
   const speechTimeoutRef = useRef<number | null>(null);
   const speechSessionRef = useRef(0);
@@ -59,6 +207,11 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
       setEquippedPartnerId(propEquippedPartnerId !== undefined ? propEquippedPartnerId : getStoredEquippedPartner());
       setSelectedMonster(null);
       setIsSpeaking(false);
+      setParentCheer(getStoredParentCheer());
+      const unlockedList = MONSTER_CARDS.filter((m) => (current[m.id]?.count ?? 0) >= 1);
+      setCheeringMonster(unlockedList[0] || null);
+      setSnackOrder(createSnackOrder(unlockedList));
+      setSnackAnswerStatus('idle');
     }
   }, [isOpen, propRecords, propEquippedPartnerId]);
 
@@ -297,6 +450,122 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
           </div>
         </div>
 
+        {/* 도감 / 괴수 아일랜드 기지 / 괴수 간식 트럭 탭 전환 바 */}
+        <div
+          style={{
+            display: 'flex',
+            gap: '6px',
+            padding: '10px 20px',
+            backgroundColor: '#0f172a',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+            flexWrap: 'wrap',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setViewMode('codex')}
+            style={{
+              flex: 1,
+              minWidth: '140px',
+              padding: '9px 10px',
+              borderRadius: '12px',
+              fontSize: '12px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '5px',
+              backgroundColor: viewMode === 'codex' ? 'rgba(6, 182, 212, 0.2)' : 'rgba(30, 41, 59, 0.6)',
+              border: viewMode === 'codex' ? '2px solid #06b6d4' : '1px solid #334155',
+              color: viewMode === 'codex' ? '#67e8f9' : '#94a3b8',
+              boxShadow: viewMode === 'codex' ? '0 0 14px rgba(6, 182, 212, 0.25)' : 'none',
+              transition: 'all 0.2s',
+            }}
+          >
+            <span>📖</span>
+            <span>괴수 카드 도감 ({unlockedCount}/{totalCount})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode('island')}
+            style={{
+              flex: 1,
+              minWidth: '140px',
+              padding: '9px 10px',
+              borderRadius: '12px',
+              fontSize: '12px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '5px',
+              backgroundColor: viewMode === 'island' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(30, 41, 59, 0.6)',
+              border: viewMode === 'island' ? '2px solid #10b981' : '1px solid #334155',
+              color: viewMode === 'island' ? '#6ee7b7' : '#94a3b8',
+              boxShadow: viewMode === 'island' ? '0 0 14px rgba(16, 185, 129, 0.25)' : 'none',
+              transition: 'all 0.2s',
+            }}
+          >
+            <span>🏝️</span>
+            <span>괴수 아일랜드 기지</span>
+            {parentCheer && (
+              <span
+                style={{
+                  padding: '1px 6px',
+                  borderRadius: '9999px',
+                  backgroundColor: '#ec4899',
+                  color: '#ffffff',
+                  fontSize: '10px',
+                  fontWeight: 900,
+                }}
+              >
+                💌 응원 도착
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode('snack')}
+            style={{
+              flex: 1,
+              minWidth: '140px',
+              padding: '9px 10px',
+              borderRadius: '12px',
+              fontSize: '12px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '5px',
+              backgroundColor: viewMode === 'snack' ? 'rgba(245, 158, 11, 0.22)' : 'rgba(30, 41, 59, 0.6)',
+              border: viewMode === 'snack' ? '2px solid #f59e0b' : '1px solid #334155',
+              color: viewMode === 'snack' ? '#fde047' : '#94a3b8',
+              boxShadow: viewMode === 'snack' ? '0 0 14px rgba(245, 158, 11, 0.3)' : 'none',
+              transition: 'all 0.2s',
+            }}
+          >
+            <span>🏪</span>
+            <span>괴수 간식 트럭</span>
+            <span
+              style={{
+                padding: '1px 5px',
+                borderRadius: '9999px',
+                backgroundColor: '#d97706',
+                color: '#ffffff',
+                fontSize: '9px',
+                fontWeight: 900,
+              }}
+            >
+              +20 EXP
+            </span>
+          </button>
+        </div>
+
         {/* 10종 괴수 전원 수집 완료 시 황금 보물상자 교환 배너 */}
         {isAllCollected && (
           <div
@@ -358,7 +627,7 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
           </div>
         )}
 
-        {/* 메인 10종 괴수 그리드 스크롤 영역 */}
+        {/* 메인 스크롤 영역: 도감 그리드 또는 괴수 아일랜드 기지 */}
         <div
           style={{
             flex: 1,
@@ -366,6 +635,537 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
             padding: '16px 20px',
           }}
         >
+          {viewMode === 'island' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* 부모님 응원 캡슐 전광판 */}
+              <div
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: '16px',
+                  background: 'linear-gradient(90deg, rgba(131, 24, 67, 0.55) 0%, rgba(76, 29, 149, 0.55) 100%)',
+                  border: '1.5px solid rgba(244, 114, 182, 0.5)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '12px',
+                      backgroundColor: 'rgba(236, 72, 153, 0.25)',
+                      border: '1px solid #f472b6',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Heart size={18} color="#f472b6" fill="#f472b6" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '11px', fontWeight: 900, color: '#f9a8d4', marginBottom: '2px' }}>
+                      💌 부모님이 보낸 응원 전광판
+                    </div>
+                    <div style={{ fontSize: '13px', fontWeight: 900, color: '#ffffff', lineHeight: 1.35 }}>
+                      “{parentCheer || '오늘도 씩씩하게 3개 국어와 산수에 도전하는 우리 아이 최고! 화이팅! ❤️'}”
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+                    window.speechSynthesis.cancel();
+                    const text = parentCheer || '오늘도 씩씩하게 도전하는 우리 아이 최고! 화이팅!';
+                    const utt = new SpeechSynthesisUtterance(text);
+                    utt.lang = 'ko-KR';
+                    utt.rate = 0.92;
+                    window.speechSynthesis.speak(utt);
+                  }}
+                  style={{
+                    padding: '7px 11px',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(236, 72, 153, 0.3)',
+                    border: '1px solid #f472b6',
+                    color: '#fce7f3',
+                    fontSize: '11px',
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <Volume2 size={14} />
+                  <span>듣기</span>
+                </button>
+              </div>
+
+              {/* 아일랜드 배경 테마 선택기 */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                }}
+              >
+                <div style={{ fontSize: '12px', fontWeight: 900, color: '#cbd5e1' }}>
+                  🎨 기지 테마 변경: <span style={{ color: ISLAND_THEMES[islandTheme].accentColor }}>{ISLAND_THEMES[islandTheme].subTitle}</span>
+                </div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {(Object.keys(ISLAND_THEMES) as IslandThemeId[]).map((themeKey) => {
+                    const t = ISLAND_THEMES[themeKey];
+                    const active = islandTheme === themeKey;
+                    return (
+                      <button
+                        key={themeKey}
+                        type="button"
+                        onClick={() => {
+                          setIslandTheme(themeKey);
+                          try {
+                            localStorage.setItem('godzilla_island_theme', themeKey);
+                          } catch {}
+                        }}
+                        style={{
+                          padding: '5px 10px',
+                          borderRadius: '10px',
+                          fontSize: '11px',
+                          fontWeight: 900,
+                          cursor: 'pointer',
+                          backgroundColor: active ? 'rgba(255,255,255,0.15)' : 'rgba(15, 23, 42, 0.7)',
+                          border: active ? `1.5px solid ${t.borderColor}` : '1px solid #334155',
+                          color: active ? '#ffffff' : '#94a3b8',
+                        }}
+                      >
+                        {t.emoji} {t.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 괴수 아일랜드 인터랙티브 무대 */}
+              <div
+                style={{
+                  borderRadius: '20px',
+                  background: ISLAND_THEMES[islandTheme].bgGradient,
+                  border: `2px solid ${ISLAND_THEMES[islandTheme].borderColor}`,
+                  padding: '16px',
+                  minHeight: '240px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  position: 'relative',
+                  boxShadow: 'inset 0 0 40px rgba(0, 0, 0, 0.5)',
+                }}
+              >
+                {unlockedCount === 0 ? (
+                  <div
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      textAlign: 'center',
+                      padding: '32px 12px',
+                      color: '#cbd5e1',
+                    }}
+                  >
+                    <div style={{ fontSize: '42px', marginBottom: '8px' }}>🥚🏝️</div>
+                    <div style={{ fontSize: '15px', fontWeight: 900, color: '#ffffff', marginBottom: '4px' }}>
+                      아직 아일랜드 기지에 도착한 괴수가 없어요!
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                      스테이지를 클리어하고 괴수 알을 부화시키면 이곳 기지에 괴수 친구들이 모여들어요!
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* 괴수 캐릭터 배치 그리드 */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(92px, 1fr))',
+                        gap: '10px',
+                        marginBottom: '14px',
+                      }}
+                    >
+                      {MONSTER_CARDS.filter((m) => (records[m.id]?.count ?? 0) >= 1).map((monster) => {
+                        const isCheering = cheeringMonster?.id === monster.id;
+                        const isPartner = equippedPartnerId === monster.id;
+                        const meta = RARITY_METADATA[monster.rarity];
+                        return (
+                          <button
+                            key={monster.id}
+                            type="button"
+                            onClick={() => {
+                              setCheeringMonster(monster);
+                              speakMonsterNames(monster);
+                            }}
+                            style={{
+                              padding: '8px 6px',
+                              borderRadius: '16px',
+                              backgroundColor: isCheering ? 'rgba(255, 255, 255, 0.16)' : 'rgba(15, 23, 42, 0.65)',
+                              border: isCheering
+                                ? '2px solid #fde047'
+                                : isPartner
+                                ? '2px solid #f59e0b'
+                                : `1.5px solid ${meta.borderColor}88`,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              cursor: 'pointer',
+                              transform: isCheering ? 'translateY(-4px) scale(1.04)' : 'none',
+                              transition: 'all 0.2s ease',
+                              boxShadow: isCheering ? '0 0 18px rgba(253, 224, 71, 0.5)' : 'none',
+                            }}
+                          >
+                            <div style={{ width: '56px', height: '56px', marginBottom: '4px' }}>
+                              <MonsterSvgIllustration monsterId={monster.id} />
+                            </div>
+                            <span style={{ fontSize: '11px', fontWeight: 900, color: '#ffffff' }}>
+                              {monster.ko}
+                            </span>
+                            <span style={{ fontSize: '9px', fontWeight: 800, color: isPartner ? '#fde047' : '#94a3b8' }}>
+                              {isPartner ? '⚡동행 파트너' : `Lv.${records[monster.id]?.count || 1}`}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* 선택된 괴수의 3개 국어 응원 대화창 */}
+                    {cheeringMonster && (
+                      <div
+                        style={{
+                          padding: '12px 14px',
+                          borderRadius: '14px',
+                          backgroundColor: 'rgba(2, 6, 23, 0.88)',
+                          border: '1.5px solid rgba(253, 224, 71, 0.5)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          flexWrap: 'wrap',
+                          gap: '10px',
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: '200px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                            <span style={{ fontSize: '13px', fontWeight: 900, color: '#fde047' }}>
+                              🗣️ {cheeringMonster.ko} ({cheeringMonster.en} · {cheeringMonster.ja})
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => speakMonsterNames(cheeringMonster)}
+                              style={{
+                                padding: '2px 7px',
+                                borderRadius: '6px',
+                                backgroundColor: '#0284c7',
+                                border: 'none',
+                                color: '#ffffff',
+                                fontSize: '10px',
+                                fontWeight: 900,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              🔊 3개국어 이름 듣기
+                            </button>
+                          </div>
+                          {(() => {
+                            const quote = MONSTER_CHEER_QUOTES[cheeringMonster.id] || {
+                              ko: `${cheeringMonster.ko}가 너의 3개 국어 모험을 힘차게 응원해!`,
+                              en: `${cheeringMonster.en} cheers for your adventure!`,
+                              ja: `${cheeringMonster.jaKana || cheeringMonster.ja}が おうえんしているよ！`,
+                            };
+                            return (
+                              <div style={{ fontSize: '11px', color: '#e2e8f0', lineHeight: 1.45, fontWeight: 700 }}>
+                                <div>🇰🇷 “{quote.ko}”</div>
+                                <div style={{ color: '#bae6fd' }}>🇺🇸 “{quote.en}”</div>
+                                <div style={{ color: '#fef08a' }}>🇯🇵 “{quote.ja}”</div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePartner(cheeringMonster.id)}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: '10px',
+                            backgroundColor:
+                              equippedPartnerId === cheeringMonster.id
+                                ? 'rgba(239, 68, 68, 0.25)'
+                                : 'rgba(245, 158, 11, 0.25)',
+                            border:
+                              equippedPartnerId === cheeringMonster.id
+                                ? '1.5px solid #ef4444'
+                                : '1.5px solid #f59e0b',
+                            color: '#ffffff',
+                            fontSize: '11px',
+                            fontWeight: 900,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {equippedPartnerId === cheeringMonster.id ? '✕ 파트너 해제' : '⚡ 파트너로 동행'}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          ) : viewMode === 'snack' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* 간식 트럭 헤더 배너 */}
+              <div
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: '16px',
+                  background: 'linear-gradient(90deg, #78350f 0%, #b45309 50%, #9a3412 100%)',
+                  border: '2px solid #f59e0b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 900, color: '#fef08a' }}>
+                    🏪 3개 국어 × 화폐 산수: 괴수 간식 트럭!
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#fde68a', fontWeight: 700 }}>
+                    메뉴판을 눌러 3개 국어 발음을 듣고, 배고픈 괴수 손님의 간식값과 거스름돈을 계산해 주세요!
+                  </div>
+                </div>
+                <div
+                  style={{
+                    padding: '4px 12px',
+                    borderRadius: '9999px',
+                    backgroundColor: 'rgba(2, 6, 23, 0.7)',
+                    border: '1.5px solid #fde047',
+                    color: '#fde047',
+                    fontSize: '12px',
+                    fontWeight: 900,
+                  }}
+                >
+                  🍔 오늘 대접한 손님: {snackServedCount}마리
+                </div>
+              </div>
+
+              {/* 3개 국어 메뉴판 (6종 간식) */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
+                  gap: '8px',
+                }}
+              >
+                {SNACK_MENU.map((item) => {
+                  const isOrdered = snackOrder.items.some((i) => i.id === item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+                        window.speechSynthesis.cancel();
+                        const uKo = new SpeechSynthesisUtterance(item.ko);
+                        uKo.lang = 'ko-KR';
+                        const uEn = new SpeechSynthesisUtterance(item.en);
+                        uEn.lang = 'en-US';
+                        const uJa = new SpeechSynthesisUtterance(item.ja);
+                        uJa.lang = 'ja-JP';
+                        uKo.onend = () => window.speechSynthesis.speak(uEn);
+                        uEn.onend = () => window.speechSynthesis.speak(uJa);
+                        window.speechSynthesis.speak(uKo);
+                      }}
+                      style={{
+                        padding: '8px 6px',
+                        borderRadius: '14px',
+                        backgroundColor: isOrdered ? 'rgba(245, 158, 11, 0.2)' : 'rgba(30, 41, 59, 0.75)',
+                        border: isOrdered ? '2px solid #fde047' : '1px solid #475569',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                        boxShadow: isOrdered ? '0 0 12px rgba(253, 224, 71, 0.45)' : 'none',
+                      }}
+                    >
+                      <span style={{ fontSize: '22px' }}>{item.emoji}</span>
+                      <span style={{ fontSize: '11px', fontWeight: 900, color: '#ffffff', marginTop: '2px' }}>
+                        {item.ko} · {item.en}
+                      </span>
+                      <span style={{ fontSize: '10px', fontWeight: 700, color: '#bae6fd' }}>
+                        {item.ja}
+                      </span>
+                      <span
+                        style={{
+                          marginTop: '4px',
+                          padding: '1px 7px',
+                          borderRadius: '9999px',
+                          backgroundColor: '#0f172a',
+                          border: '1px solid #f59e0b',
+                          color: '#fde047',
+                          fontSize: '11px',
+                          fontWeight: 900,
+                        }}
+                      >
+                        💰 {item.price}원
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* 괴수 손님 주문 카운터 */}
+              <div
+                style={{
+                  padding: '16px',
+                  borderRadius: '18px',
+                  backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                  border: '2px solid rgba(56, 189, 248, 0.45)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div
+                    style={{
+                      width: '68px',
+                      height: '68px',
+                      borderRadius: '16px',
+                      backgroundColor: '#020617',
+                      border: '2px solid #38bdf8',
+                      padding: '6px',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <MonsterSvgIllustration monsterId={snackOrder.customer.id} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '12px', fontWeight: 900, color: '#38bdf8', marginBottom: '3px' }}>
+                      🗣️ 손님: {snackOrder.customer.ko} ({snackOrder.customer.en} · {snackOrder.customer.ja})
+                    </div>
+                    <div style={{ fontSize: '14px', fontWeight: 900, color: '#ffffff', lineHeight: 1.4 }}>
+                      “{snackOrder.promptKo}”
+                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: '#fde047', marginTop: '4px' }}>
+                      {snackOrder.promptSub}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4지선다 계산 버튼 */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+                  {snackOrder.choices.map((choice) => {
+                    const isCorrectChoice = choice === snackOrder.correctAnswer;
+                    const showCorrect = snackAnswerStatus === 'correct' && isCorrectChoice;
+                    return (
+                      <button
+                        key={choice}
+                        type="button"
+                        disabled={snackAnswerStatus === 'correct'}
+                        onClick={() => {
+                          if (choice === snackOrder.correctAnswer) {
+                            setSnackAnswerStatus('correct');
+                            setSnackServedCount((c) => c + 1);
+                            playVictoryFanfare();
+                            onAddBonusExp?.(20);
+                          } else {
+                            setSnackAnswerStatus('wrong');
+                          }
+                        }}
+                        style={{
+                          padding: '12px',
+                          borderRadius: '14px',
+                          fontSize: '15px',
+                          fontWeight: 900,
+                          cursor: snackAnswerStatus === 'correct' ? 'default' : 'pointer',
+                          backgroundColor: showCorrect
+                            ? 'rgba(16, 185, 129, 0.3)'
+                            : 'rgba(30, 41, 59, 0.9)',
+                          border: showCorrect ? '2px solid #10b981' : '1.5px solid #475569',
+                          color: showCorrect ? '#6ee7b7' : '#ffffff',
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        🪙 {choice}원
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* 정답/오답 피드백 및 다음 손님 버튼 */}
+                {snackAnswerStatus === 'wrong' && (
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: '10px',
+                      backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                      border: '1px solid #f87171',
+                      color: '#fecaca',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      textAlign: 'center',
+                    }}
+                  >
+                    앗! 위 메뉴판의 가격(💰)을 다시 보고 천천히 계산해 볼까요?
+                  </div>
+                )}
+
+                {snackAnswerStatus === 'correct' && (
+                  <div
+                    style={{
+                      padding: '10px 14px',
+                      borderRadius: '12px',
+                      backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                      border: '1.5px solid #34d399',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '8px',
+                    }}
+                  >
+                    <div style={{ fontSize: '12px', fontWeight: 900, color: '#a7f3d0' }}>
+                      🎉 계산 성공! {snackOrder.customer.ko}가 맛있게 먹고 보너스 +20 EXP를 선물했어요!
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const unlockedList = MONSTER_CARDS.filter((m) => (records[m.id]?.count ?? 0) >= 1);
+                        setSnackOrder(createSnackOrder(unlockedList));
+                        setSnackAnswerStatus('idle');
+                      }}
+                      style={{
+                        padding: '7px 14px',
+                        borderRadius: '10px',
+                        background: 'linear-gradient(90deg, #f59e0b, #d97706)',
+                        border: '1.5px solid #fde047',
+                        color: '#ffffff',
+                        fontSize: '12px',
+                        fontWeight: 900,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      다음 손님 주문 받기 🍔 →
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
           <div
             style={{
               display: 'grid',
@@ -378,6 +1178,7 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
               const isUnlocked = (record?.count ?? 0) >= 1;
               const isEquipped = equippedPartnerId === monster.id;
               const meta = RARITY_METADATA[monster.rarity];
+              const awakening = getMonsterAwakening(record?.count ?? 0);
 
               return (
                 <div
@@ -391,6 +1192,8 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
                     backgroundColor: isUnlocked ? meta.cardBg : '#0b0f19',
                     border: isEquipped
                       ? '2px solid #f59e0b'
+                      : isUnlocked && awakening.stage >= 3
+                      ? '2px solid #ec4899'
                       : isUnlocked
                       ? `2px solid ${meta.borderColor}`
                       : '1.5px dashed rgba(71, 85, 105, 0.6)',
@@ -404,6 +1207,8 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
                     cursor: isUnlocked ? 'pointer' : 'default',
                     boxShadow: isEquipped
                       ? '0 0 18px rgba(245, 158, 11, 0.85)'
+                      : isUnlocked && awakening.stage >= 2
+                      ? `0 0 16px ${awakening.glowColor}`
                       : isUnlocked
                       ? `0 0 14px ${meta.shadowColor}`
                       : 'none',
@@ -557,9 +1362,25 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
                           color: '#94a3b8',
                           fontWeight: 700,
                           marginTop: '2px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '4px',
                         }}
                       >
-                        보유: {record.count}장
+                        <span>보유: {record.count}장</span>
+                        <span
+                          style={{
+                            padding: '0px 4px',
+                            borderRadius: '4px',
+                            background: awakening.badgeBg,
+                            color: '#ffffff',
+                            fontSize: '8px',
+                            fontWeight: 900,
+                          }}
+                        >
+                          {awakening.shortBadge}
+                        </span>
                       </div>
                     ) : (
                       <div
@@ -635,6 +1456,7 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
               );
             })}
           </div>
+          )}
         </div>
 
         {/* 하단 버튼 영역 */}
@@ -920,34 +1742,63 @@ export const MonsterBookModal: React.FC<MonsterBookModalProps> = ({
                 <p style={{ margin: 0 }}>{selectedMonster.description}</p>
               </div>
 
-              {/* 수집 기록 정보 (날짜 & 보유 수량) */}
-              {selectedRecord && (
-                <div
-                  style={{
-                    width: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-around',
-                    padding: '6px 10px',
-                    borderRadius: '10px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                    border: '1px solid rgba(255, 255, 255, 0.06)',
-                    fontSize: '10px',
-                    color: '#94a3b8',
-                    fontWeight: 700,
-                    marginBottom: '10px',
-                  }}
-                >
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Calendar size={12} color="#38bdf8" />
-                    수집일: {selectedRecord.unlockedAt || '-'}
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Layers size={12} color="#facc15" />
-                    보유 수량: {selectedRecord.count || 1}장
-                  </span>
-                </div>
-              )}
+              {/* 수집 기록 정보 (날짜 & 보유 수량 & 각성 단계) */}
+              {selectedRecord && (() => {
+                const detailAwakening = getMonsterAwakening(selectedRecord.count || 1);
+                return (
+                  <div
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                      padding: '8px 10px',
+                      borderRadius: '12px',
+                      backgroundColor: 'rgba(2, 6, 23, 0.7)',
+                      border: `1.5px solid ${detailAwakening.borderColor}`,
+                      fontSize: '10px',
+                      color: '#94a3b8',
+                      fontWeight: 700,
+                      marginBottom: '10px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Calendar size={12} color="#38bdf8" />
+                        수집일: {selectedRecord.unlockedAt || '-'}
+                      </span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Layers size={12} color="#facc15" />
+                        보유 수량: {selectedRecord.count || 1}장
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        paddingTop: '4px',
+                        borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                        color: '#fde047',
+                        fontWeight: 900,
+                      }}
+                    >
+                      <span>🧬 {detailAwakening.label}</span>
+                      <span
+                        style={{
+                          padding: '1px 6px',
+                          borderRadius: '6px',
+                          background: detailAwakening.badgeBg,
+                          color: '#ffffff',
+                          fontSize: '9px',
+                        }}
+                      >
+                        파트너 효과 ×{detailAwakening.multiplier}배 ({detailAwakening.progressText})
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* 파트너 패시브 스킬 안내 카드 */}
               <div
