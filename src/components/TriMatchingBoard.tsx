@@ -435,7 +435,7 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                               </div>
                               {card.subText && (
                                 <span
-                                  className="text-[9px] sm:text-[11px] md:text-xs font-semibold text-emerald-400 leading-none truncate mt-0.5"
+                                  className="text-[11px] sm:text-xs md:text-sm font-bold text-emerald-300 leading-tight truncate mt-0.5"
                                   style={{ textDecoration: textDeco }}
                                 >
                                   {card.subText}
@@ -445,11 +445,11 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                           )}
                         </div>
 
-                        {/* 스피커 발음 청취 아이콘 (수직 중앙 정렬 및 여유 크기) */}
+                        {/* 스피커 발음 청취 아이콘 (수직 중앙 정렬 및 아동 오터치 방지 여유 크기 확보) */}
                         <div className="ml-1 sm:ml-1.5 md:ml-2 flex-shrink-0 flex items-center justify-center">
                           {isCleared ? (
-                            <div className="w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center">
-                              <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5 text-emerald-400" />
+                            <div className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center">
+                              <CheckCircle2 className="w-4 h-4 sm:w-4.5 sm:h-4.5 md:w-5 md:h-5 text-emerald-400" />
                             </div>
                           ) : (
                             <div
@@ -465,15 +465,15 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                                 const textToSpeak = card.lang === 'ja' && card.subText ? card.subText : card.text;
                                 speak(textToSpeak, langMap[card.lang], undefined, card.subText);
                               }}
-                              className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg sm:rounded-xl flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm hover:scale-110 active:scale-90 ${
+                              className={`w-8 h-8 sm:w-9 sm:h-9 md:w-10 md:h-10 min-w-[32px] min-h-[32px] sm:min-w-[36px] sm:min-h-[36px] rounded-xl flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm hover:scale-105 active:scale-90 ${
                                 isSelected
                                   ? 'bg-cyan-400 text-slate-950 shadow-cyan-400/50'
-                                  : 'bg-slate-950/70 text-slate-300 border border-slate-700/60 hover:bg-slate-800 hover:text-white'
+                                  : 'bg-slate-950/75 text-slate-200 border border-slate-700/70 hover:bg-slate-800 hover:text-white'
                               }`}
                               title="발음 듣기"
                               aria-label={`${card.text} 발음 듣기`}
                             >
-                              <Volume2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 text-current transition-transform group-hover:scale-105" />
+                              <Volume2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5 text-current transition-transform group-hover:scale-105" />
                             </div>
                           )}
                         </div>

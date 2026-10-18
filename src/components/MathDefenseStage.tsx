@@ -12,7 +12,9 @@ import {
   readEnglish,
   readJapanese,
   getMathQuickTip,
+  getProblemHintFormula,
 } from '../data/mathData';
+import { recordMathAttempt } from '../data/learningAnalytics';
 import { useSpeech } from '../hooks/useSpeech';
 import { MathBlockHintModal } from './MathBlockHintModal';
 import { AtomicHangarModal } from './AtomicHangarModal';
@@ -153,6 +155,51 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   const [mathQuickTip, setMathQuickTip] = useState<string | null>(null);
   const mathQuickTipTimerRef = useRef<number | null>(null);
 
+  // 🧠 실시간 적응형 난이도 엔진 (Adaptive ZPD: 10초 ~ 18초 동적 낙하 속도 & 징검다리 힌트)
+  const [adaptiveFallDurationMs, setAdaptiveFallDurationMs] = useState<number>(FALL_DURATION_MS);
+  const adaptiveFallDurationRef = useRef<number>(FALL_DURATION_MS);
+  const problemStartTimeRef = useRef<number>(performance.now());
+  const recentPerfRef = useRef<Array<{ isCorrect: boolean; responseTimeMs: number }>>([]);
+  const [consecutiveFailures, setConsecutiveFailures] = useState<number>(0);
+
+  const updateAdaptiveZpd = useCallback((isCorrect: boolean, responseTimeMs: number) => {
+    const clampedTime = Math.max(300, Math.min(25000, responseTimeMs));
+    const nextHistory = [...recentPerfRef.current, { isCorrect, responseTimeMs: clampedTime }].slice(-4);
+    recentPerfRef.current = nextHistory;
+
+    if (isCorrect) {
+      setConsecutiveFailures(0);
+      const lastThree = nextHistory.slice(-3);
+      const allThreeCorrect = lastThree.length === 3 && lastThree.every((r) => r.isCorrect);
+      const avgResponseMs =
+        lastThree.reduce((sum, r) => sum + r.responseTimeMs, 0) / Math.max(1, lastThree.length);
+
+      setAdaptiveFallDurationMs((prev) => {
+        let next = prev;
+        if (allThreeCorrect && avgResponseMs <= 4500) {
+          // 고속 요격 마스터 구간: 낙하 시간 1.5초 단축 (최소 10초)
+          next = Math.max(10000, prev - 1500);
+        } else if (clampedTime >= 9500) {
+          // 정답이지만 시간이 오래 걸린 경우: 1초 여유 추가 (최대 18초)
+          next = Math.min(18000, prev + 1000);
+        } else if (prev > FALL_DURATION_MS && lastThree.filter((r) => r.isCorrect).length >= 2) {
+          // 감속 상태에서 안정화되면 기본 속도(14초)로 서서히 복귀
+          next = Math.max(FALL_DURATION_MS, prev - 1000);
+        }
+        adaptiveFallDurationRef.current = next;
+        return next;
+      });
+    } else {
+      setConsecutiveFailures((prev) => prev + 1);
+      setAdaptiveFallDurationMs((prev) => {
+        // 오답 또는 충돌 발생 시: 낙하 시간을 2초 늦추어 충분한 사고 시간 보장 (최대 18초)
+        const next = Math.min(18000, prev + 2000);
+        adaptiveFallDurationRef.current = next;
+        return next;
+      });
+    }
+  }, []);
+
   const animFrameRef = useRef<number | null>(null);
   const accumulatedElapsedRef = useRef<number>(0);
   const lastTickTimeRef = useRef<number>(0);
@@ -206,6 +253,33 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
 
   const currentProblem = stageProblems[roundIndex] || stageProblems[0];
   const isWordProblem = currentProblem?.isWordProblem === true;
+
+  // 🪜 위기 시(오답 선택 또는 직전 연속 실패) 자동 개입하는 징검다리 분해 힌트(Stepping-Stone Scaffolding)
+  const steppingStoneHint = useMemo<string | null>(() => {
+    if (!currentProblem || currentProblem.clockQuestion) return null;
+    if (selectedWrongChoices.length === 0 && consecutiveFailures < 1) return null;
+
+    if (currentProblem.isMissingNumber) {
+      return '🪜 징검다리 힌트: 결과 수와 알고 있는 수의 차이를 구해 빈칸(□)을 찾아보세요!';
+    }
+
+    const formula = getProblemHintFormula(currentProblem);
+    if (!formula) return null;
+
+    if (formula.c !== undefined && formula.op2) {
+      const firstStep = formula.op === '+' ? formula.a + formula.b : formula.a - formula.b;
+      return `🪜 징검다리 힌트: 앞의 두 수(${formula.a} ${formula.op} ${formula.b} = ${firstStep})를 먼저 계산한 뒤 ${formula.op2} ${formula.c}을(를) 해보세요!`;
+    }
+
+    const bTens = Math.floor(formula.b / 10) * 10;
+    const bOnes = formula.b % 10;
+    if (bTens > 0 && bOnes > 0) {
+      const midVal = formula.op === '+' ? formula.a + bTens : formula.a - bTens;
+      return `🪜 징검다리 힌트: ${formula.a} ${formula.op} ${bTens} = ${midVal} 먼저 하고, 이어서 ${formula.op} ${bOnes}을(를) 계산해 보세요!`;
+    }
+
+    return `🪜 징검다리 힌트: 일의 자리(${formula.a % 10} ${formula.op} ${formula.b % 10})부터 먼저 계산해 보세요!`;
+  }, [currentProblem, selectedWrongChoices.length, consecutiveFailures]);
 
   // M10: 스테이지당 1회 황금 보너스 운석 라운드 (1~6 라운드 중 하나)
   const goldenRoundIndex = useMemo(() => {
@@ -306,19 +380,22 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     window.setTimeout(() => setDefenseDamageAlert(null), 1200);
   }, []);
 
-  // 2-3. 🔢 산수 피격 및 오답 시 '1초 연산 풀이 팁' 즉시 노출 헬퍼
-  const showQuickTip = useCallback((problem?: MathProblemItem | null) => {
-    if (!problem) return;
-    const tip = getMathQuickTip(problem);
-    setMathQuickTip(tip);
-    if (mathQuickTipTimerRef.current !== null) {
-      window.clearTimeout(mathQuickTipTimerRef.current);
-    }
-    mathQuickTipTimerRef.current = window.setTimeout(() => {
-      setMathQuickTip(null);
-      mathQuickTipTimerRef.current = null;
-    }, 4500);
-  }, []);
+  // 2-3. 🔢 산수 피격 및 오답 시 '1초 연산 풀이 팁' 즉시 노출 헬퍼 (선택한 오답 역추적 지원)
+  const showQuickTip = useCallback(
+    (problem?: MathProblemItem | null, selectedWrongChoice?: string | number) => {
+      if (!problem) return;
+      const tip = getMathQuickTip(problem, selectedWrongChoice);
+      setMathQuickTip(tip);
+      if (mathQuickTipTimerRef.current !== null) {
+        window.clearTimeout(mathQuickTipTimerRef.current);
+      }
+      mathQuickTipTimerRef.current = window.setTimeout(() => {
+        setMathQuickTip(null);
+        mathQuickTipTimerRef.current = null;
+      }, 4500);
+    },
+    []
+  );
 
   // 3. 지면 방어선 충돌 처리 (시간 초과 운석 충돌)
   const handleImpact = useCallback(() => {
@@ -330,6 +407,10 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     playMeteorExplosionSound();
     setCombo(0);
     showQuickTip(currentProblem);
+    if (currentProblem) {
+      recordMathAttempt(currentProblem, false);
+    }
+    updateAdaptiveZpd(false, adaptiveFallDurationRef.current);
 
     if (mothraShieldActive) {
       setMothraShieldActive(false);
@@ -367,7 +448,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       }
       return nextLives;
     });
-  }, [clearAllTimers, cancel, mothraShieldActive, onPartnerNotice, triggerDamageFeedback, isWordProblem, showQuickTip, currentProblem]);
+  }, [clearAllTimers, cancel, mothraShieldActive, onPartnerNotice, triggerDamageFeedback, isWordProblem, showQuickTip, currentProblem, updateAdaptiveZpd]);
 
   const isPageHiddenRef = useRef<boolean>(false);
   const hasSubmittedClearRef = useRef<boolean>(false);
@@ -414,7 +495,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     }
   }, [isHintModalOpen, isHangarOpen, cancel]);
 
-  // 4. 운석 낙하 애니메이션 루프 시작 (일시정지 지원)
+  // 4. 운석 낙하 애니메이션 루프 시작 (일시정지 및 실시간 적응형 ZPD 낙하 속도 지원)
   const startMeteorFall = useCallback(() => {
     if (animFrameRef.current !== null) {
       cancelAnimationFrame(animFrameRef.current);
@@ -422,7 +503,9 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     }
     setMeteorProgress(0);
     accumulatedElapsedRef.current = 0;
-    lastTickTimeRef.current = performance.now();
+    const now = performance.now();
+    lastTickTimeRef.current = now;
+    problemStartTimeRef.current = now;
     setSelectedWrongChoices([]);
     setIsShootingBeam(false);
     setIsExploding(false);
@@ -433,9 +516,11 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       return;
     }
 
-    // 🕰️ 킹 기도라의 시한폭탄(시계 문제): 16초의 넉넉한 낙하 시간 제공, 일반 문제는 기본 FALL_DURATION_MS(8.5초)
+    // 🕰️ 킹 기도라의 시한폭탄(시계 문제): 최소 16초 이상 보장, 일반 문제는 실시간 적응형 ZPD 속도(10초~18초) 적용
     const isClock = Boolean(currentProblem?.clockQuestion);
-    const fallDuration = isClock ? 16000 : FALL_DURATION_MS;
+    const fallDuration = isClock
+      ? Math.max(16000, adaptiveFallDurationRef.current)
+      : adaptiveFallDurationRef.current;
 
     const loop = (time: number) => {
       // 모달(수모형 / 격납고)이 열려있거나 화면이 백그라운드 상태면 일시정지 유지 (운석 고정 & 시간 정지)
@@ -587,7 +672,13 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       setIsHintModalOpen(false);
       playCardTapSound();
 
+      const responseTimeMs = Math.max(300, performance.now() - problemStartTimeRef.current);
+
       if (choice === String(currentProblem.answer)) {
+        // [정답] 애널리틱스 및 실시간 적응형 ZPD 기록
+        recordMathAttempt(currentProblem, true);
+        updateAdaptiveZpd(true, responseTimeMs);
+
         // [정답] 콤보 누적 및 버닝 피버 판정
         const nextCombo = combo + 1;
         setCombo(nextCombo);
@@ -765,11 +856,13 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
           }, 1100);
         }, 250);
       } else {
-        // [오답] 진동 & 체력 감소 및 시각 피드백 (콤보 리셋)
+        // [오답] 진동 & 체력 감소 및 시각 피드백 (콤보 리셋 & 애널리틱스/ZPD 반영)
         playErrorBuzzer();
+        recordMathAttempt(currentProblem, false);
+        updateAdaptiveZpd(false, responseTimeMs);
         setSelectedWrongChoices((prev) => [...prev, choice]);
         setCombo(0);
-        showQuickTip(currentProblem);
+        showQuickTip(currentProblem, choice);
 
         if (mothraShieldActive) {
           setMothraShieldActive(false);
@@ -816,6 +909,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       combo,
       isGoldenMeteor,
       showQuickTip,
+      updateAdaptiveZpd,
     ]
   );
 
@@ -1123,7 +1217,21 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             <div className="flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-slate-900/80 border border-amber-500/40 text-[10px] sm:text-xs text-amber-300 font-extrabold shadow-sm">
               <span>🔥</span>
               <span>초등 2학년 수식 운석 낙하 중</span>
-              <span className="animate-ping text-amber-400">☄️</span>
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-[9px] font-black border ${
+                  adaptiveFallDurationMs <= 12500
+                    ? 'bg-cyan-950/90 border-cyan-400 text-cyan-300'
+                    : adaptiveFallDurationMs >= 16000
+                    ? 'bg-emerald-950/90 border-emerald-400 text-emerald-300'
+                    : 'bg-slate-800 border-amber-500/40 text-amber-200'
+                }`}
+              >
+                {adaptiveFallDurationMs <= 12500
+                  ? `⚡ 고속 요격 ${(adaptiveFallDurationMs / 1000).toFixed(1)}초`
+                  : adaptiveFallDurationMs >= 16000
+                  ? `🌿 안심 감속 ${(adaptiveFallDurationMs / 1000).toFixed(1)}초`
+                  : `🛡️ 표준 ${(adaptiveFallDurationMs / 1000).toFixed(0)}초`}
+              </span>
             </div>
           )}
         </div>
@@ -1560,9 +1668,16 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                   </span>
 
                   {isWordProblem ? (
-                    <p className="relative flex-1 min-w-0 text-base sm:text-xl font-bold text-white leading-relaxed break-keep whitespace-pre-line [overflow-wrap:anywhere] drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
-                      {renderHighlightedText(currentProblem.problemText ?? currentProblem.question, childName)}
-                    </p>
+                    <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                      <p className="relative text-base sm:text-xl font-bold text-white leading-relaxed break-keep whitespace-pre-line [overflow-wrap:anywhere] drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
+                        {renderHighlightedText(currentProblem.problemText ?? currentProblem.question, childName)}
+                      </p>
+                      {steppingStoneHint && !solvedAnswerDisplay && (
+                        <div className="px-2.5 py-1 rounded-lg bg-emerald-950/90 border border-emerald-400/80 text-emerald-200 text-xs font-extrabold shadow-sm animate-fadeIn">
+                          {steppingStoneHint}
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center flex-1 min-w-0 max-w-full text-center">
                       {solvedAnswerDisplay ? (
@@ -1706,6 +1821,11 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                       )}
                       {!solvedAnswerDisplay && !currentProblem.clockQuestion && (
                         <span className="text-[10px] text-amber-200/90 font-bold truncate max-w-full">{currentProblem.readKr}</span>
+                      )}
+                      {steppingStoneHint && !solvedAnswerDisplay && (
+                        <span className="mt-1 px-2 py-0.5 rounded-md bg-emerald-950/90 border border-emerald-400/80 text-emerald-200 text-[10px] sm:text-xs font-extrabold shadow-sm animate-fadeIn">
+                          {steppingStoneHint}
+                        </span>
                       )}
                     </div>
                   )}

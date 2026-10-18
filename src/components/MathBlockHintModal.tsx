@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { X, Search, ArrowRight, Eye, EyeOff, Sparkles, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Search, ArrowRight, Eye, EyeOff, Sparkles, AlertCircle, RotateCcw } from 'lucide-react';
 import type { MathProblemItem } from '../types';
 import { getProblemHintFormula } from '../data/mathData';
+import { playCardTapSound, playDingDongSuccess } from '../utils/soundEffects';
 
 interface MathBlockHintModalProps {
   isOpen: boolean;
@@ -10,11 +11,34 @@ interface MathBlockHintModalProps {
   childName: string;
 }
 
-/** 10개 묶음 막대 1개 (세로형 10등분 블록) */
-const TensBlock: React.FC<{ label?: string }> = ({ label = '10' }) => (
-  <div
-    className="flex flex-col items-center justify-between w-6 sm:w-7 h-20 sm:h-24 rounded-md border-2 border-amber-400 bg-gradient-to-b from-amber-500 via-amber-600 to-amber-700 shadow-md select-none p-0.5 relative group"
-    title="10개 묶음 막대 (10)"
+/** 10개 묶음 막대 1개 (세로형 10등분 블록 - 클릭 분해 및 소거 상태 지원) */
+const TensBlock: React.FC<{
+  label?: string;
+  isInteractiveSplit?: boolean;
+  isCrossedOut?: boolean;
+  isNewCarry?: boolean;
+  onClick?: () => void;
+}> = ({
+  label = '10',
+  isInteractiveSplit = false,
+  isCrossedOut = false,
+  isNewCarry = false,
+  onClick,
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={!onClick}
+    className={`flex flex-col items-center justify-between w-7 sm:w-8 h-20 sm:h-24 rounded-md border-2 shadow-md select-none p-0.5 relative transition-all ${
+      isCrossedOut
+        ? 'border-red-500/50 bg-slate-800/40 opacity-40 scale-95'
+        : isNewCarry
+        ? 'border-yellow-300 bg-gradient-to-b from-yellow-400 via-amber-500 to-orange-600 shadow-[0_0_15px_rgba(250,204,21,0.85)] animate-bounce'
+        : isInteractiveSplit
+        ? 'border-yellow-300 bg-gradient-to-b from-amber-400 via-amber-500 to-amber-700 ring-2 ring-yellow-300 shadow-[0_0_14px_rgba(250,204,21,0.75)] cursor-pointer hover:scale-105 active:scale-95 animate-pulse'
+        : 'border-amber-400 bg-gradient-to-b from-amber-500 via-amber-600 to-amber-700'
+    } ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
+    title={isInteractiveSplit ? '터치해서 낱개 10개로 쪼개기!' : '10개 묶음 막대 (10)'}
   >
     {/* 10등분 눈금선 */}
     <div className="w-full flex-1 flex flex-col justify-between py-0.5 opacity-60 pointer-events-none">
@@ -22,30 +46,76 @@ const TensBlock: React.FC<{ label?: string }> = ({ label = '10' }) => (
         <div key={i} className="w-full border-b border-amber-900/60" />
       ))}
     </div>
+    {isInteractiveSplit && (
+      <span className="text-[9px] font-black text-slate-950 bg-yellow-300 px-1 rounded shadow absolute -top-2 whitespace-nowrap">
+        👆쪼개기
+      </span>
+    )}
+    {isNewCarry && (
+      <span className="text-[9px] font-black text-slate-950 bg-yellow-200 px-1 rounded shadow absolute -top-2 whitespace-nowrap">
+        ✨+10합체
+      </span>
+    )}
+    {isCrossedOut && (
+      <span className="text-base font-black text-red-400 absolute inset-0 flex items-center justify-center">
+        ✕
+      </span>
+    )}
     <span className="text-[10px] font-black text-amber-100 bg-amber-950/80 px-1 rounded absolute bottom-1">
       {label}
     </span>
-  </div>
+  </button>
 );
 
-/** 낱개 1개 큐브 */
-const OnesCube: React.FC = () => (
+/** 낱개 1개 큐브 (받아내림 분해 큐브 및 소거 표시 지원) */
+const OnesCube: React.FC<{
+  isFromBorrowedTen?: boolean;
+  isCrossedOut?: boolean;
+}> = ({ isFromBorrowedTen = false, isCrossedOut = false }) => (
   <div
-    className="w-5 h-5 sm:w-6 sm:h-6 rounded-md border-2 border-emerald-400 bg-gradient-to-br from-emerald-400 via-teal-500 to-emerald-600 shadow-sm flex items-center justify-center text-[10px] font-black text-white select-none"
-    title="낱개 1개"
+    className={`w-5 h-5 sm:w-6 sm:h-6 rounded-md border-2 shadow-sm flex items-center justify-center text-[10px] font-black select-none relative transition-all ${
+      isCrossedOut
+        ? 'border-red-500/50 bg-slate-800/40 text-slate-500 opacity-45 scale-90'
+        : isFromBorrowedTen
+        ? 'border-yellow-300 bg-gradient-to-br from-amber-400 via-yellow-500 to-orange-500 text-slate-950 shadow-[0_0_8px_rgba(250,204,21,0.7)]'
+        : 'border-emerald-400 bg-gradient-to-br from-emerald-400 via-teal-500 to-emerald-600 text-white'
+    }`}
+    title={isFromBorrowedTen ? '10묶음이 쪼개져서 생긴 낱개 (1)' : '낱개 1개'}
   >
-    1
+    {isCrossedOut ? <span className="text-red-400 font-black text-xs">✕</span> : '1'}
   </div>
 );
 
-/** 특정 숫자의 수 모형 (10개 묶음 + 낱개) 카드 */
+/** 특정 숫자의 수 모형 (10개 묶음 + 낱개) 카드 - 조작형 인터랙션 지원 */
 const NumberBlockSection: React.FC<{
   num: number;
   label: string;
   themeColor?: 'cyan' | 'amber' | 'purple';
-}> = ({ num, label, themeColor = 'cyan' }) => {
-  const tens = Math.floor(num / 10);
-  const ones = num % 10;
+  canSplitTen?: boolean;
+  isBorrowedSplit?: boolean;
+  onSplitTen?: () => void;
+  crossedOutTens?: number;
+  crossedOutOnes?: number;
+  extraCarryTen?: boolean;
+  hiddenCarryOnes?: number;
+}> = ({
+  num,
+  label,
+  themeColor = 'cyan',
+  canSplitTen = false,
+  isBorrowedSplit = false,
+  onSplitTen,
+  crossedOutTens = 0,
+  crossedOutOnes = 0,
+  extraCarryTen = false,
+  hiddenCarryOnes = 0,
+}) => {
+  const baseTens = Math.floor(num / 10);
+  const baseOnes = num % 10;
+
+  const displayTens = isBorrowedSplit ? Math.max(0, baseTens - 1) : baseTens;
+  const borrowedOnes = isBorrowedSplit ? 10 : 0;
+  const totalOnes = Math.max(0, baseOnes + borrowedOnes - hiddenCarryOnes);
 
   const borderColor =
     themeColor === 'amber'
@@ -55,15 +125,15 @@ const NumberBlockSection: React.FC<{
       : 'border-cyan-500/50 bg-cyan-950/30';
 
   return (
-    <div className={`flex flex-col p-2.5 sm:p-3 rounded-xl border ${borderColor} shadow-inner`}>
-      <div className="flex items-center justify-between mb-2 pb-1 border-b border-slate-700/60">
+    <div className={`flex flex-col p-2.5 sm:p-3 rounded-xl border ${borderColor} shadow-inner transition-all`}>
+      <div className="flex items-center justify-between mb-2 pb-1 border-b border-slate-700/60 flex-wrap gap-1">
         <span className="text-xs font-bold text-slate-300">{label}</span>
         <span className="text-lg sm:text-xl font-black text-white flex items-center gap-1">
           <span className="text-yellow-300">{num}</span>
-          <span className="text-[11px] text-slate-400 font-normal">
-            ({tens > 0 ? `10개씩 ${tens}묶음` : ''}
-            {tens > 0 && ones > 0 ? ', ' : ''}
-            {ones > 0 ? `낱개 ${ones}개` : tens === 0 ? '0' : ''})
+          <span className="text-[11px] text-slate-300 font-bold">
+            ({displayTens + (extraCarryTen ? 1 : 0) > 0 ? `10묶음 ${displayTens + (extraCarryTen ? 1 : 0)}개` : '10묶음 0개'}
+            {', '}
+            {`낱개 ${totalOnes}개`})
           </span>
         </span>
       </div>
@@ -72,11 +142,29 @@ const NumberBlockSection: React.FC<{
         {/* 10개 묶음 영역 */}
         <div className="flex flex-col items-center bg-slate-900/80 rounded-lg p-2 border border-amber-500/30">
           <span className="text-[11px] font-bold text-amber-300 mb-1.5 flex items-center gap-1">
-            <span>📦</span> 10개 묶음 ({tens}개 = {tens * 10})
+            <span>📦</span>
+            <span>
+              10개 묶음 ({Math.max(0, displayTens - crossedOutTens + (extraCarryTen ? 1 : 0))}개)
+            </span>
           </span>
-          <div className="flex flex-wrap items-center justify-center gap-1.5 min-h-[5rem]">
-            {tens > 0 ? (
-              [...Array(tens)].map((_, i) => <TensBlock key={i} />)
+          <div className="flex flex-wrap items-center justify-center gap-1.5 min-h-[5rem] py-1">
+            {displayTens > 0 || extraCarryTen ? (
+              <>
+                {[...Array(displayTens)].map((_, i) => {
+                  const isLastRod = i === displayTens - 1;
+                  const canTapToSplit = canSplitTen && !isBorrowedSplit && isLastRod;
+                  const isCrossed = i >= displayTens - crossedOutTens;
+                  return (
+                    <TensBlock
+                      key={i}
+                      isInteractiveSplit={canTapToSplit}
+                      isCrossedOut={isCrossed}
+                      onClick={canTapToSplit ? onSplitTen : undefined}
+                    />
+                  );
+                })}
+                {extraCarryTen && <TensBlock key="carry-ten" isNewCarry />}
+              </>
             ) : (
               <span className="text-xs text-slate-500 py-6">묶음 없음 (0)</span>
             )}
@@ -86,11 +174,27 @@ const NumberBlockSection: React.FC<{
         {/* 낱개 큐브 영역 */}
         <div className="flex flex-col items-center bg-slate-900/80 rounded-lg p-2 border border-emerald-500/30">
           <span className="text-[11px] font-bold text-emerald-300 mb-1.5 flex items-center gap-1">
-            <span>🟩</span> 낱개 ({ones}개)
+            <span>🟩</span>
+            <span>
+              낱개 ({Math.max(0, totalOnes - crossedOutOnes)}개)
+              {isBorrowedSplit && (
+                <strong className="text-yellow-300 ml-0.5">+10변신!</strong>
+              )}
+            </span>
           </span>
           <div className="grid grid-cols-5 gap-1 items-center justify-center min-h-[5rem] content-center p-1">
-            {ones > 0 ? (
-              [...Array(ones)].map((_, i) => <OnesCube key={i} />)
+            {totalOnes > 0 ? (
+              [...Array(totalOnes)].map((_, i) => {
+                const isFromBorrow = isBorrowedSplit && i >= baseOnes;
+                const isCrossed = i >= totalOnes - crossedOutOnes;
+                return (
+                  <OnesCube
+                    key={i}
+                    isFromBorrowedTen={isFromBorrow}
+                    isCrossedOut={isCrossed}
+                  />
+                );
+              })
             ) : (
               <span className="text-xs text-slate-500 col-span-5 text-center py-6">낱개 없음 (0)</span>
             )}
@@ -108,6 +212,19 @@ export const MathBlockHintModal: React.FC<MathBlockHintModalProps> = ({
   childName,
 }) => {
   const [showAnswer, setShowAnswer] = useState(false);
+  // 조작형(Manipulative) 상태: 받아내림 10묶음 쪼개기, 뺄셈 소거하기, 받아올림 10묶음 합체하기
+  const [isBorrowedSplit, setIsBorrowedSplit] = useState(false);
+  const [isSubtractedCrossed, setIsSubtractedCrossed] = useState(false);
+  const [isCarryCombined, setIsCarryCombined] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setShowAnswer(false);
+      setIsBorrowedSplit(false);
+      setIsSubtractedCrossed(false);
+      setIsCarryCombined(false);
+    }
+  }, [isOpen, problem?.id]);
 
   if (!isOpen) return null;
 
@@ -131,6 +248,32 @@ export const MathBlockHintModal: React.FC<MathBlockHintModalProps> = ({
   const hasCarry = isAddition && onesA + onesB >= 10; // 받아올림 발생 여부
   const hasBorrow = !isAddition && onesA < onesB; // 받아내림 발생 여부
 
+  const handleSplitBorrowTen = () => {
+    if (isBorrowedSplit) return;
+    playDingDongSuccess();
+    setIsBorrowedSplit(true);
+  };
+
+  const handleToggleSubtractCross = () => {
+    playCardTapSound();
+    if (hasBorrow && !isBorrowedSplit) {
+      setIsBorrowedSplit(true);
+    }
+    setIsSubtractedCrossed((prev) => !prev);
+  };
+
+  const handleToggleCarryCombine = () => {
+    playDingDongSuccess();
+    setIsCarryCombined((prev) => !prev);
+  };
+
+  const handleResetManipulative = () => {
+    playCardTapSound();
+    setIsBorrowedSplit(false);
+    setIsSubtractedCrossed(false);
+    setIsCarryCombined(false);
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn"
@@ -148,9 +291,9 @@ export const MathBlockHintModal: React.FC<MathBlockHintModalProps> = ({
             </div>
             <div>
               <h3 className="text-sm sm:text-base font-black text-white flex flex-wrap items-center gap-1.5">
-                <span>10개 묶음과 낱개 수 모형</span>
+                <span>직접 만져보는 10묶음·낱개 수 모형</span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-400 text-cyan-300">
-                  돋보기 힌트
+                  체험형 힌트
                 </span>
                 <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/80 text-yellow-300 font-black animate-pulse flex items-center gap-1 shadow-sm">
                   <span>⏸️</span>
@@ -158,7 +301,7 @@ export const MathBlockHintModal: React.FC<MathBlockHintModalProps> = ({
                 </span>
               </h3>
               <p className="text-[11px] text-cyan-200/80 font-medium">
-                ⭐ {childName} 대장님을 위한 시각적 연산 도우미 (천천히 생각해보세요!)
+                ⭐ {childName} 대장님! 블록을 직접 터치해서 쪼개고 합쳐보세요!
               </p>
             </div>
           </div>
@@ -202,9 +345,106 @@ export const MathBlockHintModal: React.FC<MathBlockHintModalProps> = ({
             </span>
           </div>
 
+          {/* 1-2. 조작형 수 모형 체험 컨트롤 바 */}
+          {c === undefined && (
+            <div className="p-2.5 rounded-xl bg-gradient-to-r from-cyan-950/70 via-slate-900 to-indigo-950/70 border border-cyan-400/50 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-bold text-cyan-200 flex items-center gap-1.5">
+                <span className="text-base">🖐️</span>
+                {hasBorrow ? (
+                  !isBorrowedSplit ? (
+                    <span>
+                      낱개 {onesA}개에서 {onesB}개를 못 빼요! <strong>[10묶음 막대]</strong>를 눌러 낱개 10개로 쪼개보세요!
+                    </span>
+                  ) : !isSubtractedCrossed ? (
+                    <span>
+                      변신 성공! 이제 낱개 <strong>{onesA + 10}개</strong>에서 <strong>{b}</strong>만큼 지워볼까요?
+                    </span>
+                  ) : (
+                    <span className="text-emerald-300 font-black">
+                      🎉 남은 블록: 10묶음 {tensA - 1 - tensB}개 + 낱개 {onesA + 10 - onesB}개 = {answerNum}!
+                    </span>
+                  )
+                ) : !isAddition ? (
+                  !isSubtractedCrossed ? (
+                    <span>버튼을 눌러 빼는 수({b})만큼 블록을 직접 지워보세요!</span>
+                  ) : (
+                    <span className="text-emerald-300 font-black">
+                      🎉 남은 블록: 10묶음 {tensA - tensB}개 + 낱개 {onesA - onesB}개 = {answerNum}!
+                    </span>
+                  )
+                ) : hasCarry ? (
+                  !isCarryCombined ? (
+                    <span>
+                      낱개가 총 {onesA + onesB}개예요! 10개를 모아서 새로운 <strong>[10묶음 막대]</strong>로 합체해 보세요!
+                    </span>
+                  ) : (
+                    <span className="text-emerald-300 font-black">
+                      🎉 10묶음 합체 완료! 10묶음 {tensA + tensB + 1}개 + 남은 낱개 {(onesA + onesB) % 10}개 = {answerNum}!
+                    </span>
+                  )
+                ) : (
+                  <span>10묶음끼리, 낱개끼리 차례대로 세어 보세요!</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 ml-auto">
+                {hasBorrow && !isBorrowedSplit && (
+                  <button
+                    type="button"
+                    onClick={handleSplitBorrowTen}
+                    className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow-md cursor-pointer active:scale-95 transition-all flex items-center gap-1 animate-bounce"
+                  >
+                    <span>⚡ 10묶음 → 낱개 10개로 쪼개기!</span>
+                  </button>
+                )}
+                {!isAddition && (!hasBorrow || isBorrowedSplit) && (
+                  <button
+                    type="button"
+                    onClick={handleToggleSubtractCross}
+                    className="px-3 py-1.5 rounded-lg bg-rose-500 hover:bg-rose-400 text-white font-black text-xs shadow-md cursor-pointer active:scale-95 transition-all flex items-center gap-1"
+                  >
+                    <span>{isSubtractedCrossed ? '↩️ 지우기 취소' : `✂️ ${b}만큼 블록 덜어내기!`}</span>
+                  </button>
+                )}
+                {hasCarry && (
+                  <button
+                    type="button"
+                    onClick={handleToggleCarryCombine}
+                    className="px-3 py-1.5 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black text-xs shadow-md cursor-pointer active:scale-95 transition-all flex items-center gap-1"
+                  >
+                    <span>
+                      {isCarryCombined ? '↩️ 합체 전으로 보기' : '✨ 낱개 10개 → 10묶음 합체!'}
+                    </span>
+                  </button>
+                )}
+                {(isBorrowedSplit || isSubtractedCrossed || isCarryCombined) && (
+                  <button
+                    type="button"
+                    onClick={handleResetManipulative}
+                    title="블록 처음 상태로 되돌리기"
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600 cursor-pointer"
+                  >
+                    <RotateCcw size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* 2. 두 수의 수 모형 시각화 */}
           <div className="space-y-2">
-            <NumberBlockSection num={a} label="첫 번째 수" themeColor="cyan" />
+            <NumberBlockSection
+              num={a}
+              label="첫 번째 수"
+              themeColor="cyan"
+              canSplitTen={hasBorrow}
+              isBorrowedSplit={isBorrowedSplit}
+              onSplitTen={handleSplitBorrowTen}
+              crossedOutTens={!isAddition && isSubtractedCrossed ? tensB : 0}
+              crossedOutOnes={!isAddition && isSubtractedCrossed ? onesB : 0}
+              extraCarryTen={isAddition && isCarryCombined}
+              hiddenCarryOnes={isAddition && isCarryCombined ? Math.min(onesA, 10) : 0}
+            />
 
             <div className="flex items-center justify-center my-1">
               <span className="w-8 h-8 rounded-full bg-amber-500 text-slate-950 font-black text-lg flex items-center justify-center shadow-md">
@@ -212,7 +452,14 @@ export const MathBlockHintModal: React.FC<MathBlockHintModalProps> = ({
               </span>
             </div>
 
-            <NumberBlockSection num={b} label="두 번째 수" themeColor="amber" />
+            <NumberBlockSection
+              num={b}
+              label="두 번째 수"
+              themeColor="amber"
+              hiddenCarryOnes={
+                isAddition && isCarryCombined ? Math.max(0, 10 - Math.min(onesA, 10)) : 0
+              }
+            />
 
             {/* 세 수 연산일 경우 세 번째 수 추가 */}
             {c !== undefined && op2 && (

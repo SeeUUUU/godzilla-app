@@ -126,7 +126,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
               <div className="flex items-center justify-between px-1 text-xs text-slate-400 font-bold">
                 <span className="flex items-center gap-1.5 text-amber-400">
                   <Award className="w-3.5 h-3.5 text-yellow-400" />
-                  <span>복습 레이드에서 3회 연속 맞히면 오답노트에서 자동 졸업!</span>
+                  <span>데일리 데자뷰 또는 복습 레이드에서 총 3회(★★★) 맞히면 완벽 졸업!</span>
                 </span>
                 <span className="text-amber-300 font-black">총 {wrongWords.length}개</span>
               </div>
@@ -193,7 +193,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
                             </span>
                           </div>
                           {word.jaKana && (
-                            <span className="text-[9px] text-emerald-400/80 font-medium pl-4 truncate">
+                            <span className="text-[10px] text-emerald-300/90 font-bold pl-4 truncate">
                               {word.jaKana}
                             </span>
                           )}
@@ -211,26 +211,43 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
 
                     {/* 복습 성공 단계 및 개별 삭제 버튼 */}
                     <div className="flex items-center gap-1.5 flex-none">
-                      {/* SRS 3단계 마스터 게이지 */}
+                      {/* SRS 3단계 마스터 게이지 + 상태 뱃지 */}
                       <div
-                        title={`복습 성공 ${word.reviewMastery || 0}/3회 (3회 달성 시 자동 졸업!)`}
-                        className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 select-none"
+                        title={`복습 마스터 ${word.reviewMastery || 0}/3단계 (3회 달성 시 장기 기억 완벽 졸업!)`}
+                        className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 select-none"
                       >
-                        {[1, 2, 3].map((step) => {
-                          const isAchieved = (word.reviewMastery || 0) >= step;
-                          return (
-                            <span
-                              key={step}
-                              className={`text-[10px] leading-none ${
-                                isAchieved ? 'text-amber-400 font-black' : 'text-slate-600'
-                              }`}
-                            >
-                              ★
-                            </span>
-                          );
-                        })}
-                        <span className="text-[9px] font-bold text-slate-400 ml-1">
-                          {word.reviewMastery || 0}/3
+                        <div className="flex items-center gap-0.5">
+                          {[1, 2, 3].map((step) => {
+                            const isAchieved = (word.reviewMastery || 0) >= step;
+                            return (
+                              <span
+                                key={step}
+                                className={`text-[10px] leading-none ${
+                                  isAchieved ? 'text-amber-400 font-black' : 'text-slate-600'
+                                }`}
+                              >
+                                ★
+                              </span>
+                            );
+                          })}
+                          <span className="text-[9px] font-bold text-slate-400 ml-1">
+                            {word.reviewMastery || 0}/3
+                          </span>
+                        </div>
+                        <span
+                          className={`text-[9px] font-black leading-none ${
+                            (word.reviewMastery || 0) >= 2
+                              ? 'text-emerald-400'
+                              : (word.reviewMastery || 0) === 1
+                              ? 'text-amber-300'
+                              : 'text-rose-400'
+                          }`}
+                        >
+                          {(word.reviewMastery || 0) >= 2
+                            ? '졸업 임박!'
+                            : (word.reviewMastery || 0) === 1
+                            ? '1단계 기억'
+                            : '집중 복습'}
                         </span>
                       </div>
 

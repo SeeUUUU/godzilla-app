@@ -22,6 +22,12 @@ export interface WordItem {
   jpFurigana?: string;
   /** 오답 복습 성공 연속 횟수 (3회 달성 시 자동 졸업/봉인 완료) */
   reviewMastery?: number;
+  /** 마지막으로 오답이 발생하거나 복습한 스테이지 번호 (연속 스테이지 즉시 재출현 방지) */
+  lastReviewedStage?: number;
+  /** 마지막 복습/오답 발생 시각 (Unix timestamp ms) */
+  lastReviewedAt?: number;
+  /** 에빙하우스 주기상 다음 권장 복습 시각 (Unix timestamp ms) */
+  nextReviewAt?: number;
 }
 
 export interface MathHintFormula {
@@ -337,4 +343,39 @@ export interface AttendanceState {
   lastAttendanceDate?: string | null;
   records: string[]; // 출석 날짜 기록 ('YYYY-MM-DD')
 }
+
+// ───────────────────────────────────────────────────────────
+// 학부모 학습 애널리틱스 & 연산 성취도 진단 타입
+// ───────────────────────────────────────────────────────────
+export type MathSkillCategory =
+  | 'add_basic'
+  | 'sub_basic'
+  | 'add_carry'
+  | 'sub_borrow'
+  | 'three_numbers'
+  | 'missing_number'
+  | 'clock'
+  | 'word_problem';
+
+export interface SkillStat {
+  attempts: number;
+  correct: number;
+}
+
+export interface DailyLearningStat {
+  date: string; // 'YYYY-MM-DD'
+  studySeconds: number;
+  langCorrect: number;
+  langWrong: number;
+  mathCorrect: number;
+  mathWrong: number;
+}
+
+export interface LearningAnalyticsData {
+  dailyStats: Record<string, DailyLearningStat>;
+  mathSkillStats: Record<MathSkillCategory, SkillStat>;
+  wordErrorCounts: Record<string, number>;
+  weeklyCouponLimitMinutes: number; // 기본 60분 (0 = 무제한)
+}
+
 

@@ -74,10 +74,18 @@ import {
   setEquippedGear,
   DEFAULT_EQUIPPED_GEAR,
 } from './data/atomicPartsData';
+import {
+  loadLearningAnalytics,
+  saveLearningAnalytics,
+  mergeLearningAnalytics,
+  addDailyStudySeconds,
+  recordLanguageAttempt,
+} from './data/learningAnalytics';
 
 const STORAGE_KEY_WORDS = 'godzilla_language_words_v3';
 const STORAGE_KEY_STATE = 'godzilla_language_state_v6';
 const STORAGE_KEY_WRONG_WORDS = 'godzilla_wrong_words';
+const STORAGE_KEY_GRADUATED_WORDS = 'godzilla_graduated_wrong_word_ids_v1';
 const STORAGE_KEY_VOICE_ENABLED = 'godzilla_voice_attack_enabled';
 const STORAGE_KEY_EGG_COUNT = 'godzilla_egg_count';
 const STORAGE_KEY_TREASURE_BOX = 'godzilla_treasure_box_count';
@@ -89,19 +97,97 @@ const STORAGE_KEY_MATH_STAGE = 'godzilla_math_stage_index';
 const STORAGE_KEY_WORDS_VERSION = 'godzilla_language_words_version';
 const STORAGE_VERSION = 'v1.2';
 
+// 에빙하우스 망각곡선 기반 단계별 다음 복습 시각 산출 (0단계: +4시간, 1단계: +1일, 2단계: +3일)
+const getNextSrsReviewTimestamp = (masteryLevel: number, now = Date.now()): number => {
+  const ONE_HOUR_MS = 60 * 60 * 1000;
+  const ONE_DAY_MS = 24 * ONE_HOUR_MS;
+  if (masteryLevel <= 0) return now + 4 * ONE_HOUR_MS;
+  if (masteryLevel === 1) return now + 1 * ONE_DAY_MS;
+  if (masteryLevel === 2) return now + 3 * ONE_DAY_MS;
+  return now + 7 * ONE_DAY_MS;
+};
+
+// 오답노트에서 졸업/삭제된 단어 ID 추적 (원격 동기화 시 졸업 단어 부활 방지)
+const getGraduatedWordIds = (): Set<string> => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_GRADUATED_WORDS);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        return new Set(parsed.map((id) => String(id)));
+      }
+    }
+  } catch {}
+  return new Set<string>();
+};
+
+const markWordsGraduated = (ids: (string | number)[]): void => {
+  try {
+    const set = getGraduatedWordIds();
+    ids.forEach((id) => set.add(String(id)));
+    localStorage.setItem(STORAGE_KEY_GRADUATED_WORDS, JSON.stringify(Array.from(set)));
+  } catch {}
+};
+
+const unmarkWordsGraduated = (ids: (string | number)[]): void => {
+  try {
+    const set = getGraduatedWordIds();
+    let changed = false;
+    ids.forEach((id) => {
+      if (set.delete(String(id))) changed = true;
+    });
+    if (changed) {
+      localStorage.setItem(STORAGE_KEY_GRADUATED_WORDS, JSON.stringify(Array.from(set)));
+    }
+  } catch {}
+};
+
 // 한 스테이지(배틀)당 출제 단어 수
 const WORDS_PER_ROUND = 6;
 
-// 무한 마스터 모드용: 200개 단어 풀에서 중복 없이 무작위 6개 단어 랜덤 추출
-const getRandomSixWords = (pool: WordItem[], _seed?: number): WordItem[] => {
+// 무한 마스터 모드(2회독 이상) 적응형 ZPD 큐:
+// 이미 마스터(졸업)한 단어 비중은 낮추고(0.35x), 취약 단어(오답노트/누적 오답 상위)를 우선 배치(2.5x~4.0x)
+const getRandomSixWords = (pool: WordItem[], wrongWords: WordItem[] = [], _seed?: number): WordItem[] => {
   void _seed;
   if (!pool || pool.length <= WORDS_PER_ROUND) return pool || [];
-  const copy = [...pool];
-  for (let i = copy.length - 1; i > copy.length - 1 - WORDS_PER_ROUND; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
+
+  const wrongIdSet = new Set(wrongWords.map((w) => String(w.id)));
+  const graduatedIds = getGraduatedWordIds();
+  const errorCounts = loadLearningAnalytics().wordErrorCounts || {};
+
+  const candidates = pool.map((word) => {
+    const idStr = String(word.id);
+    const errCount = errorCounts[idStr] || 0;
+    let weight = 1.2;
+    if (wrongIdSet.has(idStr) || errCount >= 2) {
+      weight = 4.0; // 집중 케어 취약 단어 최우선 출제
+    } else if (errCount === 1) {
+      weight = 2.5; // 1회 오답 이력 단어 우선 출제
+    } else if (graduatedIds.has(idStr)) {
+      weight = 0.35; // 이미 장기기억 졸업한 단어는 출제 빈도 축소
+    }
+    return { word, weight };
+  });
+
+  const selected: WordItem[] = [];
+  const remaining = [...candidates];
+
+  while (selected.length < WORDS_PER_ROUND && remaining.length > 0) {
+    const totalWeight = remaining.reduce((sum, item) => sum + item.weight, 0);
+    let r = Math.random() * totalWeight;
+    let pickedIndex = remaining.length - 1;
+    for (let i = 0; i < remaining.length; i++) {
+      r -= remaining[i].weight;
+      if (r <= 0) {
+        pickedIndex = i;
+        break;
+      }
+    }
+    selected.push(remaining[pickedIndex].word);
+    remaining.splice(pickedIndex, 1);
   }
-  return copy.slice(copy.length - WORDS_PER_ROUND);
+
+  return selected;
 };
 
 const normalizeWords = (items: unknown): WordItem[] => {
@@ -140,6 +226,11 @@ const normalizeWords = (items: unknown): WordItem[] => {
     const jpSentence = typeof word.jpSentence === 'string' ? word.jpSentence : undefined;
     const jpFurigana = typeof word.jpFurigana === 'string' ? word.jpFurigana : undefined;
     const reviewMastery = typeof word.reviewMastery === 'number' ? word.reviewMastery : undefined;
+    const lastReviewedStage =
+      typeof word.lastReviewedStage === 'number' ? word.lastReviewedStage : undefined;
+    const lastReviewedAt =
+      typeof word.lastReviewedAt === 'number' ? word.lastReviewedAt : undefined;
+    const nextReviewAt = typeof word.nextReviewAt === 'number' ? word.nextReviewAt : undefined;
 
     uniqueById.set(String(id), {
       id,
@@ -153,6 +244,9 @@ const normalizeWords = (items: unknown): WordItem[] => {
       jpSentence,
       jpFurigana,
       reviewMastery,
+      lastReviewedStage,
+      lastReviewedAt,
+      nextReviewAt,
     });
   }
   return Array.from(uniqueById.values());
@@ -432,7 +526,30 @@ export function App() {
       return;
     }
 
-    const target = normalizedWrongWords[0];
+    const now = Date.now();
+    // 에빙하우스 간격 반복(SRS) 필터링:
+    // 방금 직전 스테이지(최소 2스테이지 미만 간격)에서 틀렸거나 복습한 단어는 단기 기억 착시를 막기 위해 쿨타임 적용
+    // (단, 에빙하우스 복습 예정 시각 nextReviewAt이 이미 도래한 경우는 즉시 출제 허용)
+    const eligibleCandidates = normalizedWrongWords.filter((w) => {
+      if (w.nextReviewAt !== undefined && now >= w.nextReviewAt) return true;
+      if (w.lastReviewedStage === undefined) return true;
+      return Math.abs(currentStageNum - w.lastReviewedStage) >= 2;
+    });
+
+    if (eligibleCandidates.length === 0) {
+      setSessionDejaVuWord(null);
+      return;
+    }
+
+    // 우선순위 정렬: 1) 복습 주기(nextReviewAt)가 도래한 단어 우선 -> 2) 가장 오래전에 복습한 단어(lastReviewedAt 오름차순) 순환
+    const sortedCandidates = [...eligibleCandidates].sort((a, b) => {
+      const aDue = a.nextReviewAt !== undefined && now >= a.nextReviewAt ? 0 : 1;
+      const bDue = b.nextReviewAt !== undefined && now >= b.nextReviewAt ? 0 : 1;
+      if (aDue !== bDue) return aDue - bDue;
+      return (a.lastReviewedAt ?? 0) - (b.lastReviewedAt ?? 0);
+    });
+
+    const target = sortedCandidates[0];
     if (!target) {
       setSessionDejaVuWord(null);
       return;
@@ -455,7 +572,7 @@ export function App() {
       ...target,
       emoji,
     });
-  }, [stageIndex, battleSessionId, isReviewMode, isBossStage, normalizedWrongWords, clearedIds.length]);
+  }, [stageIndex, currentStageNum, battleSessionId, isReviewMode, isBossStage, normalizedWrongWords, clearedIds.length]);
 
   // [중요] 단어 출제 방식:
   // - 1회독 (순차 진도 모드: cycleCount === 1): 200개 단어 중 6개씩 순차 슬라이싱 ((stage - 1) * 6 ~ stage * 6)
@@ -464,7 +581,7 @@ export function App() {
   const stageWords = useMemo<WordItem[]>(() => {
     let baseList: WordItem[];
     if (isInfiniteMode) {
-      baseList = getRandomSixWords(safeWords, battleSessionId + cycleCount);
+      baseList = getRandomSixWords(safeWords, normalizedWrongWords, battleSessionId + cycleCount);
     } else {
       const safeIndex = stageIndex % totalStages;
       const startIndex = safeIndex * WORDS_PER_ROUND;
@@ -478,6 +595,7 @@ export function App() {
     }
 
     return baseList;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isInfiniteMode, safeWords, stageIndex, totalStages, battleSessionId, cycleCount, sessionDejaVuWord, isBossStage]);
 
   // 현재 활성화된 단어 세트:
@@ -727,6 +845,10 @@ export function App() {
         try {
           localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(mergedState));
         } catch {}
+        // 로컬 오프라인 진행도가 원격보다 높았던 경우 클라우드로 최신 상태 역동기화(Write-back)
+        if (localTotalExp > remoteTotalExp) {
+          savePlayerDataToFirestore({ gameState: mergedState });
+        }
         return mergedState;
       });
     }
@@ -738,6 +860,9 @@ export function App() {
         try {
           localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(next));
         } catch {}
+        if (prev > remoteEggs) {
+          savePlayerDataToFirestore({ eggCount: next });
+        }
         return next;
       });
     }
@@ -800,8 +925,9 @@ export function App() {
       setStoredUnlockedMonsters(mergedMonsters);
       setUnlockedMonsters(mergedMonsters);
     }
-    // 4-2. 오답 단어 목록(wrongWordList) 스마트 병합 (masteryLevel 최대값 보존)
+    // 4-2. 오답 단어 목록(wrongWordList) 스마트 병합 (졸업 단어 부활 방지 & SRS 메타데이터 최대값 보존)
     if (Array.isArray(remoteData.wrongWordList) && remoteData.wrongWordList.length > 0) {
+      const graduatedIds = getGraduatedWordIds();
       setWrongWordList((prev) => {
         const map = new Map<string | number, WordItem>();
         prev.forEach((w) => map.set(w.id, w));
@@ -809,12 +935,20 @@ export function App() {
           if (!rw || !rw.id) return;
           const existing = map.get(rw.id);
           if (!existing) {
+            // 로컬에서 이미 졸업/삭제 처리된 단어라면 원격 구버전 데이터로 부활시키지 않음
+            if (graduatedIds.has(String(rw.id))) return;
             map.set(rw.id, rw);
           } else {
             map.set(rw.id, {
               ...existing,
               ...rw,
               reviewMastery: Math.max(existing.reviewMastery ?? 0, rw.reviewMastery ?? 0),
+              lastReviewedStage:
+                Math.max(existing.lastReviewedStage ?? 0, rw.lastReviewedStage ?? 0) || undefined,
+              lastReviewedAt:
+                Math.max(existing.lastReviewedAt ?? 0, rw.lastReviewedAt ?? 0) || undefined,
+              nextReviewAt:
+                Math.max(existing.nextReviewAt ?? 0, rw.nextReviewAt ?? 0) || undefined,
             });
           }
         });
@@ -851,10 +985,13 @@ export function App() {
     }
     // 7. 도감 10종 완성 보상 수령 상태 반영
     if (typeof remoteData.hasClaimedCodexReward === 'boolean') {
-      setHasClaimedCodexReward(remoteData.hasClaimedCodexReward);
-      try {
-        localStorage.setItem(STORAGE_KEY_CODEX_REWARD, String(remoteData.hasClaimedCodexReward));
-      } catch {}
+      setHasClaimedCodexReward((prev) => {
+        const next = prev || Boolean(remoteData.hasClaimedCodexReward);
+        try {
+          localStorage.setItem(STORAGE_KEY_CODEX_REWARD, String(next));
+        } catch {}
+        return next;
+      });
     }
     // 8. 황금 보물상자 보유량 스마트 반영
     if (typeof remoteData.treasureBoxCount === 'number' && !isNaN(remoteData.treasureBoxCount)) {
@@ -864,35 +1001,55 @@ export function App() {
         try {
           localStorage.setItem(STORAGE_KEY_TREASURE_BOX, String(next));
         } catch {}
+        if (prev > remoteCount) {
+          savePlayerDataToFirestore({ treasureBoxCount: next });
+        }
         return next;
       });
     }
-    // 9. 회독(cycleCount), 무한 모드(isInfiniteMode), 스테이지(stageIndex) 스마트 병합
-    if (typeof remoteData.cycleCount === 'number') {
-      const remoteCycle = Math.max(1, Math.floor(remoteData.cycleCount));
-      setCycleCount((prev) => {
-        const next = Math.max(prev, remoteCycle);
-        try {
-          localStorage.setItem(STORAGE_KEY_CYCLE_COUNT, String(next));
-        } catch {}
-        return next;
-      });
+    // 9. 회독(cycleCount), 무한 모드(isInfiniteMode), 스테이지(stageIndex) 복합 진행도 비교 병합
+    // (회독과 스테이지가 별개로 Math.max 결합되어 스테이지가 비정상 점프하는 현상 방지)
+    if (typeof remoteData.cycleCount === 'number' || typeof remoteData.stageIndex === 'number') {
+      const remoteCycle =
+        typeof remoteData.cycleCount === 'number'
+          ? Math.max(1, Math.floor(remoteData.cycleCount))
+          : 1;
+      const remoteStage =
+        typeof remoteData.stageIndex === 'number'
+          ? Math.max(0, Math.floor(remoteData.stageIndex))
+          : 0;
+
+      const localCycleSaved = Math.max(
+        1,
+        parseInt(localStorage.getItem(STORAGE_KEY_CYCLE_COUNT) || '1', 10) || 1
+      );
+      const localStageSaved = Math.max(
+        0,
+        parseInt(localStorage.getItem(STORAGE_KEY_STAGE_INDEX) || '0', 10) || 0
+      );
+
+      const localComposite = (localCycleSaved - 1) * 34 + localStageSaved;
+      const remoteComposite = (remoteCycle - 1) * 34 + remoteStage;
+
+      const winCycle = remoteComposite >= localComposite ? remoteCycle : localCycleSaved;
+      const winStage = remoteComposite >= localComposite ? remoteStage : localStageSaved;
+
+      setCycleCount(winCycle);
+      setStageIndex(winStage);
+      try {
+        localStorage.setItem(STORAGE_KEY_CYCLE_COUNT, String(winCycle));
+        localStorage.setItem(STORAGE_KEY_STAGE_INDEX, String(winStage));
+      } catch {}
+
+      if (localComposite > remoteComposite) {
+        savePlayerDataToFirestore({ cycleCount: winCycle, stageIndex: winStage });
+      }
     }
     if (typeof remoteData.isInfiniteMode === 'boolean') {
       setIsInfiniteMode((prev) => {
         const next = prev || Boolean(remoteData.isInfiniteMode);
         try {
           localStorage.setItem(STORAGE_KEY_INFINITE_MODE, String(next));
-        } catch {}
-        return next;
-      });
-    }
-    if (typeof remoteData.stageIndex === 'number') {
-      const remoteStage = Math.max(0, Math.floor(remoteData.stageIndex));
-      setStageIndex((prev) => {
-        const next = Math.max(prev, remoteStage);
-        try {
-          localStorage.setItem(STORAGE_KEY_STAGE_INDEX, String(next));
         } catch {}
         return next;
       });
@@ -950,7 +1107,30 @@ export function App() {
       const localGear = getEquippedGear();
       setEquippedGear({ ...remoteData.atomicEquippedGear, ...localGear });
     }
+    // 13. 시계열 학습 애널리틱스 및 주간 쿠폰 한도 스마트 병합
+    if (remoteData.learningAnalytics && typeof remoteData.learningAnalytics === 'object') {
+      const localAnalytics = loadLearningAnalytics();
+      const mergedAnalytics = mergeLearningAnalytics(localAnalytics, remoteData.learningAnalytics);
+      saveLearningAnalytics(mergedAnalytics);
+    }
   }, [refreshCouponCount, setCumulativeAttendanceDays, setRecords, setStampCount]);
+
+  // 일일 활성 학습 시간(Study Seconds) 15초 주기 측정 및 클라우드 동기화
+  useEffect(() => {
+    if (!authUser) return;
+    let tickCount = 0;
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      const updated = addDailyStudySeconds(15);
+      tickCount += 1;
+      // 60초(4회 틱)마다 Firestore에 백그라운드 동기화
+      if (tickCount % 4 === 0 && isFirestoreInitialized.current) {
+        savePlayerDataToFirestore({ learningAnalytics: updated });
+      }
+    }, 15000);
+
+    return () => window.clearInterval(intervalId);
+  }, [authUser]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1011,6 +1191,7 @@ export function App() {
           atomicUnlockedParts: getUnlockedPartIds(),
           atomicUnlockedTitles: getUnlockedTitleIds(),
           atomicEquippedGear: getEquippedGear(),
+          learningAnalytics: loadLearningAnalytics(),
         };
 
         // 로그인 시 해당 UID 문서가 없으면 기본값으로 초기 문서 생성
@@ -1272,6 +1453,8 @@ export function App() {
         'godzilla_reset_codex_claimed_for_test_v1',
         'godzilla_add_5_boxes_prob_test_v1',
         'godzilla_add_5_boxes_prob_test_remote_v1',
+        'godzilla_learning_analytics_v1',
+        STORAGE_KEY_GRADUATED_WORDS,
       ];
       keysToRemove.forEach((key) => localStorage.removeItem(key));
 
@@ -1316,6 +1499,7 @@ export function App() {
         atomicUnlockedParts: ['part_head_helmet', 'part_fin_classic', 'part_weapon_standard'],
         atomicUnlockedTitles: ['title_default'],
         atomicEquippedGear: DEFAULT_EQUIPPED_GEAR,
+        learningAnalytics: loadLearningAnalytics(),
       });
     } catch (e) {
       console.error('Failed to reset Firestore user document:', e);
@@ -1348,6 +1532,8 @@ export function App() {
     (matchedId: string | number, isCritical: boolean, roarPower?: RoarPowerResult | null) => {
       if (battleStatusRef.current !== 'PLAYING' || !activeWords.some((word) => word.id === matchedId) || attackedIdsRef.current.has(matchedId)) return;
       attackedIdsRef.current.add(matchedId);
+      // 언어 학습 정답 애널리틱스 기록
+      recordLanguageAttempt(true);
       // 현재 보드에 깔린 activeWords의 모든 단어가 빠짐없이 매칭(공격) 완료되었는지 정밀 검증
       const isFinalHit = activeWords.length > 0 && activeWords.every((word) => attackedIdsRef.current.has(word.id));
       if (isFinalHit) {
@@ -1384,6 +1570,7 @@ export function App() {
 
       // 복습 모드: SRS 3단계 마스터리 시스템 (3회 성공 시 오답노트에서 완전 봉인/졸업)
       if (isReviewMode) {
+        const now = Date.now();
         setWrongWordList((prev) => {
           const updated: WordItem[] = [];
           for (const item of prev) {
@@ -1391,13 +1578,17 @@ export function App() {
               const currentMastery = item.reviewMastery || 0;
               const nextMastery = currentMastery + 1;
               if (nextMastery < 3) {
-                // 아직 3회 미만이면 마스터리 별점 카운트 1 증가 유지
+                // 아직 3회 미만이면 마스터리 별점 카운트 1 증가 및 다음 에빙하우스 복습 주기 설정
                 updated.push({
                   ...item,
                   reviewMastery: nextMastery,
+                  lastReviewedStage: currentStageNum,
+                  lastReviewedAt: now,
+                  nextReviewAt: getNextSrsReviewTimestamp(nextMastery, now),
                 });
               } else {
                 // 3회 달성: 오답노트에서 완전히 졸업/제거!
+                markWordsGraduated([matchedId]);
               }
             } else {
               updated.push(item);
@@ -1413,10 +1604,32 @@ export function App() {
         });
       }
 
-      // [망각 방지 데일리 데자뷰]: 이전 오답 단어를 일반 스테이지에서 정답 매칭 시 오답노트에서 명예 졸업!
+      // [망각 방지 데일리 데자뷰]: 에빙하우스 3단계(★★★) SRS 마스터리 연동
       if (!isReviewMode && sessionDejaVuWord && matchedId === sessionDejaVuWord.id) {
+        const now = Date.now();
+        const prevMastery = sessionDejaVuWord.reviewMastery || 0;
+        const nextMastery = prevMastery + 1;
+
         setWrongWordList((prev) => {
-          const updated = prev.filter((item) => item.id !== matchedId);
+          const updated: WordItem[] = [];
+          for (const item of prev) {
+            if (item.id === matchedId) {
+              const itemNextMastery = (item.reviewMastery || 0) + 1;
+              if (itemNextMastery < 3) {
+                updated.push({
+                  ...item,
+                  reviewMastery: itemNextMastery,
+                  lastReviewedStage: currentStageNum,
+                  lastReviewedAt: now,
+                  nextReviewAt: getNextSrsReviewTimestamp(itemNextMastery, now),
+                });
+              } else {
+                markWordsGraduated([matchedId]);
+              }
+            } else {
+              updated.push(item);
+            }
+          }
           try {
             localStorage.setItem(STORAGE_KEY_WRONG_WORDS, JSON.stringify(updated));
           } catch (e) {
@@ -1426,10 +1639,22 @@ export function App() {
           return updated;
         });
 
-        triggerPartnerNotice(`🎓 깜짝 데자뷰 마스터! '${sessionDejaVuWord.ko}' 오답노트 완벽 졸업! 🎉`, '🎓');
+        if (nextMastery >= 3) {
+          triggerPartnerNotice(
+            `🎓 깜짝 데자뷰 마스터(★★★)! '${sessionDejaVuWord.ko}' 장기기억 완벽 졸업! 🎉`,
+            '🎓'
+          );
+        } else {
+          const stars = '★'.repeat(nextMastery) + '☆'.repeat(3 - nextMastery);
+          triggerPartnerNotice(
+            `⚡ 깜짝 데자뷰 성공! '${sessionDejaVuWord.ko}' 기억 별점 UP! (${stars} ${nextMastery}/3)`,
+            '🌟'
+          );
+        }
+
         try {
           confetti({
-            particleCount: 80,
+            particleCount: nextMastery >= 3 ? 90 : 55,
             spread: 80,
             origin: { y: 0.55 },
             colors: ['#c084fc', '#a855f7', '#fbbf24', '#ffffff', '#38bdf8'],
@@ -1496,7 +1721,7 @@ export function App() {
         triggerPartnerNotice(`고질라 -1.0 압축 폭발(${partnerAwakening.shortBadge})! 보너스 EXP +${minusOneExpBonus}!`, '💥');
       }
     },
-    [activeWords, isReviewMode, sessionDejaVuWord, equippedPartnerId, unlockedMonsters, triggerPartnerNotice]
+    [activeWords, isReviewMode, sessionDejaVuWord, currentStageNum, equippedPartnerId, unlockedMonsters, triggerPartnerNotice]
   );
 
   const handleComboComplete = useCallback(
@@ -1554,7 +1779,7 @@ export function App() {
   );
 
   // ─────────────────────────────────────────────
-  // 9. 오답 핸들러 (오답노트 자동 수집 & 파트너 패시브 발동)
+  // 9. 오답 핸들러 (오답노트 정밀 수집 & 파트너 패시브 발동)
   // ─────────────────────────────────────────────
   const handleMatchFail = useCallback((failedIds?: (string | number)[]) => {
     if (battleStatusRef.current !== 'PLAYING') return;
@@ -1579,16 +1804,56 @@ export function App() {
 
     if (failedIds && failedIds.length > 0) {
       const currentList = isReviewMode ? reviewWords : stageWords;
-      const failedItems = failedIds
-        .map((id) => currentList.find((w) => w.id === id))
-        .filter((w): w is WordItem => !!w);
+      // 3개 선택 카드 중 2개가 일치하는 다수결 단어 ID가 있으면 해당 목표 단어 1개만 오답으로 기록 (나머지 카드 오탐 오염 방지)
+      // 3개 모두 다를 경우 첫 번째(한국어 기준) 단어 1개만 오답으로 기록
+      const idCounts = new Map<string, number>();
+      for (const rawId of failedIds) {
+        const key = String(rawId);
+        idCounts.set(key, (idCounts.get(key) || 0) + 1);
+      }
+      let targetKey = String(failedIds[0]);
+      for (const [key, count] of idCounts.entries()) {
+        if (count >= 2) {
+          targetKey = key;
+          break;
+        }
+      }
 
-      if (failedItems.length > 0) {
+      const targetItem = currentList.find((w) => String(w.id) === targetKey);
+      // 언어 학습 오답 및 취약 단어 누적 횟수 기록
+      recordLanguageAttempt(false, targetItem ? targetItem.id : targetKey);
+      if (targetItem) {
+        const now = Date.now();
+        unmarkWordsGraduated([targetItem.id]);
+
         setWrongWordList((prev) => {
-          const existingIds = new Set(prev.map((w) => w.id));
-          const newAdditions = failedItems.filter((w) => !existingIds.has(w.id));
-          if (newAdditions.length === 0) return prev;
-          const updated = dedupeWordsById([...prev, ...newAdditions]);
+          const exists = prev.some((w) => String(w.id) === targetKey);
+          let updated: WordItem[];
+          if (exists) {
+            // 이미 오답노트에 있던 단어를 다시 틀린 경우 마스터리 별점을 0으로 리셋하고 쿨타임 갱신
+            updated = prev.map((w) =>
+              String(w.id) === targetKey
+                ? {
+                    ...w,
+                    reviewMastery: 0,
+                    lastReviewedStage: currentStageNum,
+                    lastReviewedAt: now,
+                    nextReviewAt: getNextSrsReviewTimestamp(0, now),
+                  }
+                : w
+            );
+          } else {
+            updated = dedupeWordsById([
+              ...prev,
+              {
+                ...targetItem,
+                reviewMastery: 0,
+                lastReviewedStage: currentStageNum,
+                lastReviewedAt: now,
+                nextReviewAt: getNextSrsReviewTimestamp(0, now),
+              },
+            ]);
+          }
           try {
             localStorage.setItem(STORAGE_KEY_WRONG_WORDS, JSON.stringify(updated));
           } catch (e) {
@@ -1598,8 +1863,10 @@ export function App() {
           return updated;
         });
       }
+    } else {
+      recordLanguageAttempt(false);
     }
-  }, [damagePerHit, isReviewMode, reviewWords, stageWords, equippedPartnerId, triggerPartnerNotice]);
+  }, [damagePerHit, isReviewMode, reviewWords, stageWords, currentStageNum, equippedPartnerId, triggerPartnerNotice]);
 
   // ─────────────────────────────────────────────
   // 10. 게임 리셋 / 스테이지 진행
@@ -1670,6 +1937,8 @@ export function App() {
   // 보스 미니게임 및 배틀 중 발생한 오답 단어 수집 핸들러
   const handleCollectWrongWord = useCallback((wrongItem: WordItem) => {
     if (!wrongItem || !wrongItem.id) return;
+    recordLanguageAttempt(false, wrongItem.id);
+    unmarkWordsGraduated([wrongItem.id]);
     setWrongWordList((prev) => {
       if (prev.some((w) => w.id === wrongItem.id)) return prev;
       const updated = dedupeWordsById([...prev, wrongItem]);
@@ -1770,6 +2039,7 @@ export function App() {
           atomicUnlockedParts: getUnlockedPartIds(),
           atomicUnlockedTitles: getUnlockedTitleIds(),
           atomicEquippedGear: getEquippedGear(),
+          learningAnalytics: loadLearningAnalytics(),
         });
         return nextState;
       });
@@ -1877,7 +2147,10 @@ export function App() {
   }, [resetBattle]);
 
   const handleClearWrongWords = useCallback(() => {
-    setWrongWordList([]);
+    setWrongWordList((prev) => {
+      markWordsGraduated(prev.map((w) => w.id));
+      return [];
+    });
     try {
       localStorage.removeItem(STORAGE_KEY_WRONG_WORDS);
     } catch (e) {
@@ -1887,8 +2160,9 @@ export function App() {
   }, []);
 
   const handleRemoveWrongWord = useCallback((id: string | number) => {
+    markWordsGraduated([id]);
     setWrongWordList((prev) => {
-      const updated = prev.filter((w) => w.id !== id);
+      const updated = prev.filter((w) => String(w.id) !== String(id));
       try {
         localStorage.setItem(STORAGE_KEY_WRONG_WORDS, JSON.stringify(updated));
       } catch (e) {
@@ -1948,9 +2222,10 @@ export function App() {
     }
   }, [isReviewMode, isStageClearReady, isGameOver, hasAwardedStageEgg, equippedPartnerId, triggerPartnerNotice]);
 
-  // 12-2. 일반 배틀 스테이지 클리어 시 일일 듀얼 퀘스트 언어 배틀 완료 기록
+  // 12-2. 일반 배틀 스테이지 클리어 시 일일 듀얼 퀘스트 언어 배틀 완료 기록 및 애널리틱스 동기화
   useEffect(() => {
     if (isStageClearReady && !isGameOver && !isReviewMode) {
+      savePlayerDataToFirestore({ learningAnalytics: loadLearningAnalytics() });
       setDailyDualQuest((prev) => {
         if (prev.languageDone) return prev;
         const updated = { ...prev, languageDone: true };
@@ -3001,6 +3276,16 @@ export function App() {
                 } catch {}
                 savePlayerDataToFirestore({ gameState: nextState });
                 return nextState;
+              });
+            }}
+            onBonusEgg={(amount) => {
+              setEggCount((prev) => {
+                const next = prev + amount;
+                try {
+                  localStorage.setItem(STORAGE_KEY_EGG_COUNT, String(next));
+                } catch {}
+                savePlayerDataToFirestore({ eggCount: next });
+                return next;
               });
             }}
             onWeeklyRewardClaimed={() => {

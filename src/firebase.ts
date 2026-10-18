@@ -18,7 +18,7 @@ import {
   signOut,
   type User,
 } from "firebase/auth";
-import type { GameState, UnlockedMonsterRecord, WordItem, DailyDualQuest } from "./types";
+import type { GameState, UnlockedMonsterRecord, WordItem, DailyDualQuest, LearningAnalyticsData } from "./types";
 import type { EarnedCoupon } from "./data/gachaRewards";
 import type { EquippedAtomicGear } from "./data/atomicPartsData";
 
@@ -160,6 +160,7 @@ export interface PlayerFirestoreData {
   atomicUnlockedParts?: string[];
   atomicUnlockedTitles?: string[];
   atomicEquippedGear?: EquippedAtomicGear;
+  learningAnalytics?: LearningAnalyticsData;
   updatedAt?: string;
 }
 

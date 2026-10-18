@@ -1,8 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import type { WordItem, DailyDualQuest } from '../types';
+import type { WordItem, DailyDualQuest, LearningAnalyticsData } from '../types';
 import { X, Save, RotateCcw, AlertCircle, CheckCircle, Heart, BarChart3, BookOpen, ShieldAlert } from 'lucide-react';
 import { DEFAULT_WORDS, auditAndHealWords, REGEX_KOREAN, REGEX_ENGLISH } from '../data/words';
 import { getUnlockedPartIds, getUnlockedTitleIds } from '../data/atomicPartsData';
+import {
+  loadLearningAnalytics,
+  setWeeklyCouponLimitMinutes,
+  MATH_SKILL_CATEGORIES,
+  MATH_SKILL_LABELS,
+} from '../data/learningAnalytics';
+import { getThisWeekEarnedCouponMinutes } from '../data/gachaRewards';
+import { formatDateToStr } from '../hooks/useAttendance';
 
 export const STORAGE_KEY_PARENT_CHEER = 'godzilla_parent_cheer_message';
 
@@ -82,6 +90,101 @@ export const ParentModal: React.FC<ParentModalProps> = ({
   // 부모님 사랑의 응원 캡슐 메시지
   const [cheerMessage, setCheerMessage] = useState<string>(() => getStoredParentCheer());
   const [cheerSaved, setCheerSaved] = useState(false);
+
+  // 학습 애널리틱스 및 주간 쿠폰 상한선 상태
+  const [analytics, setAnalytics] = useState<LearningAnalyticsData>(() => loadLearningAnalytics());
+  const thisWeekCouponMinutes = useMemo(() => getThisWeekEarnedCouponMinutes(), [isOpen]);
+
+  // 최근 7일 시계열 학습 통계 계산
+  const last7DaysSummary = useMemo(() => {
+    const days: Array<{
+      dateStr: string;
+      shortLabel: string;
+      studyMinutes: number;
+      totalCorrect: number;
+      totalAttempts: number;
+    }> = [];
+    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+    let weekStudySeconds = 0;
+    let weekCorrect = 0;
+    let weekAttempts = 0;
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = formatDateToStr(d);
+      const stat = analytics.dailyStats[dateStr];
+      const studySec = stat?.studySeconds ?? 0;
+      const c = (stat?.langCorrect ?? 0) + (stat?.mathCorrect ?? 0);
+      const w = (stat?.langWrong ?? 0) + (stat?.mathWrong ?? 0);
+      weekStudySeconds += studySec;
+      weekCorrect += c;
+      weekAttempts += c + w;
+      days.push({
+        dateStr,
+        shortLabel: i === 0 ? '오늘' : `${dayNames[d.getDay()]}`,
+        studyMinutes: Math.max(studySec > 0 ? 1 : 0, Math.round(studySec / 60)),
+        totalCorrect: c,
+        totalAttempts: c + w,
+      });
+    }
+
+    const totalMinutes = Math.max(
+      weekStudySeconds > 0 ? 1 : 0,
+      Math.round(weekStudySeconds / 60)
+    );
+    const accuracy =
+      weekAttempts > 0 ? Math.round((weekCorrect / weekAttempts) * 100) : 100;
+
+    return { days, totalMinutes, accuracy, weekAttempts };
+  }, [analytics]);
+
+  // 집중 케어 취약 단어 TOP 5 산출 (누적 오답 횟수 + 현재 오답노트 결합)
+  const topWeakWords = useMemo(() => {
+    const wordMap = new Map<string, WordItem>();
+    DEFAULT_WORDS.forEach((w) => wordMap.set(String(w.id), w));
+    currentWords.forEach((w) => wordMap.set(String(w.id), w));
+    wrongWords.forEach((w) => wordMap.set(String(w.id), w));
+
+    const scoreMap = new Map<string, { word: WordItem; errorCount: number; inWrongNote: boolean }>();
+
+    for (const [id, count] of Object.entries(analytics.wordErrorCounts)) {
+      const found = wordMap.get(String(id));
+      if (found && count > 0) {
+        scoreMap.set(String(id), {
+          word: found,
+          errorCount: count,
+          inWrongNote: wrongWords.some((w) => String(w.id) === String(id)),
+        });
+      }
+    }
+
+    for (const w of wrongWords) {
+      const key = String(w.id);
+      const existing = scoreMap.get(key);
+      if (existing) {
+        existing.inWrongNote = true;
+      } else {
+        scoreMap.set(key, {
+          word: w,
+          errorCount: 1,
+          inWrongNote: true,
+        });
+      }
+    }
+
+    return Array.from(scoreMap.values())
+      .sort((a, b) => {
+        if (b.errorCount !== a.errorCount) return b.errorCount - a.errorCount;
+        return (a.inWrongNote ? 0 : 1) - (b.inWrongNote ? 0 : 1);
+      })
+      .slice(0, 5);
+  }, [analytics.wordErrorCounts, currentWords, wrongWords]);
+
+  const handleSelectWeeklyLimit = (limitMinutes: number) => {
+    const updated = setWeeklyCouponLimitMinutes(limitMinutes);
+    setAnalytics(updated);
+  };
 
   // 모달 마운트 시 현재 단어 목록으로 초기화
   const [inputText, setInputText] = useState(() =>
@@ -579,6 +682,364 @@ export const ParentModal: React.FC<ParentModalProps> = ({
                     <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
                       해금 파츠/칭호: <strong style={{ color: '#34d399' }}>{unlockedPartsCount}개 / {unlockedTitlesCount}개</strong>
                     </div>
+                  </div>
+                </div>
+
+                {/* 📊 주간 학습 시간 & 정답률 시계열 리포트 */}
+                <div
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: '14px',
+                    backgroundColor: '#020617',
+                    border: '1px solid #1e293b',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '10px',
+                      flexWrap: 'wrap',
+                      gap: '6px',
+                    }}
+                  >
+                    <span style={{ fontSize: '12px', fontWeight: 900, color: '#38bdf8' }}>
+                      📊 최근 7일 학습 시간 & 정답률 추이
+                    </span>
+                    <div style={{ display: 'flex', gap: '8px', fontSize: '11px', fontWeight: 800 }}>
+                      <span style={{ color: '#fde047' }}>
+                        ⏱️ 주간 총 {last7DaysSummary.totalMinutes}분
+                      </span>
+                      <span style={{ color: '#34d399' }}>
+                        🎯 정답률 {last7DaysSummary.accuracy}% ({last7DaysSummary.weekAttempts}문항)
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 7일 미니 바 차트 */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(7, 1fr)',
+                      gap: '6px',
+                      alignItems: 'end',
+                      height: '68px',
+                      padding: '8px 6px 4px 6px',
+                      backgroundColor: '#0f172a',
+                      borderRadius: '10px',
+                      border: '1px solid #1e293b',
+                    }}
+                  >
+                    {last7DaysSummary.days.map((d) => {
+                      const maxMin = Math.max(
+                        15,
+                        ...last7DaysSummary.days.map((item) => item.studyMinutes)
+                      );
+                      const barHeightPct =
+                        d.studyMinutes > 0
+                          ? Math.max(18, Math.min(100, Math.round((d.studyMinutes / maxMin) * 100)))
+                          : 8;
+                      return (
+                        <div
+                          key={d.dateStr}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'flex-end',
+                            height: '100%',
+                            gap: '3px',
+                          }}
+                        >
+                          <span style={{ fontSize: '9px', color: '#cbd5e1', fontWeight: 800 }}>
+                            {d.studyMinutes > 0 ? `${d.studyMinutes}m` : '-'}
+                          </span>
+                          <div
+                            style={{
+                              width: '100%',
+                              maxWidth: '22px',
+                              height: `${barHeightPct}%`,
+                              borderRadius: '4px',
+                              background:
+                                d.studyMinutes > 0
+                                  ? 'linear-gradient(180deg, #22d3ee 0%, #0284c7 100%)'
+                                  : '#1e293b',
+                            }}
+                          />
+                          <span
+                            style={{
+                              fontSize: '9px',
+                              color: d.shortLabel === '오늘' ? '#fde047' : '#94a3b8',
+                              fontWeight: d.shortLabel === '오늘' ? 900 : 700,
+                            }}
+                          >
+                            {d.shortLabel}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 🚦 초2 산수 연산 유형별 신호등 진단표 */}
+                <div
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: '14px',
+                    backgroundColor: '#020617',
+                    border: '1px solid #1e293b',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '8px',
+                      flexWrap: 'wrap',
+                      gap: '4px',
+                    }}
+                  >
+                    <span style={{ fontSize: '12px', fontWeight: 900, color: '#fbbf24' }}>
+                      🚦 초2 산수 영역별 신호등 진단
+                    </span>
+                    <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700 }}>
+                      🟢탄탄(85%↑) · 🟡연습중(65~84%) · 🔴집중코칭(65%↓)
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px' }}>
+                    {MATH_SKILL_CATEGORIES.map((cat) => {
+                      const info = MATH_SKILL_LABELS[cat];
+                      const stat = analytics.mathSkillStats[cat] || { attempts: 0, correct: 0 };
+                      const acc =
+                        stat.attempts > 0 ? Math.round((stat.correct / stat.attempts) * 100) : null;
+                      const light =
+                        acc === null ? '⚪' : acc >= 85 ? '🟢' : acc >= 65 ? '🟡' : '🔴';
+                      const statusColor =
+                        acc === null
+                          ? '#64748b'
+                          : acc >= 85
+                          ? '#34d399'
+                          : acc >= 65
+                          ? '#fbbf24'
+                          : '#f87171';
+
+                      return (
+                        <div
+                          key={cat}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '6px 8px',
+                            borderRadius: '8px',
+                            backgroundColor: '#0f172a',
+                            border: '1px solid #1e293b',
+                            fontSize: '11px',
+                          }}
+                        >
+                          <span
+                            style={{
+                              color: '#e2e8f0',
+                              fontWeight: 700,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {info.icon} {info.label}
+                          </span>
+                          <span
+                            style={{
+                              color: statusColor,
+                              fontWeight: 900,
+                              fontSize: '10px',
+                              flexShrink: 0,
+                              marginLeft: '4px',
+                            }}
+                          >
+                            {light} {acc === null ? '미도전' : `${acc}%`}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 🎯 집중 케어 취약 단어 TOP 5 */}
+                <div
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: '14px',
+                    backgroundColor: '#020617',
+                    border: '1px solid #1e293b',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '8px',
+                    }}
+                  >
+                    <span style={{ fontSize: '12px', fontWeight: 900, color: '#f472b6' }}>
+                      🎯 집중 케어 취약 단어 TOP 5
+                    </span>
+                    <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700 }}>
+                      누적 오답 & SRS 복습 대상
+                    </span>
+                  </div>
+
+                  {topWeakWords.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '10px',
+                        borderRadius: '8px',
+                        backgroundColor: '#0f172a',
+                        color: '#34d399',
+                        fontSize: '11px',
+                        fontWeight: 800,
+                        textAlign: 'center',
+                      }}
+                    >
+                      🎉 기록된 취약 단어가 없습니다! 완벽하게 소화하고 있어요!
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                      {topWeakWords.map(({ word, errorCount, inWrongNote }, idx) => (
+                        <div
+                          key={`${word.id}-${idx}`}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '6px 10px',
+                            borderRadius: '8px',
+                            backgroundColor: '#0f172a',
+                            border: '1px solid #1e293b',
+                            fontSize: '11px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                fontWeight: 900,
+                                color: '#f472b6',
+                                width: '16px',
+                              }}
+                            >
+                              #{idx + 1}
+                            </span>
+                            <span style={{ color: '#ffffff', fontWeight: 900 }}>
+                              {word.emoji ? `${word.emoji} ` : ''}{word.ko}
+                            </span>
+                            <span style={{ color: '#fde047', fontWeight: 700 }}>{word.en}</span>
+                            <span style={{ color: '#34d399', fontWeight: 700 }}>
+                              {word.ja} {word.jaKana ? `(${word.jaKana})` : ''}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                            {inWrongNote && (
+                              <span
+                                style={{
+                                  padding: '2px 6px',
+                                  borderRadius: '6px',
+                                  backgroundColor: 'rgba(244, 114, 182, 0.15)',
+                                  color: '#f472b6',
+                                  fontSize: '9px',
+                                  fontWeight: 900,
+                                }}
+                              >
+                                복습중 ★{word.reviewMastery || 0}/3
+                              </span>
+                            )}
+                            <span
+                              style={{
+                                padding: '2px 6px',
+                                borderRadius: '6px',
+                                backgroundColor: '#1e293b',
+                                color: '#cbd5e1',
+                                fontSize: '9px',
+                                fontWeight: 800,
+                              }}
+                            >
+                              오답 {errorCount}회
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 🛡️ 주간 미디어 쿠폰 최대 당첨 한도 설정 (인플레이션 방어) */}
+                <div
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: '14px',
+                    backgroundColor: '#020617',
+                    border: '1px solid rgba(34, 211, 238, 0.35)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '6px',
+                      flexWrap: 'wrap',
+                      gap: '4px',
+                    }}
+                  >
+                    <span style={{ fontSize: '12px', fontWeight: 900, color: '#22d3ee' }}>
+                      🛡️ 주간 미디어 쿠폰 최대 당첨 한도 설정
+                    </span>
+                    <span style={{ fontSize: '11px', fontWeight: 900, color: '#fde047' }}>
+                      이번 주 발급: {thisWeekCouponMinutes}분 /{' '}
+                      {analytics.weeklyCouponLimitMinutes === 0
+                        ? '무제한'
+                        : `${analytics.weeklyCouponLimitMinutes}분`}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '10.5px', color: '#94a3b8', margin: '0 0 8px 0', lineHeight: 1.4 }}>
+                    한도 도달 후 황금 보물상자 개봉 시, 미디어 시간 쿠폰 대신{' '}
+                    <strong style={{ color: '#34d399' }}>특별 성장 보상(EXP +150 & 괴수 알 +1개)</strong>으로
+                    자동 전환되어 미디어 과몰입을 예방합니다.
+                  </p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '5px' }}>
+                    {[
+                      { min: 30, label: '주 30분' },
+                      { min: 60, label: '60분(권장)' },
+                      { min: 90, label: '주 90분' },
+                      { min: 120, label: '주 120분' },
+                      { min: 0, label: '무제한' },
+                    ].map(({ min, label }) => {
+                      const isSelected = analytics.weeklyCouponLimitMinutes === min;
+                      return (
+                        <button
+                          key={min}
+                          type="button"
+                          onClick={() => handleSelectWeeklyLimit(min)}
+                          style={{
+                            padding: '6px 4px',
+                            borderRadius: '8px',
+                            backgroundColor: isSelected ? '#06b6d4' : '#0f172a',
+                            border: `1.5px solid ${isSelected ? '#22d3ee' : '#334155'}`,
+                            color: isSelected ? '#020617' : '#cbd5e1',
+                            fontSize: '10.5px',
+                            fontWeight: 900,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 

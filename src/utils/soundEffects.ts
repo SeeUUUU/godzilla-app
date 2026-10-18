@@ -50,6 +50,17 @@ export const initAudioContextOnUserGesture = () => {
   document.addEventListener('visibilitychange', handleVisibilityResume);
 };
 
+// 모바일/태블릿 물리적 햅틱 진동 피드백 유틸리티 (iOS Safari 등 미지원 환경 안전 예외 처리)
+export const triggerHaptic = (pattern: number | number[] = 12): void => {
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(pattern);
+    }
+  } catch {
+    // ignore on unsupported devices
+  }
+};
+
 // 1. 고질라 열선 발사 레이저음 (Pew-Pew & Roar Laser)
 export const playLaserPewPew = () => {
   const ctx = getAudioContext();
@@ -289,6 +300,7 @@ export const playElectricShockSound = () => {
 
 // 3. 정답 딩동댕 벨소리 (Ding-Dong-Dang Celebratory Chime)
 export const playDingDongSuccess = () => {
+  triggerHaptic([20, 40, 35]);
   const ctx = getAudioContext();
   if (!ctx) return;
 
@@ -356,6 +368,7 @@ export const playComboSound = (combo: number) => {
 
 // 4. 오답 진동음 (Error Buzz/Wobble)
 export const playErrorBuzzer = () => {
+  triggerHaptic([45, 35, 45]);
   const ctx = getAudioContext();
   if (!ctx) return;
 
@@ -383,6 +396,7 @@ export const playErrorBuzzer = () => {
 
 // 5. 카드 탭 팝 사운드 (Tactile Touch Click)
 export const playCardTapSound = () => {
+  triggerHaptic(10);
   const ctx = getAudioContext();
   if (!ctx) return;
 

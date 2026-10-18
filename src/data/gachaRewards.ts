@@ -292,3 +292,82 @@ export const createGoldenChestReward = (source: 'attendance' | 'codex'): GachaRe
     bonusExp: 100,
   };
 };
+
+// ───────────────────────────────────────────────────────────
+// 주간 미디어 쿠폰 상한제 (Weekly Coupon Cap) 계산 및 보정
+// ───────────────────────────────────────────────────────────
+
+export const getThisWeekEarnedCouponMinutes = (): number => {
+  const mondayStr = getThisWeekMondayStr();
+  const coupons = loadCoupons();
+  let totalMinutes = 0;
+
+  for (const c of coupons) {
+    if (!c || typeof c.minutes !== 'number' || c.minutes <= 0 || !c.earnedAt) continue;
+    const d = new Date(c.earnedAt);
+    if (isNaN(d.getTime())) continue;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const earnedDateStr = `${y}-${m}-${day}`;
+    if (earnedDateStr >= mondayStr) {
+      totalMinutes += c.minutes;
+    }
+  }
+
+  return totalMinutes;
+};
+
+export const applyWeeklyCouponCap = (
+  rolled: GachaReward,
+  weeklyLimitMinutes: number
+): { reward: GachaReward; isCappedToBonus: boolean } => {
+  // 0 이하는 무제한(상한 없음) 또는 이미 꽝인 경우 그대로 반환
+  if (weeklyLimitMinutes <= 0 || rolled.minutes <= 0) {
+    return { reward: rolled, isCappedToBonus: false };
+  }
+
+  const earnedThisWeek = getThisWeekEarnedCouponMinutes();
+  const remainingMinutes = Math.max(0, weeklyLimitMinutes - earnedThisWeek);
+
+  const createCappedGrowthReward = (): GachaReward => ({
+    id: 'miss',
+    label: '고질라 슈퍼 성장 에너지! (주간 쿠폰 한도 달성)',
+    minutes: 0,
+    emoji: '🦖⚡',
+    description: `이번 주 미디어 쿠폰 한도(${weeklyLimitMinutes}분)를 모두 채웠어요! 대신 고질라 폭풍 성장 에너지(EXP +150 & 괴수 알 +1개)가 특별 지급됩니다!`,
+    color: '#22d3ee',
+    bgGradient: 'linear-gradient(135deg, #083344 0%, #0f172a 60%, #020617 100%)',
+    borderColor: '#22d3ee',
+    shadowColor: 'rgba(34, 211, 238, 0.75)',
+    badgeLabel: '🛡️ 주간 미디어 안심 보호 발동!',
+    weight: 0,
+    bonusExp: 150,
+  });
+
+  if (remainingMinutes <= 0) {
+    return { reward: createCappedGrowthReward(), isCappedToBonus: true };
+  }
+
+  if (rolled.minutes <= remainingMinutes) {
+    return { reward: rolled, isCappedToBonus: false };
+  }
+
+  // 잔여 한도 이하의 가장 큰 쿠폰 등급으로 자동 하향 조정
+  const fittingTier = GACHA_REWARDS.filter(
+    (r) => r.minutes > 0 && r.minutes <= remainingMinutes
+  ).sort((a, b) => b.minutes - a.minutes)[0];
+
+  if (fittingTier) {
+    return {
+      reward: {
+        ...fittingTier,
+        description: `${fittingTier.description} (이번 주 잔여 쿠폰 한도 ${remainingMinutes}분에 맞춰 지급되었어요!)`,
+      },
+      isCappedToBonus: false,
+    };
+  }
+
+  return { reward: createCappedGrowthReward(), isCappedToBonus: true };
+};
+

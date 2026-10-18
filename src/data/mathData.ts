@@ -1232,23 +1232,89 @@ export const getProblemHintFormula = (item: MathProblemItem): MathHintFormula | 
 
 /**
  * 산수 오답 및 운석 피격 시 아이에게 직관적인 실마리를 주는 '1초 연산 풀이 팁'
- * - 초등 2학년 눈높이 맞춤: 시계 읽기/시간 계산, 받아올림, 받아내림, 거꾸로 셈(□), 세 수 연산, 문장제 핵심 원리 요약
+ * - 아이가 선택한 오답(selectedWrongChoice)을 역추적(Error Taxonomy)하여 맞춤형 코칭 제공
+ * - 초등 2학년 눈높이 맞춤: 시계 읽기/시간 계산(정답 스포일러 방지), 받아올림, 받아내림 역산, 부호 착각, 자리 전치, 문장제 핵심 원리 요약
  */
-export const getMathQuickTip = (item: MathProblemItem): string => {
+export const getMathQuickTip = (
+  item: MathProblemItem,
+  selectedWrongChoice?: string | number
+): string => {
   if (!item) return '일의 자리부터 차근차근 묶음과 낱개로 계산해 보세요!';
 
-  // 0. 아날로그 시계 시한폭탄 문제
+  // 0. 아날로그 시계 시한폭탄 문제 (정답 직접 노출 스포일러 제거 -> 원리 기반 비계 힌트)
   if (item.clockQuestion) {
-    const { hour, minute, deltaMinutes } = item.clockQuestion;
+    const { hour, minute, deltaMinutes, targetHour } = item.clockQuestion;
     const minNum = minute === 0 ? 12 : minute / 5;
     if (deltaMinutes && deltaMinutes > 0) {
-      const dLabel = deltaMinutes === 60 ? '1시간' : `${deltaMinutes}분`;
-      return `지금 시계는 [${hour}시 ${minute}분]! 여기서 ${dLabel}이 지나면 정답은 [${item.answer}]이에요!`;
+      const dLabel = deltaMinutes === 60 ? '1시간(60분)' : `${deltaMinutes}분`;
+      const carryHint =
+        minute + deltaMinutes >= 60
+          ? `분침이 12(60분)를 넘어가면 시침도 [${hour}시]에서 [${targetHour}시]로 1시간 올라가요!`
+          : `시는 [${hour}시] 그대로 두고, [${minute}분]에 [${deltaMinutes}분]만 더해 보세요!`;
+      return `지금 시계는 [${hour}시 ${minute === 0 ? '정각' : `${minute}분`}]! 여기서 ${dLabel}이 지나면? 👉 ${carryHint}`;
     }
-    return `짧은 바늘은 [${hour}시]를 지나고, 긴 바늘이 숫자 [${minNum}]을 가리키면 5×${minNum} = [${minute}분]이에요!`;
+    const nextHour = hour === 12 ? 1 : hour + 1;
+    return `짧은 시침이 [${hour}]와 [${nextHour}] 사이에 있으면 [${hour}시]예요! 긴 분침이 가리키는 숫자 [${minNum}]에 5를 곱해 분(5×${minNum})을 읽어 보세요!`;
   }
 
   const formula = getProblemHintFormula(item);
+  const ansNum = typeof item.answer === 'number' ? item.answer : parseInt(String(item.answer), 10);
+  const chosenNum =
+    selectedWrongChoice !== undefined ? parseInt(String(selectedWrongChoice), 10) : NaN;
+
+  // 0-1. 아이가 선택한 오답(selectedWrongChoice) 역추적 진단 (Error Taxonomy)
+  if (!isNaN(chosenNum) && !isNaN(ansNum) && chosenNum !== ansNum) {
+    if (formula && !formula.op2 && !item.isMissingNumber) {
+      const { a, op, b } = formula;
+      const aO = a % 10;
+      const bO = b % 10;
+
+      // (1) 덧셈·뺄셈 부호 착각 실수
+      if (op === '-' && chosenNum === a + b) {
+        return `앗, 부호 함정! 더하기(+)가 아니라 빼기(-) 문제예요! ${a}에서 ${b}만큼 덜어내 볼까요?`;
+      }
+      if (op === '+' && a >= b && chosenNum === a - b) {
+        return `앗, 부호 함정! 빼기(-)가 아니라 더하기(+) 문제예요! ${a}와 ${b}를 합쳐 볼까요?`;
+      }
+
+      // (2) 받아내림 역산 실수 (초등 2학년 최다 빈출: 작은 수에서 큰 수를 못 빼서 거꾸로 뺀 경우)
+      if (op === '-' && aO < bO) {
+        const noBorrowReverse = Math.floor(a / 10 - b / 10) * 10 + (bO - aO);
+        if (chosenNum === noBorrowReverse) {
+          return `앗! 일의 자리 ${aO}에서 ${bO}를 거꾸로(${bO}-${aO}=${bO - aO}) 빼면 안 돼요! 십의 자리에서 10을 빌려와 (10+${aO})-${bO}=${10 + aO - bO}을 계산해요!`;
+        }
+        // (3) 받아내림 후 십의 자리를 1 줄이지 않은 실수 (+10)
+        if (chosenNum === ansNum + 10) {
+          return `일의 자리에 10을 빌려주었으니, 십의 자리 숫자는 1 작아져야(-10) 해요!`;
+        }
+      }
+
+      // (4) 받아올림 누락 실수 (-10)
+      if (op === '+' && aO + bO >= 10 && chosenNum === ansNum - 10) {
+        return `일의 자리 ${aO}+${bO}=${aO + bO}에서 새로 만들어진 10묶음 1개를 십의 자리에 꼭 더해줘야(+10) 해요!`;
+      }
+
+      // (5) 받아올림이 없는데 10을 더한 실수 (+10)
+      if (op === '+' && aO + bO < 10 && chosenNum === ansNum + 10) {
+        return `일의 자리 합(${aO}+${bO}=${aO + bO})이 10보다 작아서 받아올림이 없어요! 십의 자리만 다시 더해 볼까요?`;
+      }
+    }
+
+    // (6) 십의 자리와 일의 자리 숫자 전치 실수 (예: 42 ↔ 24)
+    if (ansNum >= 12 && ansNum <= 98) {
+      const ansTens = Math.floor(ansNum / 10);
+      const ansOnes = ansNum % 10;
+      if (ansTens !== ansOnes && chosenNum === ansOnes * 10 + ansTens) {
+        return `앗! 십의 자리 숫자와 일의 자리 숫자가 거꾸로 바뀌었어요! 자리를 바꿔서 다시 찾아볼까요?`;
+      }
+    }
+
+    // (7) 일의 자리 근접 계산 착오 (±1 ~ ±2)
+    const diff = Math.abs(chosenNum - ansNum);
+    if (diff >= 1 && diff <= 2) {
+      return `정말 아까워요! 정답과 딱 ${diff}만큼만 차이 나요! 일의 자리 계산을 한 번만 다시 확인해 보세요!`;
+    }
+  }
 
   // 1. 빈칸 채우기 (거꾸로 셈: □)
   if (item.isMissingNumber && formula) {

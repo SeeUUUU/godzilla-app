@@ -7,8 +7,10 @@ import {
   saveCoupon,
   markWeeklyRewardClaimed,
   markCodexRewardClaimed,
+  applyWeeklyCouponCap,
   type GachaReward,
 } from '../data/gachaRewards';
+import { loadLearningAnalytics } from '../data/learningAnalytics';
 import {
   playChestUnlockSound,
   playChestOpenSound,
@@ -23,6 +25,7 @@ export interface GoldenChestModalProps {
   treasureBoxCount?: number;
   onConsumeTreasureBox?: () => void;
   onBonusExp?: (amount: number) => void;
+  onBonusEgg?: (amount: number) => void;
   onWeeklyRewardClaimed?: () => void;
   onCodexRewardClaimed?: () => void;
   onOpenCouponBox?: () => void;
@@ -38,6 +41,7 @@ export const GoldenChestModal: React.FC<GoldenChestModalProps> = ({
   treasureBoxCount,
   onConsumeTreasureBox,
   onBonusExp,
+  onBonusEgg,
   onWeeklyRewardClaimed,
   onCodexRewardClaimed,
   onOpenCouponBox,
@@ -112,7 +116,10 @@ export const GoldenChestModal: React.FC<GoldenChestModalProps> = ({
       openTimerRef.current = window.setTimeout(() => {
         openTimerRef.current = null;
         // 기존 가챠 확률 테이블 기반 뽑기 (도감 10종 완성 최고 보상 교환 시에만 30분 전설 쿠폰 확정)
-        const rolled = source === 'codex' ? createGoldenChestReward('codex') : rollGachaReward();
+        const rawRolled = source === 'codex' ? createGoldenChestReward('codex') : rollGachaReward();
+        const weeklyLimit = loadLearningAnalytics().weeklyCouponLimitMinutes;
+        const { reward: rolled, isCappedToBonus } = applyWeeklyCouponCap(rawRolled, weeklyLimit);
+
         setReward(rolled);
         setIsHatched(true);
         setShowFlash(false);
@@ -142,6 +149,21 @@ export const GoldenChestModal: React.FC<GoldenChestModalProps> = ({
             spread: 90,
             origin: { y: 0.55 },
             colors: ['#fbbf24', '#f59e0b', '#ffffff', '#fde047', '#10b981', '#06b6d4'],
+          });
+        } else if (isCappedToBonus) {
+          // 주간 미디어 쿠폰 한도 달성으로 특별 성장 보상 전환 시: EXP +150 & 괴수 알 +1 지급
+          if (rolled.bonusExp > 0 && onBonusExp) {
+            onBonusExp(rolled.bonusExp);
+          }
+          if (onBonusEgg) {
+            onBonusEgg(1);
+          }
+          playCardRevealFanfare('special');
+          confetti({
+            particleCount: 110,
+            spread: 80,
+            origin: { y: 0.55 },
+            colors: ['#22d3ee', '#38bdf8', '#fde047', '#10b981', '#ffffff'],
           });
         } else {
           // 꽝인 경우: 보너스 EXP 지급 & 쿵! 사운드

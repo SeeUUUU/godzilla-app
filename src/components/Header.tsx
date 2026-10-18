@@ -1,5 +1,5 @@
-import React from 'react';
-import { Settings, Award, BookOpen, LogOut, Mic, MicOff } from 'lucide-react';
+import React, { useState } from 'react';
+import { Settings, Award, BookOpen, LogOut, Mic, MicOff, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getGodzillaEvolution, getGodzillaAura } from '../types';
 import { MONSTER_MAP } from '../data/monsterData';
 
@@ -80,6 +80,7 @@ export const Header: React.FC<HeaderProps> = ({
   const evo = getGodzillaEvolution(level);
   const aura = getGodzillaAura(level);
   const partnerMonster = equippedPartnerId ? MONSTER_MAP.get(equippedPartnerId) : null;
+  const [isUtilityOpen, setIsUtilityOpen] = useState(false);
 
   // 듀얼 퀘스트 완료 개수 계산
   const dualQuestCount = (dailyDualQuest?.languageDone ? 1 : 0) + (dailyDualQuest?.mathDone ? 1 : 0);
@@ -424,69 +425,94 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* [유틸리티 2-2] 📱 앱 다운로드 / 홈 화면 추가 버튼 */}
-          {!isStandalone && onOpenInstall && (
-            <button
-              type="button"
-              onClick={onOpenInstall}
-              title="태블릿·휴대폰에 고질라 앱 설치하기 (전체화면 모드)"
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 border border-cyan-400/80 text-white text-[11px] font-black transition-all active:scale-95 shadow-[0_0_8px_rgba(6,182,212,0.4)] cursor-pointer shrink-0 animate-pulse"
-            >
-              <span className="leading-none text-xs">📱</span>
-              <span className="hidden sm:inline">앱 다운로드</span>
-            </button>
-          )}
+          {/* [전투 집중 HUD] 보조 유틸리티 서랍 토글 (모바일/태블릿 시야 확보) */}
+          <button
+            type="button"
+            onClick={() => setIsUtilityOpen((prev) => !prev)}
+            title={isUtilityOpen ? '보조 설정 메뉴 접기 (전투 집중)' : '설정·음성·설치 메뉴 펼치기'}
+            aria-label={isUtilityOpen ? '설정 메뉴 접기' : '설정 메뉴 펼치기'}
+            className={`lg:hidden w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-md border transition-all active:scale-95 cursor-pointer shrink-0 ${
+              isUtilityOpen
+                ? 'bg-cyan-950/70 border-cyan-500/70 text-cyan-300'
+                : 'bg-slate-900/90 border-slate-700/80 text-slate-300 hover:text-cyan-300'
+            }`}
+          >
+            {isUtilityOpen ? (
+              <ChevronRight className="w-4 h-4 shrink-0" />
+            ) : (
+              <ChevronLeft className="w-4 h-4 shrink-0" />
+            )}
+          </button>
 
-          {/* [유틸리티 3] ⚙️ 학부모 단어 숙제 설정 (Icon-only) */}
-          {!isReviewMode && (
-            <button
-              type="button"
-              onClick={onOpenParentModal}
-              title="알림장 단어 숙제 관리"
-              className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-md bg-slate-900/90 border border-slate-700/80 hover:border-cyan-500/60 text-slate-300 hover:text-cyan-300 transition-all active:scale-95 cursor-pointer shrink-0"
-              aria-label="숙제 관리"
-            >
-              <Settings className="w-3.5 h-3.5 shrink-0" />
-            </button>
-          )}
+          <div
+            className={`${
+              isUtilityOpen ? 'flex' : 'hidden lg:flex'
+            } items-center gap-1 sm:gap-1.5 shrink-0`}
+          >
+            {/* [유틸리티 2-2] 📱 앱 다운로드 / 홈 화면 추가 버튼 */}
+            {!isStandalone && onOpenInstall && (
+              <button
+                type="button"
+                onClick={onOpenInstall}
+                title="태블릿·휴대폰에 고질라 앱 설치하기 (전체화면 모드)"
+                className="flex items-center gap-1 px-2 py-1 rounded-md bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 border border-cyan-400/80 text-white text-[11px] font-black transition-all active:scale-95 shadow-[0_0_8px_rgba(6,182,212,0.4)] cursor-pointer shrink-0 animate-pulse"
+              >
+                <span className="leading-none text-xs">📱</span>
+                <span className="hidden sm:inline">앱 다운로드</span>
+              </button>
+            )}
 
-          {/* [유틸리티 4] 🎙️ 음성 포효 ON/OFF (Icon-only) */}
-          {onToggleVoiceAttack && (
-            <button
-              type="button"
-              onClick={onToggleVoiceAttack}
-              title={
-                isVoiceAttackEnabled
-                  ? '🎙️ 음성 인식 포효 공격 켜짐 (클릭 시 조용한 모드로 전환)'
-                  : '🔇 조용한 모드 (클릭 시 포효 모드 켜기)'
-              }
-              className={`w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-md border transition-all active:scale-95 cursor-pointer shrink-0 ${
-                isVoiceAttackEnabled
-                  ? 'bg-rose-950/50 border-rose-500/70 text-rose-300 shadow-[0_0_8px_rgba(244,63,94,0.3)]'
-                  : 'bg-slate-900/90 border-slate-800 text-slate-500 hover:text-slate-300'
-              }`}
-              aria-label={isVoiceAttackEnabled ? '포효 공격 끄기' : '포효 공격 켜기'}
-            >
-              {isVoiceAttackEnabled ? (
-                <Mic className="w-3.5 h-3.5 text-rose-400 animate-pulse shrink-0" />
-              ) : (
-                <MicOff className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-              )}
-            </button>
-          )}
+            {/* [유틸리티 3] ⚙️ 학부모 단어 숙제 설정 (Icon-only) */}
+            {!isReviewMode && (
+              <button
+                type="button"
+                onClick={onOpenParentModal}
+                title="알림장 단어 숙제 및 학부모 리포트"
+                className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-md bg-slate-900/90 border border-slate-700/80 hover:border-cyan-500/60 text-slate-300 hover:text-cyan-300 transition-all active:scale-95 cursor-pointer shrink-0"
+                aria-label="숙제 관리"
+              >
+                <Settings className="w-4 h-4 shrink-0" />
+              </button>
+            )}
 
-          {/* [유틸리티 5] 🚪 구글 로그인 계정 및 로그아웃 */}
-          {onSignOut && (
-            <button
-              type="button"
-              onClick={onSignOut}
-              title={`로그아웃 (${userEmail || '구글 계정'})`}
-              className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-md bg-slate-900/90 border border-slate-700/80 hover:border-rose-500/60 text-slate-400 hover:text-rose-400 transition-all active:scale-95 cursor-pointer shrink-0"
-              aria-label="로그아웃"
-            >
-              <LogOut className="w-3.5 h-3.5 shrink-0" />
-            </button>
-          )}
+            {/* [유틸리티 4] 🎙️ 음성 포효 ON/OFF (Icon-only) */}
+            {onToggleVoiceAttack && (
+              <button
+                type="button"
+                onClick={onToggleVoiceAttack}
+                title={
+                  isVoiceAttackEnabled
+                    ? '🎙️ 음성 인식 포효 공격 켜짐 (클릭 시 조용한 모드로 전환)'
+                    : '🔇 조용한 모드 (클릭 시 포효 모드 켜기)'
+                }
+                className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-md border transition-all active:scale-95 cursor-pointer shrink-0 ${
+                  isVoiceAttackEnabled
+                    ? 'bg-rose-950/50 border-rose-500/70 text-rose-300 shadow-[0_0_8px_rgba(244,63,94,0.3)]'
+                    : 'bg-slate-900/90 border-slate-800 text-slate-500 hover:text-slate-300'
+                }`}
+                aria-label={isVoiceAttackEnabled ? '포효 공격 끄기' : '포효 공격 켜기'}
+              >
+                {isVoiceAttackEnabled ? (
+                  <Mic className="w-4 h-4 text-rose-400 animate-pulse shrink-0" />
+                ) : (
+                  <MicOff className="w-4 h-4 text-slate-500 shrink-0" />
+                )}
+              </button>
+            )}
+
+            {/* [유틸리티 5] 🚪 구글 로그인 계정 및 로그아웃 */}
+            {onSignOut && (
+              <button
+                type="button"
+                onClick={onSignOut}
+                title={`로그아웃 (${userEmail || '구글 계정'})`}
+                className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-md bg-slate-900/90 border border-slate-700/80 hover:border-rose-500/60 text-slate-400 hover:text-rose-400 transition-all active:scale-95 cursor-pointer shrink-0"
+                aria-label="로그아웃"
+              >
+                <LogOut className="w-4 h-4 shrink-0" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </header>
