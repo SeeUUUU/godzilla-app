@@ -63,8 +63,7 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 // 허용할 구글 이메일 화이트리스트 (직접 등록 + .env VITE_ALLOWED_EMAILS 연동)
 // ─────────────────────────────────────────────
 export const ALLOWED_EMAILS: string[] = [
-  '내구글계정@gmail.com',
-  // 추가할 가족/지인 구글 계정 이메일을 여기에 입력하세요
+  // 보안을 위해 이메일은 배포 플랫폼 대시보드의 환경 변수(VITE_ALLOWED_EMAILS)로 관리합니다.
 ];
 
 /**
@@ -87,7 +86,7 @@ export const getAllowedEmails = (): string[] => {
 export const isEmailAllowed = (email: string | null | undefined): boolean => {
   const allowedList = getAllowedEmails();
   // 화이트리스트가 정의되어 있으면 반드시 일치해야만 허용
-  if (allowedList.length === 0) return true;
+  if (allowedList.length === 0) return false;
   if (!email) return false;
   return allowedList.includes(email.toLowerCase().trim());
 };
