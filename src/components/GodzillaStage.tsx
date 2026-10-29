@@ -130,18 +130,63 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
   const isFever = combo >= 3;
 
   // 고질라 형태별 특화 열선 발사 사운드
-  useEffect(() => {
-    if (isShootingBeam) {
-      playEvolutionBeamSound(evo.tier, isFever);
-    }
-  }, [isShootingBeam, evo.tier, isFever]);
+  // ─── 3단계 극딜 빔 액션 상태 머신 (Phase 1 Charge 350ms -> Phase 2 Fire 300ms -> Phase 3 Impact 450ms) ───
+  const [godzillaPhase, setGodzillaPhase] = React.useState<'idle' | 'charge' | 'fire' | 'impact'>('idle');
+  const [ghidorahPhase, setGhidorahPhase] = React.useState<'idle' | 'charge' | 'fire' | 'impact'>('idle');
+  const [localScreenShake, setLocalScreenShake] = React.useState(false);
 
-  // 킹 기도라 중력 번개 공격 사운드
-  useEffect(() => {
+  React.useEffect(() => {
+    if (isShootingBeam) {
+      setGodzillaPhase('charge');
+      const t1 = window.setTimeout(() => setGodzillaPhase('fire'), 650);
+      const t2 = window.setTimeout(() => {
+        setGodzillaPhase('impact');
+        setLocalScreenShake(true);
+        window.setTimeout(() => setLocalScreenShake(false), 280);
+      }, 1300);
+      const t3 = window.setTimeout(() => setGodzillaPhase('idle'), 1750);
+      return () => {
+        window.clearTimeout(t1);
+        window.clearTimeout(t2);
+        window.clearTimeout(t3);
+      };
+    } else {
+      setGodzillaPhase('idle');
+    }
+  }, [isShootingBeam]);
+
+  React.useEffect(() => {
     if (isGhidorahAttacking) {
-      playElectricShockSound();
+      setGhidorahPhase('charge');
+      const t1 = window.setTimeout(() => setGhidorahPhase('fire'), 650);
+      const t2 = window.setTimeout(() => {
+        setGhidorahPhase('impact');
+        setLocalScreenShake(true);
+        window.setTimeout(() => setLocalScreenShake(false), 280);
+      }, 1300);
+      const t3 = window.setTimeout(() => setGhidorahPhase('idle'), 1750);
+      return () => {
+        window.clearTimeout(t1);
+        window.clearTimeout(t2);
+        window.clearTimeout(t3);
+      };
+    } else {
+      setGhidorahPhase('idle');
     }
   }, [isGhidorahAttacking]);
+
+  // 발사(Fire) 타이밍에 맞춘 정밀 사운드 싱크
+  useEffect(() => {
+    if (godzillaPhase === 'fire') {
+      playEvolutionBeamSound(evo.tier, isFever);
+    }
+  }, [godzillaPhase, evo.tier, isFever]);
+
+  useEffect(() => {
+    if (ghidorahPhase === 'fire') {
+      playElectricShockSound();
+    }
+  }, [ghidorahPhase]);
 
   // 승리(클리어) 시 축하 효과음 및 폭죽 연출 (1.8초 배틀 연출 후 오버레이가 열릴 때 재생)
   useEffect(() => {
@@ -270,7 +315,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
   return (
     <div
       className={`w-full flex-none px-1 sm:px-2 md:px-3 my-0.5 sm:my-1 h-[175px] xs:h-[185px] sm:h-[210px] md:h-[220px] landscape-short:h-full landscape-short:my-0 ${
-        isScreenShaking ? 'animate-screen-shake' : ''
+        isScreenShaking || localScreenShake ? 'animate-screen-shake' : ''
       }`}
     >
       <div
@@ -550,6 +595,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
               isHit={isGhidorahAttacking}
               isDefeated={isGameOver}
               isFever={isFever}
+              attackPhase={godzillaPhase}
             />
           </div>
 
@@ -573,154 +619,155 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
               />
             )}
 
-            {/* [정답 시] 고질라 5단계 특화 열선 (고질라 입 cx=282 cy=132 -> 기도라 흉부 직격) */}
+            {/* [정답 시] 고질라 3단계 극딜 아토믹 방사열선 (Phase 1 Charge -> Phase 2 Fire -> Phase 3 Impact) */}
             {isShootingBeam && (
               <div
                 style={{
                   position: 'absolute',
-                  left: '-14px', // 고질라 입술 끝 오버랩
-                  right: '-20px', // 킹 기도라 흉곽 오버랩
-                  bottom: '46%', // 고질라 입과 기도라 중심부 수직 정렬
+                  left: '-14px',
+                  right: '-20px',
+                  bottom: '46%',
                   transform: 'translateY(50%)',
                   height: beamHeight,
                   display: 'flex',
                   alignItems: 'center',
                   zIndex: 25,
-                  transition: 'height 0.2s ease',
+                  pointerEvents: 'none',
                 }}
               >
-                {/* 고질라 입 발광 구슬 */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    top: '50%',
-                    transform: 'translate(-50%, -50%)',
-                    width: mouthBallSize,
-                    height: mouthBallSize,
-                    borderRadius: '9999px',
-                    background: mouthBallBg,
-                    boxShadow: mouthBallShadow,
-                    zIndex: 35,
-                    pointerEvents: 'none',
-                  }}
-                />
-
-                {/* 1단계 (치비 고질라): 귀여운 파이어볼 팝 (Fireball Pop) */}
-                {evo.tier === 'chibi' ? (
+                {/* ── [Phase 1: 기 모으기 (Charge, 약 350ms)] 회전 스파크 코어 & 에너지 집속 ── */}
+                {godzillaPhase === 'charge' && (
                   <div
                     style={{
-                      width: '100%',
-                      height: '100%',
-                      position: 'relative',
+                      position: 'absolute',
+                      left: 0,
+                      top: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      width: '46px',
+                      height: '46px',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'space-around',
-                      paddingRight: '12px',
+                      justifyContent: 'center',
+                      zIndex: 38,
                     }}
                   >
+                    {/* 회전하는 네온 스파크 링 */}
                     <div
-                      className="animate-bounce"
+                      className="godz-charge-spark-core"
                       style={{
-                        width: isFever ? '20px' : '16px',
-                        height: isFever ? '20px' : '16px',
+                        position: 'absolute',
+                        inset: 0,
                         borderRadius: '9999px',
-                        background: 'radial-gradient(circle, #ffffff 30%, #86efac 60%, #00f0ff 100%)',
-                        boxShadow: '0 0 12px #00f0ff, 0 0 20px #4ade80',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '9px',
+                        border: '2.5px dashed #00f0ff',
+                        boxShadow: '0 0 16px #00f0ff, 0 0 28px #3b82f6',
                       }}
-                    >
-                      ✨
-                    </div>
-                    <div
-                      className="animate-pulse"
-                      style={{
-                        width: isFever ? '22px' : '18px',
-                        height: isFever ? '22px' : '18px',
-                        borderRadius: '9999px',
-                        background: 'radial-gradient(circle, #ffffff 30%, #38bdf8 65%, #0284c7 100%)',
-                        boxShadow: '0 0 14px #38bdf8, 0 0 24px #00f0ff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '10px',
-                      }}
-                    >
-                      💫
-                    </div>
-                    <div
-                      className="animate-bounce"
-                      style={{
-                        width: isFever ? '24px' : '20px',
-                        height: isFever ? '24px' : '20px',
-                        borderRadius: '9999px',
-                        background: 'radial-gradient(circle, #ffffff 35%, #67e8f9 60%, #06b6d4 100%)',
-                        boxShadow: '0 0 16px #06b6d4, 0 0 28px #22d3ee',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '11px',
-                      }}
-                    >
-                      ⭐
-                    </div>
-                    <div
-                      className="animate-pulse"
-                      style={{
-                        width: isFever ? '26px' : '22px',
-                        height: isFever ? '26px' : '22px',
-                        borderRadius: '9999px',
-                        background: 'radial-gradient(circle, #ffffff 40%, #a7f3d0 70%, #00f0ff 100%)',
-                        boxShadow: '0 0 18px #00f2ff, 0 0 30px #38bdf8',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '12px',
-                      }}
-                    >
-                      🔥
-                    </div>
-                  </div>
-                ) : (
-                  /* 2~5단계: 날렵한 고에너지 아토믹 레이저 빔 */
-                  <div
-                    className="animate-beam-glow"
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      background: beamGradient,
-                      borderRadius: '9999px',
-                      boxShadow: beamShadow,
-                      position: 'relative',
-                      display: 'flex',
-                      alignItems: 'center',
-                    }}
-                  >
-                    {/* 중심 레이저 하이라이트 코어 (날렵한 고밀도 코어 라인) */}
+                    />
+                    {/* 반대 회전 서브 링 */}
                     <div
                       style={{
                         position: 'absolute',
-                        left: '4px',
-                        right: '4px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        height: isFever ? '6px' : '5px',
-                        backgroundColor: innerCoreColor,
+                        inset: '6px',
                         borderRadius: '9999px',
-                        boxShadow: innerCoreShadow,
+                        border: '1.8px dotted #ffffff',
+                        animation: 'spin 0.3s linear infinite reverse',
+                      }}
+                    />
+                    {/* 중심 고밀도 에너지 구체 */}
+                    <div
+                      className="godz-charge-core-pulse"
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '9999px',
+                        background: 'radial-gradient(circle, #ffffff 40%, #00f0ff 75%, transparent 100%)',
+                        boxShadow: '0 0 18px #ffffff, 0 0 35px #00f0ff',
+                      }}
+                    />
+                    {/* 집중 충전 입자 라인들 */}
+                    {[0, 45, 90, 135, 180, 225, 270, 315].map((deg) => (
+                      <div
+                        key={deg}
+                        style={{
+                          position: 'absolute',
+                          width: '28px',
+                          height: '2px',
+                          background: 'linear-gradient(90deg, #00f0ff, transparent)',
+                          transform: `rotate(${deg}deg) translateX(14px)`,
+                          animation: 'pulse 0.15s ease-in-out infinite',
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* ── [Phase 2: 열선 방사 (Fire, 약 300ms)] 굵직하고 강렬한 푸른색 레이저 빔 (순백 코어 + 푸른 네온 글로우) ── */}
+                {godzillaPhase === 'fire' && (
+                  <>
+                    {/* 입술 발광 구슬 & 머즐 플래시 (Muzzle Flash) */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: mouthBallSize,
+                        height: mouthBallSize,
+                        borderRadius: '9999px',
+                        background: mouthBallBg,
+                        boxShadow: mouthBallShadow,
+                        zIndex: 36,
+                      }}
+                    />
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: '42px',
+                        height: '42px',
+                        borderRadius: '9999px',
+                        border: '3px solid #ffffff',
+                        boxShadow: '0 0 25px #00f0ff',
+                        animation: 'ping 0.25s cubic-bezier(0, 0, 0.2, 1) infinite',
+                        zIndex: 35,
                       }}
                     />
 
-                    {/* 3단계 (고질라 -1.0): 팽창하는 충격파 고리 이펙트 */}
-                    {evo.tier === 'minusone' && (
+                    {/* 화면을 시원하게 가로지르는 굵직하고 강렬한 푸른색 레이저 빔 (모든 티어 동일 극딜 빔) */}
+                    <div
+                      className="animate-beam-glow"
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        background: beamGradient,
+                        borderRadius: '9999px',
+                        boxShadow: beamShadow,
+                        position: 'relative',
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                    >
+                      {/* 내부 순백색 고출력 코어 라인 (순백 코어) */}
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: '4px',
+                          right: '4px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          height: isFever ? '8px' : '6.5px',
+                          backgroundColor: innerCoreColor,
+                          borderRadius: '9999px',
+                          boxShadow: `${innerCoreShadow}, 0 0 20px #00f2ff`,
+                        }}
+                      />
+
+                      {/* 빔을 휘감는 플라즈마 파동 링들 */}
                       <div
                         style={{
                           position: 'absolute',
                           inset: '-4px 0',
-                          pointerEvents: 'none',
                           display: 'flex',
                           justifyContent: 'space-around',
                           alignItems: 'center',
@@ -728,112 +775,136 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                       >
                         <div
                           style={{
-                            width: '8px',
-                            height: '130%',
+                            width: '10px',
+                            height: '140%',
                             border: '2px solid #ffffff',
                             borderRadius: '9999px',
-                            boxShadow: '0 0 10px #38bdf8',
+                            boxShadow: '0 0 12px #00f0ff',
                           }}
                           className="animate-ping"
                         />
                         <div
                           style={{
-                            width: '12px',
-                            height: '130%',
+                            width: '14px',
+                            height: '140%',
+                            border: '2px solid #38bdf8',
+                            borderRadius: '9999px',
+                            boxShadow: '0 0 16px #3b82f6',
+                          }}
+                          className="animate-ping"
+                        />
+                        <div
+                          style={{
+                            width: '10px',
+                            height: '140%',
                             border: '2px solid #ffffff',
                             borderRadius: '9999px',
-                            boxShadow: '0 0 14px #0284c7',
+                            boxShadow: '0 0 12px #00f0ff',
                           }}
                           className="animate-ping"
                         />
                       </div>
-                    )}
 
-                    {/* 4단계 (이블 고질라): 일렁이는 보랏빛/청백색 악령 파괴 번개 */}
-                    {evo.tier === 'evil' && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          inset: '-3px 0',
-                          pointerEvents: 'none',
-                          zIndex: 32,
-                          display: 'flex',
-                          justifyContent: 'space-around',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <span className="animate-bounce" style={{ fontSize: '13px', filter: 'drop-shadow(0 0 6px #a855f7)' }}>
-                          ⚡
-                        </span>
-                        <span className="animate-pulse" style={{ fontSize: '11px', filter: 'drop-shadow(0 0 6px #38bdf8)' }}>
-                          🟣
-                        </span>
-                        <span className="animate-bounce" style={{ fontSize: '14px', filter: 'drop-shadow(0 0 6px #a855f7)' }}>
-                          ⚡
-                        </span>
-                      </div>
-                    )}
-
-                    {/* 5단계 (버닝 고질라): 초대형 나선 화염 회오리 (Infinite Spiral Heat Ray) */}
-                    {evo.tier === 'burning' && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          inset: '-4px 0',
-                          pointerEvents: 'none',
-                          zIndex: 32,
-                        }}
-                      >
-                        {/* 회전하는 나선 화염 파티클 */}
-                        <span
-                          className="animate-pulse"
-                          style={{ position: 'absolute', left: '15%', top: '-6px', fontSize: '13px' }}
-                        >
-                          🔥
-                        </span>
-                        <span
-                          className="animate-pulse"
-                          style={{ position: 'absolute', left: '50%', bottom: '-6px', fontSize: '13px' }}
-                        >
-                          🔥
-                        </span>
-                        <span
-                          className="animate-pulse"
-                          style={{ position: 'absolute', left: '80%', top: '-6px', fontSize: '13px' }}
-                        >
-                          🔥
-                        </span>
-                        {/* 나선형 와류 오버레이 */}
+                      {/* 버닝 고질라 티어 특화: 나선 화염 와류 오버레이 */}
+                      {evo.tier === 'burning' && (
                         <div
                           style={{
                             position: 'absolute',
                             inset: 0,
                             background:
-                              'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255, 238, 85, 0.4) 8px, rgba(255, 238, 85, 0.4) 16px)',
+                              'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255, 238, 85, 0.45) 8px, rgba(255, 238, 85, 0.45) 16px)',
                             borderRadius: '9999px',
                           }}
                           className="animate-pulse"
                         />
-                      </div>
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  </>
                 )}
 
-                {/* 킹 기도라 피격 폭발 */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    right: '-14px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    fontSize: isFever ? '30px' : '26px',
-                    filter: 'drop-shadow(0 0 10px #ef4444) drop-shadow(0 0 18px #facc15)',
-                    zIndex: 35,
-                    pointerEvents: 'none',
-                  }}
-                >
-                  {evo.tier === 'chibi' ? '💥✨' : '💥'}
-                </div>
+                {/* ── [Phase 3: 임팩트 (Impact)] 킹 기도라 피격 지점 푸른 폭발 & 충격파 플래시 ── */}
+                {godzillaPhase === 'impact' && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      right: '-16px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: '50px',
+                      height: '50px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      zIndex: 39,
+                    }}
+                  >
+                    {/* 확장하는 충격파 링 */}
+                    <div
+                      className="animate-impact-shockwave"
+                      style={{
+                        position: 'absolute',
+                        left: '50%',
+                        top: '50%',
+                        width: '54px',
+                        height: '54px',
+                        borderRadius: '9999px',
+                        border: '3px solid #00f0ff',
+                        boxShadow: '0 0 20px #00f0ff, 0 0 35px #3b82f6',
+                      }}
+                    />
+                    {/* 푸른 폭발 플래시 글로우 */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        width: '42px',
+                        height: '42px',
+                        borderRadius: '9999px',
+                        background: 'radial-gradient(circle, #ffffff 30%, #00f0ff 70%, transparent 100%)',
+                        boxShadow: '0 0 25px #ffffff, 0 0 45px #00f0ff',
+                        animation: 'ping 0.3s ease-out',
+                      }}
+                    />
+                    {/* 비산하는 8갈래 불꽃 스파크 파티클 */}
+                    {[
+                      [-22, -18],
+                      [20, -22],
+                      [-24, 16],
+                      [22, 20],
+                      [0, -26],
+                      [0, 26],
+                      [-28, 0],
+                      [28, 0],
+                    ].map(([sx, sy], idx) => (
+                      <div
+                        key={idx}
+                        className="animate-spark-burst"
+                        style={
+                          {
+                            position: 'absolute',
+                            width: '4px',
+                            height: '4px',
+                            borderRadius: '9999px',
+                            backgroundColor: idx % 2 === 0 ? '#ffffff' : '#00f0ff',
+                            boxShadow: '0 0 8px #00f0ff',
+                            '--sx': `${sx}px`,
+                            '--sy': `${sy}px`,
+                          } as React.CSSProperties
+                        }
+                      />
+                    ))}
+                    {/* 폭발 이모지 */}
+                    <div
+                      style={{
+                        position: 'relative',
+                        fontSize: isFever ? '32px' : '28px',
+                        filter: 'drop-shadow(0 0 12px #00f0ff) drop-shadow(0 0 20px #ffffff)',
+                        animation: 'bounce 0.3s ease-in-out',
+                      }}
+                    >
+                      💥✨
+                    </div>
+                  </div>
+                )}
 
                 {/* [공격 멘트 & 판정 배지 통합 컨테이너] */}
                 <div
@@ -934,76 +1005,261 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
               </div>
             )}
 
-            {/* [오답 시] 킹 기도라 중력 번개 (우측 기도라 머리 -> 좌측 고질라 직격) */}
+            {/* [오답 시] 킹 기도라 3연장 인력광선 (Phase 1 뇌전 차징 -> Phase 2 3줄기 벡터 번개 방사 -> Phase 3 고질라 임팩트 폭발) */}
             {isGhidorahAttacking && (
               <div
                 style={{
                   position: 'absolute',
-                  left: '-20px',
-                  right: '-15px',
-                  top: '15%',
-                  bottom: '15%',
-                  zIndex: 25,
+                  inset: '-10px -15px',
+                  zIndex: 26,
                   pointerEvents: 'none',
                 }}
               >
-                <svg
-                  viewBox="0 0 300 100"
-                  preserveAspectRatio="none"
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    overflow: 'visible',
-                    filter: 'drop-shadow(0 0 12px #facc15) drop-shadow(0 0 22px #eab308)',
-                  }}
-                >
-                  <path
-                    d="M 290 10 Q 230 20 180 45 T 80 55 T 5 65"
-                    stroke="#fef08a"
-                    strokeWidth="4"
-                    fill="none"
-                    className="animate-pulse"
-                  />
-                  <path
-                    d="M 290 10 Q 230 20 180 45 T 80 55 T 5 65"
-                    stroke="#ffffff"
-                    strokeWidth="2"
-                    fill="none"
-                  />
-                  <path
-                    d="M 270 50 Q 200 35 140 60 T 60 65 T 2 70"
-                    stroke="#facc15"
-                    strokeWidth="5"
-                    fill="none"
-                    className="animate-pulse"
-                  />
-                  <path
-                    d="M 270 50 Q 200 35 140 60 T 60 65 T 2 70"
-                    stroke="#ffffff"
-                    strokeWidth="2.5"
-                    fill="none"
-                  />
-                </svg>
+                {/* ── [Phase 1: 뇌전 차징 (Charge, 약 350ms)] 3개 입 앞 뇌전 구체 점멸 ── */}
+                {ghidorahPhase === 'charge' && (
+                  <div style={{ position: 'absolute', right: '10px', top: 0, bottom: 0, width: '40px' }}>
+                    {/* 상단 머리 입 앞 */}
+                    <div
+                      className="ghid-lightning-orb"
+                      style={{
+                        position: 'absolute',
+                        top: '18%',
+                        right: '8px',
+                        width: '26px',
+                        height: '26px',
+                        borderRadius: '9999px',
+                        border: '2px dashed #fde047',
+                        boxShadow: '0 0 16px #fde047, 0 0 25px #f59e0b',
+                        background: 'radial-gradient(circle, #ffffff 40%, #facc15 80%, transparent 100%)',
+                      }}
+                    />
+                    {/* 중앙 머리 입 앞 */}
+                    <div
+                      className="ghid-lightning-orb"
+                      style={{
+                        position: 'absolute',
+                        top: '48%',
+                        right: '12px',
+                        width: '30px',
+                        height: '30px',
+                        borderRadius: '9999px',
+                        border: '2.5px dashed #ffffff',
+                        boxShadow: '0 0 20px #fde047, 0 0 35px #f59e0b',
+                        background: 'radial-gradient(circle, #ffffff 45%, #fde047 85%, transparent 100%)',
+                      }}
+                    />
+                    {/* 하단 머리 입 앞 */}
+                    <div
+                      className="ghid-lightning-orb"
+                      style={{
+                        position: 'absolute',
+                        top: '78%',
+                        right: '8px',
+                        width: '26px',
+                        height: '26px',
+                        borderRadius: '9999px',
+                        border: '2px dashed #fde047',
+                        boxShadow: '0 0 16px #fde047, 0 0 25px #f59e0b',
+                        background: 'radial-gradient(circle, #ffffff 40%, #facc15 80%, transparent 100%)',
+                      }}
+                    />
+                  </div>
+                )}
 
-                {/* 감전 폭발 */}
-                <div
-                  style={{
-                    position: 'absolute',
-                    left: '-8px',
-                    top: '55%',
-                    transform: 'translateY(-50%)',
-                    fontSize: '32px',
-                    filter: 'drop-shadow(0 0 15px #ef4444)',
-                    zIndex: 35,
-                  }}
-                >
-                  ⚡💥
-                </div>
+                {/* ── [Phase 2: 번개 방사 (Fire, 약 300ms)] 3연장 지그재그 인력광선 벡터 라이트닝 ── */}
+                {ghidorahPhase === 'fire' && (
+                  <svg
+                    viewBox="0 0 320 120"
+                    preserveAspectRatio="none"
+                    className="animate-lightning-jitter"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      overflow: 'visible',
+                      filter: 'drop-shadow(0 0 14px #facc15) drop-shadow(0 0 28px #eab308)',
+                    }}
+                  >
+                    <defs>
+                      <filter id="ghidLightningGlow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur stdDeviation="2.5" result="blur" />
+                        <feMerge>
+                          <feMergeNode in="blur" />
+                          <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                      </filter>
+                    </defs>
+
+                    {/* 1. 상단 인력광선 (기도라 상단 머리 -> 고질라 머리) */}
+                    <path
+                      d="M 310,20 L 265,14 L 225,26 L 180,18 L 140,28 L 95,20 L 55,30 L 10,26"
+                      stroke="#ea580c"
+                      strokeWidth="9"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={0.8}
+                    />
+                    <path
+                      d="M 310,20 L 265,14 L 225,26 L 180,18 L 140,28 L 95,20 L 55,30 L 10,26"
+                      stroke="#fde047"
+                      strokeWidth="5"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M 310,20 L 265,14 L 225,26 L 180,18 L 140,28 L 95,20 L 55,30 L 10,26"
+                      stroke="#ffffff"
+                      strokeWidth="2.2"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+
+                    {/* 2. 중앙 주 인력광선 (기도라 중앙 머리 -> 고질라 가슴 직격) */}
+                    <path
+                      d="M 310,50 L 270,44 L 225,58 L 180,48 L 135,62 L 90,52 L 48,58 L 10,54"
+                      stroke="#ea580c"
+                      strokeWidth="11"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={0.85}
+                    />
+                    <path
+                      d="M 310,50 L 270,44 L 225,58 L 180,48 L 135,62 L 90,52 L 48,58 L 10,54"
+                      stroke="#fde047"
+                      strokeWidth="6"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M 310,50 L 270,44 L 225,58 L 180,48 L 135,62 L 90,52 L 48,58 L 10,54"
+                      stroke="#ffffff"
+                      strokeWidth="2.8"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+
+                    {/* 3. 하단 인력광선 (기도라 하단 머리 -> 고질라 하체) */}
+                    <path
+                      d="M 310,84 L 265,92 L 220,82 L 175,94 L 130,84 L 85,96 L 42,86 L 10,78"
+                      stroke="#ea580c"
+                      strokeWidth="9"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={0.8}
+                    />
+                    <path
+                      d="M 310,84 L 265,92 L 220,82 L 175,94 L 130,84 L 85,96 L 42,86 L 10,78"
+                      stroke="#fde047"
+                      strokeWidth="5"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M 310,84 L 265,92 L 220,82 L 175,94 L 130,84 L 85,96 L 42,86 L 10,78"
+                      stroke="#ffffff"
+                      strokeWidth="2.2"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+
+                {/* ── [Phase 3: 임팩트 (Impact)] 고질라 피격 부위 황금빛 전격 스파크 폭발 ── */}
+                {ghidorahPhase === 'impact' && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: '-8px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: '56px',
+                      height: '56px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      zIndex: 39,
+                    }}
+                  >
+                    {/* 황금빛 전격 충격파 링 */}
+                    <div
+                      className="animate-impact-shockwave"
+                      style={{
+                        position: 'absolute',
+                        left: '50%',
+                        top: '50%',
+                        width: '56px',
+                        height: '56px',
+                        borderRadius: '9999px',
+                        border: '3px solid #fde047',
+                        boxShadow: '0 0 20px #facc15, 0 0 35px #ea580c',
+                      }}
+                    />
+                    {/* 황금빛 폭발 글로우 */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        width: '42px',
+                        height: '42px',
+                        borderRadius: '9999px',
+                        background: 'radial-gradient(circle, #ffffff 30%, #fde047 70%, transparent 100%)',
+                        boxShadow: '0 0 25px #ffffff, 0 0 45px #facc15',
+                        animation: 'ping 0.3s ease-out',
+                      }}
+                    />
+                    {/* 비산하는 황금 번개 파티클 */}
+                    {[
+                      [-20, -18],
+                      [18, -20],
+                      [-22, 16],
+                      [18, 18],
+                      [0, -24],
+                      [0, 24],
+                      [-26, 0],
+                      [26, 0],
+                    ].map(([sx, sy], idx) => (
+                      <div
+                        key={idx}
+                        className="animate-spark-burst"
+                        style={
+                          {
+                            position: 'absolute',
+                            width: '4px',
+                            height: '4px',
+                            borderRadius: '9999px',
+                            backgroundColor: idx % 2 === 0 ? '#ffffff' : '#fde047',
+                            boxShadow: '0 0 8px #facc15',
+                            '--sx': `${sx}px`,
+                            '--sy': `${sy}px`,
+                          } as React.CSSProperties
+                        }
+                      />
+                    ))}
+                    {/* 감전 폭발 이모지 */}
+                    <div
+                      style={{
+                        position: 'relative',
+                        fontSize: '34px',
+                        filter: 'drop-shadow(0 0 16px #ef4444) drop-shadow(0 0 24px #facc15)',
+                        animation: 'bounce 0.3s ease-in-out',
+                      }}
+                    >
+                      ⚡💥
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          {/* 우측: 보스 괴수 (일반: 킹 기도라, 레이드: 5대 랜덤 보스) */}
+{/* 우측: 보스 괴수 (일반: 킹 기도라, 레이드: 5대 랜덤 보스) */}
           <div
             className="relative h-full flex-shrink-0 flex items-end"
             style={{ height: '100%', position: 'relative', zIndex: 10 }}
@@ -1020,6 +1276,8 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                 isHit={isShootingBeam}
                 isDefeated={isBossDefeated}
                 hp={effectiveBossHp}
+                isAttacking={isGhidorahAttacking}
+                attackPhase={ghidorahPhase}
               />
             )}
           </div>

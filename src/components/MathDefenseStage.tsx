@@ -3,6 +3,7 @@ import confetti from 'canvas-confetti';
 import { Volume2, Heart, Trophy, RotateCcw, Zap, ArrowRight, Calculator, Flame, Crown, Search, Award, Sparkles } from 'lucide-react';
 import type { MathProblemItem } from '../types';
 import { getGodzillaEvolution, getGodzillaAura } from '../types';
+import { GodzillaArt } from './GodzillaArt';
 import {
   getMathProblemsForStage,
   TOTAL_MATH_STAGES,
@@ -27,8 +28,7 @@ import {
   type ClearRewardResult,
 } from '../data/atomicPartsData';
 import {
-  playLaserPewPew,
-  playFeverBeamSound,
+  playEvolutionBeamSound,
   playComboSound,
   playCriticalRoarSound,
   playPerfectAtomicRoarSound,
@@ -145,6 +145,16 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   const [isShootingBeam, setIsShootingBeam] = useState(false);
   const [isExploding, setIsExploding] = useState(false);
   const [isImpactShaking, setIsImpactShaking] = useState(false);
+  const [godzillaPhase, setGodzillaPhase] = useState<'idle' | 'charge' | 'fire' | 'impact'>('idle');
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [beamCoord, setBeamCoord] = useState<{
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+    length: number;
+    angle: number;
+  } | null>(null);
 
   // 방어선 충돌 및 피격 연출 상태
   const [isRedFlash, setIsRedFlash] = useState(false);
@@ -209,6 +219,9 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   const warningTimerRef = useRef<number | null>(null);
   const speechTimerRef = useRef<number | null>(null);
   const clockSpeechSafetyTimerRef = useRef<number | null>(null);
+  const clockFallStartTimerRef = useRef<number | null>(null);
+  const attackPhaseTimerRef = useRef<number | null>(null);
+  const attackPhaseTimer2Ref = useRef<number | null>(null);
   const speechSessionRef = useRef<number>(0);
   const answerSpeechFallbackRef = useRef<number | null>(null);
   const transitionVersionRef = useRef(0);
@@ -222,6 +235,12 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   const [maxCombo, setMaxCombo] = useState(0);
   // 정답 맞춤 시 3개 국어(한국어·영어·일본어) 숫자 낭독 & 팝업 연출 상태
   const [solvedAnswerDisplay, setSolvedAnswerDisplay] = useState<{
+    num: number | string;
+    kr: string;
+    en: string;
+    ja: string;
+  } | null>(null);
+  const pendingAnswerDisplayRef = useRef<{
     num: number | string;
     kr: string;
     en: string;
@@ -324,6 +343,21 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       window.clearTimeout(clockSpeechSafetyTimerRef.current);
       clockSpeechSafetyTimerRef.current = null;
     }
+    if (clockFallStartTimerRef.current !== null) {
+      window.clearTimeout(clockFallStartTimerRef.current);
+      clockFallStartTimerRef.current = null;
+    }
+    if (attackPhaseTimerRef.current !== null) {
+      window.clearTimeout(attackPhaseTimerRef.current);
+      attackPhaseTimerRef.current = null;
+    }
+    if (attackPhaseTimer2Ref.current !== null) {
+      window.clearTimeout(attackPhaseTimer2Ref.current);
+      attackPhaseTimer2Ref.current = null;
+    }
+    setGodzillaPhase('idle');
+    setBeamCoord(null);
+    pendingAnswerDisplayRef.current = null;
     if (answerSpeechFallbackRef.current !== null) {
       window.clearTimeout(answerSpeechFallbackRef.current);
       answerSpeechFallbackRef.current = null;
@@ -450,6 +484,39 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     });
   }, [clearAllTimers, cancel, mothraShieldActive, onPartnerNotice, triggerDamageFeedback, isWordProblem, showQuickTip, currentProblem, updateAdaptiveZpd]);
 
+  // 🌟 언어배틀급 극딜 아토믹 레이저 빔: 고질라 입 -> 운석 중심 실시간 벡터 좌표 연산
+  const updateBeamCoordinates = useCallback(() => {
+    if (!trackRef.current) return;
+    const rect = trackRef.current.getBoundingClientRect();
+    const W = rect.width;
+    const H = rect.height;
+
+    const isSm = W >= 640;
+    const turretLeft = isSm ? 24 : 12;
+    const turretBottom = 4;
+    const turretSize = isSm ? 84 : 72;
+
+    // 포탑 내부 고질라 머리/입 위치 (포탑 좌측에서 70%, 포탑 상단에서 38%)
+    const startX = turretLeft + turretSize * 0.72;
+    const startY = H - turretBottom - turretSize * 0.62;
+
+    // 타겟(운석 중심) 위치: 가로 50%
+    const endX = W * 0.5;
+    let endY = 0;
+    if (isWordProblem) {
+      endY = H * 0.28 + (isSm ? 50 : 40);
+    } else {
+      endY = (H * (meteorProgress * 0.78) / 100) + 38;
+    }
+
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const length = Math.hypot(dx, dy);
+    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+    setBeamCoord({ startX, startY, endX, endY, length, angle });
+  }, [isWordProblem, meteorProgress]);
+
   const isPageHiddenRef = useRef<boolean>(false);
   const hasSubmittedClearRef = useRef<boolean>(false);
 
@@ -508,6 +575,8 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     problemStartTimeRef.current = now;
     setSelectedWrongChoices([]);
     setIsShootingBeam(false);
+    setGodzillaPhase('idle');
+    setBeamCoord(null);
     setIsExploding(false);
     setIsImpactShaking(false);
 
@@ -577,6 +646,10 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         window.clearTimeout(clockSpeechSafetyTimerRef.current);
         clockSpeechSafetyTimerRef.current = null;
       }
+      if (clockFallStartTimerRef.current !== null) {
+        window.clearTimeout(clockFallStartTimerRef.current);
+        clockFallStartTimerRef.current = null;
+      }
 
       const isClock = Boolean(currentProblem.clockQuestion);
 
@@ -584,9 +657,12 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       // (이전에는 startMeteorFall()에서만 리셋되어, 시한폭탄 문제는 TTS가 끝날 때까지 카드가 opacity-0으로 숨겨져 있었음)
       setIsExploding(false);
       setIsShootingBeam(false);
+      setGodzillaPhase('idle');
+      setBeamCoord(null);
       setIsImpactShaking(false);
       setSelectedWrongChoices([]);
       setSolvedAnswerDisplay(null);
+      pendingAnswerDisplayRef.current = null;
       setMeteorProgress(0);
 
       if (isClock) {
@@ -598,26 +674,35 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         speechTimerRef.current = window.setTimeout(() => {
           if (speechSessionRef.current !== currentSession) return;
 
-          // TTS 완료 시 낙하 시작하는 함수
+          // TTS 완료 시 1회만 안전하게 낙하 시작하도록 가드 플래그 설정 (중복 호출에 의한 리셋 버그 방지)
+          let hasFallStarted = false;
           const beginFallAfterSpeech = () => {
-            if (speechSessionRef.current !== currentSession) return;
+            if (hasFallStarted || speechSessionRef.current !== currentSession) return;
+            hasFallStarted = true;
+
             if (clockSpeechSafetyTimerRef.current !== null) {
               window.clearTimeout(clockSpeechSafetyTimerRef.current);
               clockSpeechSafetyTimerRef.current = null;
             }
             setIsClockReading(false);
+
             // 듣기가 끝난 후 약 350ms의 자연스러운 버퍼를 두고 시한폭탄 낙하 시작
-            window.setTimeout(() => {
+            if (clockFallStartTimerRef.current !== null) {
+              window.clearTimeout(clockFallStartTimerRef.current);
+            }
+            clockFallStartTimerRef.current = window.setTimeout(() => {
+              clockFallStartTimerRef.current = null;
               if (speechSessionRef.current === currentSession) {
                 startMeteorFall();
               }
             }, 350);
           };
 
-          // 안전장치: 혹시 브라우저 TTS 이벤트가 유실되더라도 최대 6.5초 후에는 낙하 시작
+          // 안전장치: 혹시 브라우저 TTS 이벤트가 유실되더라도 문장을 충분히 다 읽을 시간(최소 12초) 후 낙하 시작
+          const safetyDuration = Math.max(12000, Math.ceil(currentProblem.readKr.length * 300));
           clockSpeechSafetyTimerRef.current = window.setTimeout(() => {
             beginFallAfterSpeech();
-          }, 6500);
+          }, safetyDuration);
 
           speak(currentProblem.readKr, 'ko-KR')
             .then(() => {
@@ -686,12 +771,31 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         const currentIsFever = nextCombo >= 3;
 
 
-        // [정답] 고질라 대각선 아토믹 레이저 빔 발사 & 운석 공중 요격 폭발
+        // [정답] 고질라 3단계 극딜 아토믹 요격 액션 (Charge -> Fire -> Impact)
         clearAllTimers();
         // 정답을 맞춘 즉시 진행 중인 문제 낭독 취소
         cancel();
         setPhase('INTERCEPTING');
-        setIsShootingBeam(true);
+        setGodzillaPhase('charge'); // Phase 1: 기 모으기 (Charge) 시작!
+
+        // 450ms 후: Phase 2 열선 방사 (Fire) - 대각선 아토믹 레이저 발사 & 사운드 싱크
+        attackPhaseTimerRef.current = window.setTimeout(() => {
+          attackPhaseTimerRef.current = null;
+          updateBeamCoordinates();
+          setGodzillaPhase('fire');
+          setIsShootingBeam(true);
+
+          if (isWordProblem) {
+            playPerfectAtomicRoarSound();
+          } else {
+            playEvolutionBeamSound(godzillaEvo.tier, currentIsFever);
+            if (nextCombo === 3) {
+              playCriticalRoarSound();
+            } else if (nextCombo >= 2) {
+              playComboSound(nextCombo);
+            }
+          }
+        }, 450);
 
         // 3개 국어(한국어·영어·일본어) 숫자 또는 시계 정답 낭독 & 피드백 정보 생성
         const transitionVersion = transitionVersionRef.current;
@@ -699,12 +803,12 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         if (currentProblem.clockQuestion) {
           const { targetHour, targetMinute } = currentProblem.clockQuestion;
           const ansText = String(currentProblem.answer);
-          setSolvedAnswerDisplay({
+          pendingAnswerDisplayRef.current = {
             num: ansText,
             kr: ansText,
             en: `${targetHour}:${String(targetMinute).padStart(2, '0')}`,
             ja: `${targetHour}じ ${targetMinute === 0 ? 'ちょうど' : `${targetMinute}ふん`}`,
-          });
+          };
           answerSpeechFinished = new Promise<number>((resolve) => {
             let finished = false;
             const finish = () => {
@@ -720,7 +824,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             speechTimerRef.current = window.setTimeout(() => {
               speechTimerRef.current = null;
               void speak(`시한폭탄 해체 성공! ${ansText}!`, 'ko-KR').then(finish);
-            }, 350);
+            }, 1000);
           });
         } else {
           const ansNum = parseInt(String(currentProblem.answer), 10);
@@ -728,12 +832,12 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             const krStr = readSino(ansNum);
             const enStr = readEnglish(ansNum);
             const jaStr = readJapanese(ansNum);
-            setSolvedAnswerDisplay({
+            pendingAnswerDisplayRef.current = {
               num: ansNum,
               kr: krStr,
               en: enStr,
               ja: jaStr,
-            });
+            };
 
             // 정답 음성: 한국어 또는 영어로 정답 수치 낭독 (짝수 콤보는 영어, 홀수는 한국어)
             answerSpeechFinished = new Promise<number>((resolve) => {
@@ -754,7 +858,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                   nextCombo % 2 === 0 ? enStr : `${krStr}!`,
                   nextCombo % 2 === 0 ? 'en-US' : 'ko-KR'
                 ).then(finish);
-              }, 350);
+              }, 1000);
             });
           }
         }
@@ -765,26 +869,17 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
           mathQuickTipTimerRef.current = null;
         }
 
-        // 사운드: 보스 운석 격파 시에는 하이퍼 아토믹 피니시 사운드!
-        if (isWordProblem) {
-          playPerfectAtomicRoarSound();
-          setIsImpactShaking(true);
-          window.setTimeout(() => setIsImpactShaking(false), 450);
-        } else if (currentIsFever) {
-          playFeverBeamSound();
-          if (nextCombo === 3) {
-            playCriticalRoarSound();
-          }
-        } else {
-          playLaserPewPew();
-          if (nextCombo >= 2) {
-            playComboSound(nextCombo);
-          }
-        }
 
-        // 0.25초 후 운석 요격 명중 폭발
+
+        // Phase 3: 1000ms 시점에 운석 공중 요격 폭발 (Impact & Explode) - 열선 맞고 나서 와장창 박살!
         timeoutTimerRef.current = window.setTimeout(() => {
-          setIsExploding(true);
+          setGodzillaPhase('impact');
+          setIsImpactShaking(true);
+          window.setTimeout(() => setIsImpactShaking(false), 350);
+          setIsExploding(true); // 열선 직격으로 운석 박살!
+          if (pendingAnswerDisplayRef.current) {
+            setSolvedAnswerDisplay(pendingAnswerDisplayRef.current);
+          }
           playMeteorExplosionSound();
 
           // 폭죽 파티클 (황금 운석 또는 보스 격파 시 화려한 폭죽)
@@ -811,10 +906,13 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             onPartnerNotice?.('⭐ 황금 운석 요격 성공! 보너스 알 조각을 획득했어요! ⭐', '🌟');
           }
 
-          // 레이저 소멸
-          window.setTimeout(() => {
+          // 레이저 소멸 및 고질라 대기 모션 복귀
+          attackPhaseTimer2Ref.current = window.setTimeout(() => {
+            attackPhaseTimer2Ref.current = null;
             setIsShootingBeam(false);
-          }, 350);
+            setGodzillaPhase('idle');
+            setBeamCoord(null);
+          }, 450);
 
           // 다음 라운드 진행 또는 클리어 판정
           nextRoundTimerRef.current = window.setTimeout(async () => {
@@ -992,6 +1090,59 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     onClear(earnedExp);
     return true;
   };
+
+  // ⚡ 5단계 진화 및 버닝/피버/서술형별 언어배틀급 극딜 아토믹 열선 비주얼 스타일
+  const baseBeamH = isWordProblem ? 28 : godzillaEvo.tier === 'burning' ? (isFever ? 26 : 24) : isFever ? 24 : 20;
+  const beamHeight = `${baseBeamH}px`;
+  const mouthBallSize = `${isWordProblem ? 34 : isFever ? 32 : 28}px`;
+
+  let beamGradient = 'linear-gradient(90deg, #ffffff 0%, #cffafe 15%, #22d3ee 50%, #00f2ff 100%)';
+  let beamShadow = isFever
+    ? '0 0 18px #00f0ff, 0 0 36px #06b6d4, 0 0 54px #38bdf8'
+    : '0 0 14px #00f0ff, 0 0 28px #06b6d4, 0 0 42px #38bdf8';
+  let innerCoreColor = '#ffffff';
+  let innerCoreShadow = '0 0 8px #ffffff';
+  let mouthBallBg = 'radial-gradient(circle, #ffffff 40%, #a5f3fc 60%, #00f0ff 85%, transparent 100%)';
+  let mouthBallShadow = '0 0 16px #00f0ff, 0 0 30px #0284c7';
+
+  if (isWordProblem) {
+    beamGradient = 'linear-gradient(90deg, #ffffff 0%, #fbcfe8 15%, #ec4899 45%, #c084fc 75%, #9333ea 100%)';
+    beamShadow = '0 0 24px #ec4899, 0 0 48px #c084fc, 0 0 70px #a855f7';
+    innerCoreColor = '#fdf4ff';
+    innerCoreShadow = '0 0 12px #f0abfc';
+    mouthBallBg = 'radial-gradient(circle, #ffffff 40%, #f472b6 65%, #c084fc 85%, transparent 100%)';
+    mouthBallShadow = '0 0 22px #ec4899, 0 0 40px #c084fc';
+  } else if (godzillaEvo.tier === 'chibi') {
+    mouthBallBg = 'radial-gradient(circle, #ffffff 45%, #86efac 70%, #00f0ff 90%, transparent 100%)';
+    mouthBallShadow = '0 0 16px #4ade80, 0 0 26px #00f0ff';
+  } else if (godzillaEvo.tier === 'minusone') {
+    beamGradient = 'linear-gradient(90deg, #ffffff 0%, #f0fdfa 15%, #ffffff 50%, #e0f2fe 80%, #38bdf8 100%)';
+    beamShadow = isFever
+      ? '0 0 20px #ffffff, 0 0 40px #38bdf8, 0 0 60px #0284c7'
+      : '0 0 16px #ffffff, 0 0 30px #38bdf8';
+    innerCoreColor = '#ffffff';
+    innerCoreShadow = '0 0 10px #ffffff';
+    mouthBallBg = 'radial-gradient(circle, #ffffff 55%, #e0f2fe 80%, #38bdf8 95%, transparent 100%)';
+    mouthBallShadow = '0 0 18px #ffffff, 0 0 32px #38bdf8';
+  } else if (godzillaEvo.tier === 'evil') {
+    beamGradient = 'linear-gradient(90deg, #ffffff 0%, #c084fc 25%, #a855f7 55%, #818cf8 80%, #38bdf8 100%)';
+    beamShadow = isFever
+      ? '0 0 20px #a855f7, 0 0 40px #818cf8, 0 0 60px #c084fc'
+      : '0 0 16px #a855f7, 0 0 30px #818cf8';
+    innerCoreColor = '#faf5ff';
+    innerCoreShadow = '0 0 10px #c084fc';
+    mouthBallBg = 'radial-gradient(circle, #ffffff 40%, #c084fc 65%, #a855f7 85%, transparent 100%)';
+    mouthBallShadow = '0 0 18px #a855f7, 0 0 32px #38bdf8';
+  } else if (godzillaEvo.tier === 'burning') {
+    beamGradient = 'linear-gradient(90deg, #ffffff 0%, #ffee55 12%, #ff8800 38%, #ff2200 70%, #991b1b 100%)';
+    beamShadow = isFever
+      ? '0 0 24px #ff2200, 0 0 45px #ff8800, 0 0 65px #ffee55'
+      : '0 0 18px #ff2200, 0 0 32px #ff8800';
+    innerCoreColor = '#fffbeb';
+    innerCoreShadow = '0 0 12px #ffee55';
+    mouthBallBg = 'radial-gradient(circle, #ffffff 35%, #ffee55 55%, #ff8800 80%, #ff2200 100%)';
+    mouthBallShadow = '0 0 22px #ff2200, 0 0 40px #ff8800';
+  }
 
   return (
     <div
@@ -1237,7 +1388,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         </div>
 
         {/* 중앙: 운석 낙하 트랙 영역 */}
-        <div className="relative flex-1 min-h-0 w-full overflow-hidden">
+        <div ref={trackRef} className="relative flex-1 min-h-0 w-full overflow-hidden">
           {/* 방어선 피격 / 쉴드 방어 경고 플로팅 텍스트 */}
           {defenseDamageAlert && (
             <div className="absolute left-1/2 -translate-x-1/2 bottom-8 z-35 animate-bounce pointer-events-none whitespace-nowrap">
@@ -1302,7 +1453,11 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
           <div className="absolute left-3 sm:left-6 bottom-1 z-30 flex items-center gap-2.5 pointer-events-none">
             <div
               className={`relative flex items-center justify-center w-[72px] h-[72px] sm:w-[84px] sm:h-[84px] rounded-2xl border-2 transition-all duration-300 ${
-                isWordProblem
+                godzillaPhase === 'charge'
+                  ? 'bg-cyan-950/90 border-cyan-400 scale-110 shadow-[0_0_35px_#00f0ff]'
+                  : godzillaPhase === 'fire'
+                  ? 'bg-amber-500/40 border-yellow-300 scale-120 shadow-[0_0_40px_#f59e0b]'
+                  : isWordProblem
                   ? isShootingBeam
                     ? 'bg-purple-600/40 border-yellow-300 scale-115 shadow-[0_0_40px_#c084fc]'
                     : 'bg-gradient-to-br from-purple-950/95 to-indigo-950/95 border-purple-400 shadow-[0_0_20px_rgba(168,85,247,0.7)] animate-pulse'
@@ -1315,8 +1470,8 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                   : 'bg-slate-900/95 border-amber-500/50 shadow-[0_0_14px_rgba(245,158,11,0.4)]'
               }`}
               style={{
-                borderColor: isShootingBeam ? godzillaEvo.themeColor : undefined,
-                boxShadow: isShootingBeam ? `0 0 35px ${godzillaEvo.themeColor}` : undefined,
+                borderColor: godzillaPhase === 'charge' ? '#00f0ff' : isShootingBeam ? godzillaEvo.themeColor : undefined,
+                boxShadow: godzillaPhase === 'charge' ? '0 0 35px #00f0ff' : isShootingBeam ? `0 0 35px ${godzillaEvo.themeColor}` : undefined,
               }}
             >
               {/* 고질라 성장 레벨 뱃지 (좌측 상단 오버레이) */}
@@ -1364,24 +1519,29 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
               )}
 
               {/* 고질라 진화 형태 캐릭터 이미지 (1.5배 확대 적용) */}
-              <div className="relative w-full h-full flex items-center justify-center p-0.5 select-none pointer-events-none">
-                <img
-                  src={godzillaEvo.imageSrc}
-                  alt={godzillaEvo.name}
-                  className={`w-full h-full object-contain transition-transform duration-200 ${
-                    isShootingBeam
-                      ? 'scale-120 brightness-125'
-                      : isWordProblem
-                      ? 'scale-110 drop-shadow-[0_0_10px_#c084fc]'
-                      : isFever
-                      ? 'scale-110 drop-shadow-[0_0_10px_#ea580c]'
-                      : 'drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]'
-                  }`}
-                  style={{
-                    filter: isShootingBeam
-                      ? `drop-shadow(0 0 14px ${godzillaEvo.themeColor}) brightness(1.25)`
-                      : undefined,
-                  }}
+              <div
+                className={`relative w-full h-full flex items-center justify-center p-0.5 select-none pointer-events-none transition-transform duration-200 ${
+                  isShootingBeam
+                    ? 'scale-120 brightness-125'
+                    : isWordProblem
+                    ? 'scale-110 drop-shadow-[0_0_10px_#c084fc]'
+                    : isFever
+                    ? 'scale-110 drop-shadow-[0_0_10px_#ea580c]'
+                    : 'drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]'
+                }`}
+                style={{
+                  filter: isShootingBeam
+                    ? `drop-shadow(0 0 14px ${godzillaEvo.themeColor}) brightness(1.25)`
+                    : undefined,
+                }}
+              >
+                <GodzillaArt
+                  tier={godzillaEvo.tier}
+                  isShooting={isShootingBeam}
+                  isHit={isRedFlash}
+                  isDefeated={false}
+                  attackPhase={godzillaPhase}
+                  label={godzillaEvo.name}
                 />
               </div>
 
@@ -1392,6 +1552,14 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                 </span>
               )}
 
+              {godzillaPhase === 'charge' && (
+                <>
+                  <div className="absolute -inset-2 rounded-2xl border-2 border-cyan-400 pointer-events-none animate-ping opacity-75" />
+                  <div className="absolute -top-3.5 -right-1 px-1 rounded bg-cyan-900 border border-cyan-400 text-cyan-200 text-[9px] font-black animate-pulse pointer-events-none z-30 shadow">
+                    ⚡차징
+                  </div>
+                </>
+              )}
               {isShootingBeam && (
                 <>
                   <div
@@ -1432,9 +1600,11 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                   : `${godzillaEvo.name}`}
               </span>
               <span className="text-[8.5px] text-slate-400 font-bold">
-                {isShootingBeam
+                {godzillaPhase === 'charge'
+                  ? '⚡ 아토믹 에너지 충전 중!'
+                  : isShootingBeam
                   ? isWordProblem
-                    ? `💥 ${godzillaEvo.beamName}!`
+                    ? `💥 ${godzillaEvo.beamName} 발사!`
                     : isFever
                     ? '🔥 메가 버닝 빔 발사!'
                     : `🔥 ${godzillaEvo.beamName}!`
@@ -1447,103 +1617,210 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             </div>
           </div>
 
-          {/* 고질라 대각선 아토믹 레이저 빔 */}
-          {isShootingBeam && (
-            <svg
-              className="absolute inset-0 w-full h-full pointer-events-none z-25 overflow-visible"
-              viewBox="0 0 100 100"
-              preserveAspectRatio="none"
+          {/* ── [언어배틀급 극딜 아토믹 레이저 빔] (Phase 2 Fire ~ Phase 3 Impact) ── */}
+          {isShootingBeam && beamCoord && (
+            <div
+              style={{
+                position: 'absolute',
+                left: `${beamCoord.startX}px`,
+                top: `${beamCoord.startY}px`,
+                width: `${beamCoord.length}px`,
+                height: beamHeight,
+                transform: `translateY(-50%) rotate(${beamCoord.angle}deg)`,
+                transformOrigin: '0 50%',
+                zIndex: 25,
+                pointerEvents: 'none',
+                display: 'flex',
+                alignItems: 'center',
+              }}
             >
-              <defs>
-                <linearGradient id="mathBeamGrad" x1="0%" y1="100%" x2="50%" y2="0%">
-                  <stop
-                    offset="0%"
-                    stopColor={isWordProblem ? '#9333ea' : isFever ? '#dc2626' : '#d97706'}
-                    stopOpacity="0.95"
+              {/* 1. 입술 발광 구슬 */}
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  width: mouthBallSize,
+                  height: mouthBallSize,
+                  borderRadius: '9999px',
+                  background: mouthBallBg,
+                  boxShadow: mouthBallShadow,
+                  zIndex: 36,
+                }}
+              />
+
+              {/* 2. 머즐 플래시 (Muzzle Flash 링) */}
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '9999px',
+                  border: '3px solid #ffffff',
+                  boxShadow: `0 0 25px ${isWordProblem ? '#ec4899' : godzillaEvo.themeColor}`,
+                  animation: 'ping 0.25s cubic-bezier(0, 0, 0.2, 1) infinite',
+                  zIndex: 35,
+                }}
+              />
+
+              {/* 3. 화면을 시원하게 가로지르는 굵직하고 강렬한 아토믹 레이저 빔 (언어 배틀과 100% 동일) */}
+              <div
+                className="animate-beam-glow"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  background: beamGradient,
+                  borderRadius: '9999px',
+                  boxShadow: beamShadow,
+                  position: 'relative',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                {/* 내부 순백색 고출력 코어 라인 (순백 코어) */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: '4px',
+                    right: '4px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    height: isFever || isWordProblem ? '8px' : '6.5px',
+                    backgroundColor: innerCoreColor,
+                    borderRadius: '9999px',
+                    boxShadow: `${innerCoreShadow}, 0 0 20px #00f2ff`,
+                  }}
+                />
+
+                {/* 빔을 휘감는 플라즈마 파동 링들 */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: '-4px 0',
+                    display: 'flex',
+                    justifyContent: 'space-around',
+                    alignItems: 'center',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '10px',
+                      height: '140%',
+                      border: '2px solid #ffffff',
+                      borderRadius: '9999px',
+                      boxShadow: `0 0 12px ${isWordProblem ? '#ec4899' : '#00f0ff'}`,
+                    }}
+                    className="animate-ping"
                   />
-                  <stop
-                    offset="40%"
-                    stopColor={isWordProblem ? '#ec4899' : isFever ? '#ea580c' : '#f59e0b'}
-                    stopOpacity="1"
+                  <div
+                    style={{
+                      width: '14px',
+                      height: '140%',
+                      border: `2px solid ${isWordProblem ? '#c084fc' : '#38bdf8'}`,
+                      borderRadius: '9999px',
+                      boxShadow: `0 0 16px ${isWordProblem ? '#a855f7' : '#3b82f6'}`,
+                    }}
+                    className="animate-ping"
                   />
-                  <stop
-                    offset="80%"
-                    stopColor={isWordProblem ? '#38bdf8' : isFever ? '#fbbf24' : '#fde047'}
-                    stopOpacity="1"
+                  <div
+                    style={{
+                      width: '10px',
+                      height: '140%',
+                      border: '2px solid #ffffff',
+                      borderRadius: '9999px',
+                      boxShadow: `0 0 12px ${isWordProblem ? '#ec4899' : '#00f0ff'}`,
+                    }}
+                    className="animate-ping"
                   />
-                  <stop offset="100%" stopColor="#ffffff" stopOpacity="1" />
-                </linearGradient>
-                <filter id="mathBeamGlow" x="-50%" y="-50%" width="200%" height="200%">
-                  <feGaussianBlur stdDeviation={isWordProblem ? '3' : isFever ? '2.5' : '1.5'} result="coloredBlur" />
-                  <feMerge>
-                    <feMergeNode in="coloredBlur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-              </defs>
+                </div>
 
-              {/* 1. 외부 오렌지/레드/바이올렛 버닝 네온 글로우 */}
-              <line
-                x1={14}
-                y1={88}
-                x2={50}
-                y2={isWordProblem ? 38 : Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
-                stroke={isWordProblem ? '#c084fc' : isFever ? '#ef4444' : '#f59e0b'}
-                strokeWidth={isWordProblem ? '12' : isFever ? '9' : '5'}
-                strokeLinecap="round"
-                opacity={isWordProblem ? '0.9' : isFever ? '0.85' : '0.6'}
-                filter="url(#mathBeamGlow)"
-              />
+                {/* 버닝 고질라 티어 특화: 나선 화염 와류 오버레이 */}
+                {(godzillaEvo.tier === 'burning' || isFever) && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      background:
+                        'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255, 238, 85, 0.45) 8px, rgba(255, 238, 85, 0.45) 16px)',
+                      borderRadius: '9999px',
+                    }}
+                    className="animate-pulse"
+                  />
+                )}
+              </div>
+            </div>
+          )}
 
-              {/* 2. 주 열선 레이저 */}
-              <line
-                x1={14}
-                y1={88}
-                x2={50}
-                y2={isWordProblem ? 38 : Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
-                stroke="url(#mathBeamGrad)"
-                strokeWidth={isWordProblem ? '6.5' : isFever ? '5.5' : '3.0'}
-                strokeLinecap="round"
-                filter="url(#mathBeamGlow)"
-              />
-
-              {/* 3. 코어 화이트 고출력 빔 */}
-              <line
-                x1={14}
-                y1={88}
-                x2={50}
-                y2={isWordProblem ? 38 : Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
-                stroke="#ffffff"
-                strokeWidth={isWordProblem ? '2.8' : isFever ? '2.2' : '1.4'}
-                strokeLinecap="round"
-              />
-
-              {/* 4. 머즐 플래시 */}
-              <circle cx={14} cy={88} r={isWordProblem ? '6' : isFever ? '5' : '3'} fill="#ffffff" filter="url(#mathBeamGlow)" />
-              <circle
-                cx={14}
-                cy={88}
-                r={isWordProblem ? '11' : isFever ? '9' : '5.5'}
-                fill={isWordProblem ? '#a855f7' : isFever ? '#ef4444' : '#f59e0b'}
-                opacity="0.85"
+          {/* ── [운석 명중 지점 임팩트: 충격파 링 & 스파크] ── */}
+          {(godzillaPhase === 'fire' || godzillaPhase === 'impact') && beamCoord && (
+            <div
+              style={{
+                position: 'absolute',
+                left: `${beamCoord.endX}px`,
+                top: `${beamCoord.endY}px`,
+                transform: 'translate(-50%, -50%)',
+                width: '60px',
+                height: '60px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 35,
+                pointerEvents: 'none',
+              }}
+            >
+              {/* 확장하는 충격파 링 */}
+              <div
+                className="animate-impact-shockwave"
+                style={{
+                  position: 'absolute',
+                  width: '60px',
+                  height: '60px',
+                  borderRadius: '9999px',
+                  border: `3px solid ${isWordProblem ? '#f0abfc' : isFever ? '#fde047' : '#00f0ff'}`,
+                  boxShadow: `0 0 25px ${isWordProblem ? '#a855f7' : isFever ? '#ea580c' : '#0284c7'}`,
+                }}
               />
 
-              {/* 5. 명중 임팩트 스파크 */}
-              <circle
-                cx={50}
-                cy={isWordProblem ? 38 : Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
-                r={isWordProblem ? '9' : isFever ? '7' : '4'}
-                fill="#ffffff"
-                filter="url(#mathBeamGlow)"
+              {/* 고에너지 폭발 플래시 */}
+              <div
+                style={{
+                  position: 'absolute',
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '9999px',
+                  background: 'radial-gradient(circle, #ffffff 40%, rgba(0, 240, 255, 0.7) 70%, transparent 100%)',
+                  boxShadow: `0 0 30px ${isWordProblem ? '#ec4899' : '#00f0ff'}`,
+                  animation: 'ping 0.3s ease-out infinite',
+                }}
               />
-              <circle
-                cx={50}
-                cy={isWordProblem ? 38 : Math.min(76, Math.max(12, meteorProgress * 0.78 + 6))}
-                r={isWordProblem ? '16' : isFever ? '13' : '7'}
-                fill={isWordProblem ? '#f43f5e' : isFever ? '#f97316' : '#fde047'}
-                opacity="0.9"
-              />
-            </svg>
+
+              {/* 8방향 비산 스파크 파티클 */}
+              {[
+                [-22, -22], [0, -30], [22, -22], [30, 0],
+                [22, 22], [0, 30], [-22, 22], [-30, 0]
+              ].map(([sx, sy], idx) => (
+                <div
+                  key={`impact-spk-${idx}`}
+                  className="animate-spark-explode"
+                  style={
+                    {
+                      position: 'absolute',
+                      width: '5px',
+                      height: '5px',
+                      borderRadius: '9999px',
+                      backgroundColor: idx % 2 === 0 ? '#ffffff' : isWordProblem ? '#f472b6' : isFever ? '#fde047' : '#00f0ff',
+                      boxShadow: `0 0 10px ${isWordProblem ? '#a855f7' : '#00f0ff'}`,
+                      '--sx': `${sx}px`,
+                      '--sy': `${sy}px`,
+                    } as React.CSSProperties
+                  }
+                />
+              ))}
+            </div>
           )}
 
           {/* 낙하하는 수식 운석 (Meteor) / 서술형은 상단 중앙 고정 카드 */}
@@ -1555,7 +1832,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                   : currentProblem.clockQuestion
                   ? 'w-[94vw] max-w-2xl transition-transform duration-75'
                   : 'w-fit max-w-[92vw] transition-transform duration-75'
-              } ${isExploding ? 'animate-ping opacity-0 scale-150 duration-300' : ''}`}
+              } ${isShootingBeam && !isExploding ? 'animate-meteor-hit-shake' : ''}`}
               style={
                 isWordProblem
                   ? undefined
@@ -1587,6 +1864,61 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                 />
               )}
 
+              {/* 💥 열선 맞고 와장창 박살나는 산산조각 파편들 (Shatter Debris) */}
+              {isExploding && (
+                <div className="absolute inset-0 pointer-events-none z-30 flex items-center justify-center">
+                  {[
+                    [-65, -55, 45, '#78350f'],
+                    [65, -50, -60, '#92400e'],
+                    [-80, 20, 90, '#451a03'],
+                    [75, 30, -45, '#78350f'],
+                    [-40, 70, 120, '#b45309'],
+                    [45, 65, -90, '#d97706'],
+                    [0, -75, 180, '#f59e0b'],
+                    [0, 80, -120, '#92400e'],
+                  ].map(([dx, dy, rot, color], idx) => (
+                    <div
+                      key={`shatter-piece-${idx}`}
+                      className="absolute rounded-lg animate-meteor-shatter"
+                      style={
+                        {
+                          width: `${14 + (idx % 3) * 6}px`,
+                          height: `${12 + (idx % 2) * 6}px`,
+                          backgroundColor: isGoldenMeteor ? '#fbbf24' : isWordProblem ? '#a855f7' : (color as string),
+                          border: '2px solid #ffffff',
+                          boxShadow: isGoldenMeteor ? '0 0 16px #facc15' : isWordProblem ? '0 0 16px #c084fc' : '0 0 14px #f97316',
+                          '--dx': `${dx}px`,
+                          '--dy': `${dy}px`,
+                          '--rot': `${rot}deg`,
+                        } as React.CSSProperties
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* 🌟 운석 박살 후 중앙에 떠오르는 영롱한 정답 축하 팝업 */}
+              {isExploding && solvedAnswerDisplay && (
+                <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none animate-fadeIn">
+                  <div className="px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-950/98 via-slate-900/98 to-emerald-950/98 border-2 border-emerald-400 text-emerald-200 shadow-[0_0_35px_#10b981] flex flex-col items-center gap-1.5 animate-bounce">
+                    <span className="text-2xl sm:text-3xl font-black text-yellow-300 drop-shadow-[0_0_12px_rgba(250,204,21,0.8)]">
+                      🎯 정답: {solvedAnswerDisplay.num}!
+                    </span>
+                    <div className="flex items-center gap-2 text-xs font-black">
+                      <span className="px-2 py-0.5 rounded bg-amber-950/90 border border-amber-400 text-amber-200">
+                        🇰🇷 {solvedAnswerDisplay.kr}
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-blue-950/90 border border-blue-400 text-blue-200">
+                        🇺🇸 {solvedAnswerDisplay.en}
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-red-950/90 border border-red-400 text-red-200">
+                        🇯🇵 {solvedAnswerDisplay.ja}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* 운석 구체 본체 / 보스 운석 카드 */}
               <div
                 className={`relative rounded-2xl border-2 shadow-2xl transition-all ${
@@ -1596,12 +1928,14 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                     ? 'w-[94vw] max-w-2xl px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4 overflow-hidden'
                     : 'w-fit max-w-[92vw] sm:max-w-md px-3.5 sm:px-6 py-2 sm:py-2.5 flex items-center justify-center gap-2'
                 } ${
-                  isShootingBeam
+                  isExploding
+                    ? 'opacity-0 scale-125 duration-300 pointer-events-none'
+                    : isShootingBeam
                     ? isWordProblem
-                      ? 'bg-purple-950/90 border-yellow-300 shadow-[0_0_35px_#c084fc]'
+                      ? 'bg-purple-950/95 border-red-400 shadow-[0_0_45px_#ef4444] scale-105'
                       : isGoldenMeteor
-                      ? 'bg-yellow-400/70 border-white shadow-[0_0_40px_#facc15] scale-110'
-                      : 'bg-amber-500/40 border-yellow-300 shadow-[0_0_30px_#f59e0b] scale-110'
+                      ? 'bg-yellow-500/80 border-white shadow-[0_0_45px_#facc15] scale-110'
+                      : 'bg-red-950/90 border-red-400 shadow-[0_0_40px_#ef4444] scale-105'
                     : isWordProblem
                     ? 'bg-gradient-to-b from-slate-900/98 via-purple-950/85 to-slate-900/98 border-purple-500/90 shadow-[0_0_30px_rgba(168,85,247,0.45)]'
                     : isGoldenMeteor
@@ -1873,7 +2207,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             {currentOptions.map((choice, idx) => {
               const isWrong = selectedWrongChoices.includes(choice);
               const isEliminated = lives === 1 && eliminatedChoices.includes(choice);
-              const isDisabled = !isStarted || isWrong || isEliminated || phase !== 'PLAYING' || isShootingBeam;
+              const isDisabled = !isStarted || isWrong || isEliminated || phase !== 'PLAYING' || isShootingBeam || godzillaPhase !== 'idle';
 
               return (
                 <button
@@ -2046,11 +2380,15 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         <div className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex flex-col items-center justify-center text-center p-4 animate-fadeIn">
           <div className="relative mb-3">
             <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center p-2 shadow-xl shadow-amber-500/40">
-              <img
-                src={godzillaEvo.imageSrc}
-                alt={godzillaEvo.name}
-                className="w-full h-full object-contain grayscale opacity-75 animate-pulse"
-              />
+              <div className="w-full h-full flex items-center justify-center grayscale opacity-75 animate-pulse">
+                <GodzillaArt
+                  tier={godzillaEvo.tier}
+                  isShooting={false}
+                  isDefeated={true}
+                  attackPhase="idle"
+                  label={godzillaEvo.name}
+                />
+              </div>
             </div>
             <div className="absolute -bottom-1 -right-1 px-1.5 py-0.5 rounded-full bg-red-600 text-white font-black text-[10px] border border-red-300 shadow">
               HP 0

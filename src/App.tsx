@@ -1564,7 +1564,7 @@ export function App() {
           battleStatusRef.current = 'CLEARED';
           setBattleStatus('CLEARED');
         }
-      }, isCritical ? 1700 : 1200);
+      }, isCritical ? 2200 : 1800);
 
       setClearedIds((prev) => (prev.includes(matchedId) ? prev : [...prev, matchedId]));
 
@@ -1784,7 +1784,7 @@ export function App() {
   const handleMatchFail = useCallback((failedIds?: (string | number)[]) => {
     if (battleStatusRef.current !== 'PLAYING') return;
     setIsGhidorahAttacking(true);
-    setTimeout(() => setIsGhidorahAttacking(false), 1200);
+    setTimeout(() => setIsGhidorahAttacking(false), 1800);
 
     // 1) 모스라 패시브: [수호의 날개] - 한 판당 오답 1회 무료 방어 (하트 차감 1회 무효)
     if (equippedPartnerId === 'mothra' && !hasUsedPartnerShieldRef.current) {

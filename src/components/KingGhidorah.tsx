@@ -1,5 +1,6 @@
 import React from 'react';
 import { Hedorah } from './Hedorah';
+import { KingGhidorahArt } from './KingGhidorahArt';
 
 interface KingGhidorahProps {
   isHit: boolean;
@@ -7,6 +8,8 @@ interface KingGhidorahProps {
   hp?: number;
   isReviewBoss?: boolean;
   className?: string;
+  isAttacking?: boolean;
+  attackPhase?: 'idle' | 'charge' | 'fire' | 'impact';
 }
 
 export const KingGhidorah: React.FC<KingGhidorahProps> = ({
@@ -15,6 +18,8 @@ export const KingGhidorah: React.FC<KingGhidorahProps> = ({
   hp = 100,
   isReviewBoss = false,
   className = '',
+  isAttacking = false,
+  attackPhase,
 }) => {
   // 오답 복습 레이드 보스일 경우 전용 헤도라(Hedorah) 컴포넌트로 렌더링
   if (isReviewBoss) {
@@ -32,30 +37,23 @@ export const KingGhidorah: React.FC<KingGhidorahProps> = ({
   const isCritical = hp <= 25 && !isDefeated;
   const isWounded = hp <= 50 && !isDefeated;
 
-  let imgFilter = 'drop-shadow(0 6px 14px rgba(180, 83, 9, 0.6))';
+  let svgFilter = 'drop-shadow(0 0 10px rgba(245, 158, 11, 0.55)) drop-shadow(0 8px 14px rgba(0, 0, 0, 0.45))';
 
   if (isDefeated) {
-    imgFilter = isReviewBoss
-      ? 'grayscale(0.85) opacity(0.4) contrast(1.2)'
-      : 'grayscale(0.8) opacity(0.45)';
+    svgFilter = 'grayscale(0.8) opacity(0.45)';
   } else if (isHit) {
-    imgFilter = isReviewBoss
-      ? 'drop-shadow(0 0 26px #ef4444) brightness(2.2) hue-rotate(130deg)'
-      : 'drop-shadow(0 0 24px #ef4444) brightness(2.2)';
+    svgFilter = 'drop-shadow(0 0 24px #ef4444) brightness(1.3) saturate(1.3)';
   } else if (isCritical) {
-    imgFilter = isReviewBoss
-      ? 'drop-shadow(0 0 20px #ef4444) hue-rotate(100deg) contrast(1.4)'
-      : 'drop-shadow(0 0 16px rgba(239, 68, 68, 0.85)) hue-rotate(-15deg)';
+    svgFilter = 'drop-shadow(0 0 18px rgba(239, 68, 68, 0.9)) saturate(1.15)';
   } else if (isWounded) {
-    imgFilter = isReviewBoss
-      ? 'drop-shadow(0 0 16px rgba(168, 85, 247, 0.8)) hue-rotate(120deg)'
-      : 'drop-shadow(0 0 14px rgba(245, 158, 11, 0.75))';
+    svgFilter = 'drop-shadow(0 0 14px rgba(245, 158, 11, 0.8)) drop-shadow(0 0 6px rgba(239, 68, 68, 0.5))';
   }
 
   return (
     <div
       className={`relative flex items-end justify-center select-none ${className}`}
       style={{
+        // 레이아웃 점유 크기(기존 240:220)는 그대로 유지하여 HP 바/배틀 레이아웃을 보호한다.
         height: '100%',
         maxHeight: '100%',
         width: 'auto',
@@ -70,77 +68,35 @@ export const KingGhidorah: React.FC<KingGhidorahProps> = ({
           : isHit
           ? 'scale(1.04)'
           : 'scale(1)',
+        transformOrigin: '70% 90%',
         opacity: isDefeated ? 0.45 : 1,
       }}
     >
-      {/* 1. 피격 시 붉은 화염 아우라 / 평상시 황금 중력 번개 아우라 */}
-      {isHit ? (
-        <div
-          style={{
-            position: 'absolute',
-            inset: '-8px',
-            backgroundColor: 'rgba(239, 68, 68, 0.45)',
-            filter: 'blur(20px)',
-            borderRadius: '9999px',
-            pointerEvents: 'none',
-          }}
-        />
-      ) : !isDefeated ? (
-        <div
-          className="animate-pulse pointer-events-none"
-          style={{
-            position: 'absolute',
-            inset: '-4px',
-            background: isReviewBoss
-              ? 'radial-gradient(circle, rgba(168, 85, 247, 0.45) 0%, rgba(34, 197, 94, 0.25) 55%, transparent 80%)'
-              : isCritical
-              ? 'radial-gradient(circle, rgba(239, 68, 68, 0.35) 0%, rgba(245, 158, 11, 0.2) 60%, transparent 80%)'
-              : 'radial-gradient(circle, rgba(245, 158, 11, 0.25) 0%, rgba(234, 179, 8, 0.1) 60%, transparent 80%)',
-            filter: 'blur(14px)',
-            borderRadius: '9999px',
-          }}
-        />
-      ) : null}
-
-      {/* 스모그 괴수 헤도라 독성 안개 파티클 */}
-      {isReviewBoss && !isDefeated && (
-        <div
-          className="absolute -top-3 right-6 text-sm animate-pulse pointer-events-none opacity-85 z-20"
-          title="스모그 독기"
-        >
-          👾💨
-        </div>
-      )}
-
-      {/* 바닥 접지 그림자 */}
+      {/* 킹 기도라 SVG: 기준 박스 대비 가로 140% (viewBox 336x220 == 240x220 의 1.4배) 로
+          좌측(고질라 방향)으로 확장해 배틀 영역을 묵직하게 채운다. */}
       <div
-        style={{
-          position: 'absolute',
-          bottom: '1px',
-          right: '10%',
-          width: '75%',
-          height: '10px',
-          background: isReviewBoss
-            ? 'radial-gradient(ellipse, rgba(88, 28, 135, 0.85) 0%, rgba(15, 23, 42, 0.5) 65%, transparent 85%)'
-            : 'radial-gradient(ellipse, rgba(0, 0, 0, 0.85) 0%, rgba(15, 23, 42, 0.5) 65%, transparent 85%)',
-          borderRadius: '9999px',
-          pointerEvents: 'none',
-        }}
-      />
-
-      {/* 킹 기도라 또는 스모그 괴수 헤도라 PNG 이미지 */}
-      <img
-        src="/images/ghidorah.png"
-        alt={isReviewBoss ? '스모그 괴수 헤도라 (Hedorah)' : '킹 기도라 (King Ghidorah)'}
-        className={`h-full w-auto max-h-full block object-contain pointer-events-none ${
+        className={`pointer-events-none ${
           isHit ? 'animate-boss-hit' : isCritical ? 'animate-boss-tremble' : ''
         }`}
         style={{
-          filter: imgFilter,
+          position: 'absolute',
+          right: 0,
+          bottom: 0,
+          height: '100%',
+          width: '140%',
+          filter: svgFilter,
           transition: 'filter 0.2s ease',
         }}
-        draggable={false}
-      />
+      >
+        <KingGhidorahArt
+          isHit={isHit}
+          isDefeated={isDefeated}
+          isWounded={isWounded}
+          isCritical={isCritical}
+          isAttacking={isAttacking}
+          attackPhase={attackPhase}
+        />
+      </div>
 
       {/* 격퇴 시 어지러움 별 이펙트 */}
       {isDefeated && (

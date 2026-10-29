@@ -324,3 +324,428 @@ html, body {
 }
 
 
+
+/* ===== King Ghidorah (킹 기도라) 위압 연출 ===== */
+/* SVG 내부 요소는 viewBox 기준으로 회전축을 잡는다 (transform-box: view-box) */
+.ghid-float,
+.ghid-wing-near,
+.ghid-wing-far,
+.ghid-neck,
+.ghid-tail,
+.ghid-shadow {
+  transform-box: view-box;
+}
+
+/* 공중 부유: 바닥에 서지 않고 둥실둥실 */
+@keyframes ghidFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-9px) rotate(-0.7deg); }
+}
+.ghid-float {
+  transform-origin: 240px 120px;
+  animation: ghidFloat 3.4s ease-in-out infinite;
+}
+
+/* 몸체가 떠오르면 그림자는 작고 흐려짐 */
+@keyframes ghidShadow {
+  0%, 100% { transform: scale(1, 1); opacity: 0.9; }
+  50% { transform: scale(0.82, 0.8); opacity: 0.55; }
+}
+.ghid-shadow {
+  transform-origin: 236px 213px;
+  animation: ghidShadow 3.4s ease-in-out infinite;
+}
+
+/* 거대한 날개: 천천히 위압적으로 펄럭임 (어깨 기준 회전) */
+@keyframes ghidWingNear {
+  0%, 100% { transform: rotate(4deg) scaleY(1); }
+  50% { transform: rotate(-6deg) scaleY(0.94); }
+}
+@keyframes ghidWingFar {
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: rotate(6deg); }
+}
+.ghid-wing-near {
+  transform-origin: 240px 100px;
+  animation: ghidWingNear 3.4s ease-in-out infinite;
+}
+.ghid-wing-far {
+  transform-origin: 234px 98px;
+  animation: ghidWingFar 3.4s ease-in-out infinite;
+  animation-delay: -0.5s;
+}
+
+/* 뱀처럼 꿈틀대는 3개의 목 (목 뿌리 기준 회전) */
+@keyframes ghidNeckSwayA {
+  0%, 100% { transform: rotate(-2.2deg); }
+  50% { transform: rotate(2.6deg); }
+}
+@keyframes ghidNeckSwayB {
+  0%, 100% { transform: rotate(2.4deg); }
+  50% { transform: rotate(-2.4deg); }
+}
+.ghid-neck { transform-origin: 228px 128px; }
+.ghid-neck-1 { animation: ghidNeckSwayA 2.6s ease-in-out infinite; }
+.ghid-neck-2 { animation: ghidNeckSwayB 2.1s ease-in-out infinite; }
+.ghid-neck-3 { animation: ghidNeckSwayA 3s ease-in-out infinite; animation-delay: -1s; }
+
+@keyframes ghidTailSway {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(4deg); }
+}
+.ghid-tail {
+  transform-origin: 262px 174px;
+  animation: ghidTailSway 2.8s ease-in-out infinite;
+}
+
+/* 황금 번개 스파크: 대부분 꺼져 있다가 지지직 튀며 번쩍 */
+@keyframes ghidBolt {
+  0%, 100% { opacity: 0; transform: translate(0, 0); }
+  4% { opacity: 1; transform: translate(1.2px, -1px); }
+  8% { opacity: 0.1; transform: translate(-1px, 1px); }
+  12% { opacity: 1; transform: translate(1px, 1.2px); }
+  17% { opacity: 0.25; transform: translate(-1.2px, -1px); }
+  22% { opacity: 0.9; transform: translate(0, 0); }
+  28% { opacity: 0; }
+}
+.ghid-bolt {
+  opacity: 0;
+  animation: ghidBolt 2.4s linear infinite;
+}
+/* 분노(붉은) 번개는 더 길고 거칠게 튄다 */
+@keyframes ghidBoltRage {
+  0%, 100% { opacity: 0; transform: translate(0, 0); }
+  8% { opacity: 1; transform: translate(2px, -2px); }
+  16% { opacity: 0.15; transform: translate(-2px, 2px); }
+  26% { opacity: 1; transform: translate(2px, 1px); }
+  38% { opacity: 0.2; transform: translate(-1px, -2px); }
+  50% { opacity: 1; transform: translate(0, 0); }
+  62% { opacity: 0; }
+}
+.ghid-bolt-rage {
+  animation-name: ghidBoltRage;
+}
+
+/* 붉은 안광 번쩍임 */
+@keyframes ghidEyePulse {
+  0%, 100% { opacity: 0.55; }
+  45% { opacity: 1; }
+  60% { opacity: 0.7; }
+}
+.ghid-eye-glow {
+  animation: ghidEyePulse 1.4s ease-in-out infinite;
+}
+
+/* 오라 맥동 */
+@keyframes ghidAuraPulse {
+  0%, 100% { opacity: 0.7; transform: scale(0.97); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+.ghid-aura,
+.ghid-aura-rage {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ghid-aura { animation: ghidAuraPulse 2.2s ease-in-out infinite; }
+.ghid-aura-rage { animation: ghidAuraPulse 0.8s ease-in-out infinite; }
+
+/* 격퇴 시 모든 애니메이션 정지 */
+.ghid-defeated * {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ghid-float, .ghid-wing-near, .ghid-wing-far, .ghid-neck, .ghid-tail, .ghid-shadow {
+    animation-duration: 8s;
+  }
+}
+
+/* ===== Godzilla (고질라) SVG 연출 ===== */
+.godz-breathe,
+.godz-tail,
+.godz-head {
+  transform-box: view-box;
+}
+
+/* 대기 모션: 위아래로 묵직하게 숨 쉬는 바운스 (발바닥 기준) */
+@keyframes godzBreathe {
+  0%, 100% { transform: scale(1, 1) translateY(0); }
+  50% { transform: scale(1.008, 1.026) translateY(-1.2px); }
+}
+.godz-breathe {
+  transform-origin: 160px 212px;
+  animation: godzBreathe 3.2s ease-in-out infinite;
+}
+
+@keyframes godzTailSway {
+  0%, 100% { transform: rotate(-1.4deg); }
+  50% { transform: rotate(2deg); }
+}
+.godz-tail {
+  transform-origin: 124px 150px;
+  animation: godzTailSway 3.2s ease-in-out infinite;
+}
+
+@keyframes godzHeadBob {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-1.4deg); }
+}
+.godz-head {
+  animation: godzHeadBob 3.2s ease-in-out infinite;
+  animation-delay: -0.3s;
+}
+
+/* 아토믹 블루 오라: 대기 중 은은한 외곽 발광 */
+@keyframes godzGlowIdle {
+  0%, 100% { filter: drop-shadow(0 0 2px var(--gz-a)) drop-shadow(0 4px 5px rgba(0, 0, 0, 0.55)); }
+  50% { filter: drop-shadow(0 0 7px var(--gz-a)) drop-shadow(0 0 12px var(--gz-b)) drop-shadow(0 4px 5px rgba(0, 0, 0, 0.55)); }
+}
+.godz-art {
+  animation: godzGlowIdle 2.8s ease-in-out infinite;
+}
+
+/* 충전 파동: 꼬리 끝 → 등지느러미 → 머리 */
+@keyframes godzSpineFlow {
+  from { stroke-dashoffset: 16; }
+  to { stroke-dashoffset: -84; }
+}
+.godz-spine-flow {
+  animation: godzSpineFlow 2.8s linear infinite;
+}
+@keyframes godzPlatePulse {
+  0% { opacity: 0; }
+  8% { opacity: 0.95; }
+  30% { opacity: 0.2; }
+  60%, 100% { opacity: 0; }
+}
+.godz-plate {
+  opacity: 0;
+  animation: godzPlatePulse 2.8s ease-out infinite;
+}
+.godz-plate-fire {
+  mix-blend-mode: screen;
+}
+
+/* 입가 에너지 */
+@keyframes godzOrbPulse {
+  0%, 100% { opacity: 0.6; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+.godz-orb {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: godzOrbPulse 1.2s ease-in-out infinite;
+}
+@keyframes godzMote {
+  0% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0.5); }
+  25% { opacity: 1; }
+  100% { opacity: 0; transform: translate(0, 0) scale(1); }
+}
+.godz-mote {
+  opacity: 0;
+  animation: godzMote 1.5s ease-in infinite;
+}
+@keyframes godzArc {
+  0%, 100% { opacity: 0; transform: translate(0, 0); }
+  5% { opacity: 1; transform: translate(0.8px, -0.8px); }
+  9% { opacity: 0.1; }
+  13% { opacity: 1; transform: translate(-0.8px, 0.8px); }
+  20% { opacity: 0; }
+}
+.godz-arc {
+  opacity: 0;
+  animation: godzArc 1.5s linear infinite;
+}
+
+/* 균열(미나원/이블/버닝) 맥박 + 버닝 용암 */
+@keyframes godzCrackPulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+.godz-crack {
+  animation: godzCrackPulse 1.6s ease-in-out infinite;
+}
+@keyframes godzLavaGlow {
+  0%, 100% { opacity: 0.45; transform: scale(0.97); }
+  50% { opacity: 0.95; transform: scale(1.04); }
+}
+.godz-lava-glow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: godzLavaGlow 1.4s ease-in-out infinite;
+}
+@keyframes godzEmber {
+  0% { opacity: 0; transform: translateY(0); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-34px); }
+}
+.godz-ember {
+  opacity: 0;
+  animation: godzEmber 2.2s ease-out infinite;
+}
+
+/* 패배 시 모든 애니메이션 정지 */
+.godz-defeated * {
+  animation: none !important;
+}
+.godz-defeated {
+  filter: grayscale(0.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .godz-breathe, .godz-tail, .godz-head, .godz-art {
+    animation-duration: 8s;
+  }
+}
+
+/* ===== 고질라 & 킹 기도라 3단계 극딜 빔 액션 키프레임 ===== */
+
+/* 1. 고질라 기 모으기 (Charge) 뒤로 무게중심 젖힘 */
+@keyframes godzBodyCharge {
+  0% { transform: scale(1, 1) translate(0, 0) rotate(0deg); }
+  100% { transform: scale(0.98, 1.01) translate(-7px, 2px) rotate(-3.5deg); }
+}
+.godz-body-charge {
+  transform-origin: 160px 212px;
+  animation: godzBodyCharge 0.65s cubic-bezier(0.2, 0.8, 0.4, 1) forwards;
+}
+
+/* 2. 고질라 열선 방사 (Fire) 앞으로 강한 반동 전진 */
+@keyframes godzBodyFire {
+  0% { transform: scale(0.98, 1.01) translate(-7px, 2px) rotate(-3.5deg); }
+  25% { transform: scale(1.03, 0.99) translate(6px, -2px) rotate(1.5deg); }
+  100% { transform: scale(1.02, 1) translate(4px, -1px) rotate(1deg); }
+}
+.godz-body-fire {
+  transform-origin: 160px 212px;
+  animation: godzBodyFire 0.65s ease-out forwards;
+}
+
+/* 3. 고질라 등지느러미 꼬리->머리 급속 파도타기 충전 (350ms) */
+@keyframes godzPlateCharge {
+  0% { opacity: 0; transform: scale(0.9); }
+  40% { opacity: 1; transform: scale(1.15); filter: drop-shadow(0 0 10px #00f0ff); }
+  100% { opacity: 1; transform: scale(1.08); filter: drop-shadow(0 0 6px #3b82f6); }
+}
+.godz-plate-charge {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: godzPlateCharge 0.65s ease-out forwards;
+}
+
+/* 4. 입 앞 회전 스파크 코어 (기 모으기) */
+@keyframes godzChargeSparkCore {
+  0% { transform: rotate(0deg) scale(0.2); opacity: 0.2; }
+  60% { transform: rotate(240deg) scale(1.1); opacity: 1; }
+  100% { transform: rotate(360deg) scale(1.0); opacity: 0.95; }
+}
+.godz-charge-spark-core {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: godzChargeSparkCore 0.65s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+}
+
+/* 입가 중심 펄스 */
+@keyframes godzChargeCorePulse {
+  0%, 100% { transform: scale(0.85); opacity: 0.7; }
+  50% { transform: scale(1.25); opacity: 1; filter: drop-shadow(0 0 14px #00f0ff); }
+}
+.godz-charge-core-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: godzChargeCorePulse 0.16s ease-in-out infinite alternate;
+}
+
+/* 빨려 들어오는 입자 (Gather) */
+@keyframes godzMoteGather {
+  0% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(1.4); }
+  25% { opacity: 1; }
+  100% { opacity: 0.1; transform: translate(0, 0) scale(0.2); }
+}
+.godz-mote-gather {
+  animation: godzMoteGather 0.65s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* 5. 킹 기도라 3개 목 젖힘 (뇌전 차징) */
+@keyframes ghidNeckCharge {
+  0% { transform: rotate(0deg) translate(0, 0); }
+  100% { transform: rotate(-14deg) translate(8px, -4px); }
+}
+.ghid-neck-charge {
+  transform-origin: 228px 128px;
+  animation: ghidNeckCharge 0.65s cubic-bezier(0.2, 0.8, 0.4, 1) forwards;
+}
+
+/* 6. 킹 기도라 번개 방사 시 사납게 앞으로 뻗음 */
+@keyframes ghidNeckFire {
+  0% { transform: rotate(-14deg) translate(8px, -4px); }
+  30% { transform: rotate(7deg) translate(-10px, 4px); }
+  100% { transform: rotate(5deg) translate(-7px, 3px); }
+}
+.ghid-neck-fire {
+  transform-origin: 228px 128px;
+  animation: ghidNeckFire 0.65s ease-out forwards;
+}
+
+/* 7. 킹 기도라 뇌전 구체 (입 앞 차징) */
+@keyframes ghidLightningOrb {
+  0% { transform: scale(0.3) rotate(0deg); opacity: 0.3; }
+  50% { transform: scale(1.2) rotate(180deg); opacity: 1; filter: drop-shadow(0 0 12px #fde047); }
+  100% { transform: scale(1.0) rotate(360deg); opacity: 0.95; }
+}
+.ghid-lightning-orb {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ghidLightningOrb 0.65s linear infinite;
+}
+
+/* 8. 빔 임팩트 충격파 링 */
+@keyframes impactShockwaveRing {
+  0% { transform: translate(-50%, -50%) scale(0.2); opacity: 1; border-width: 4px; }
+  60% { opacity: 0.85; border-width: 2.5px; }
+  100% { transform: translate(-50%, -50%) scale(2.4); opacity: 0; border-width: 1px; }
+}
+.animate-impact-shockwave {
+  animation: impactShockwaveRing 0.42s ease-out forwards;
+}
+
+/* 9. 불꽃 파티클 비산 (Impact Spark Burst) */
+@keyframes impactSparkBurst {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--sx), var(--sy)) scale(0.2); opacity: 0; }
+}
+.animate-spark-burst {
+  animation: impactSparkBurst 0.4s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+}
+
+/* 10. 3연장 라이트닝 떨림 키프레임 */
+@keyframes lightningJitter {
+  0%, 100% { transform: scaleY(1); opacity: 0.95; }
+  25% { transform: scaleY(1.06) translateY(-1px); opacity: 1; }
+  50% { transform: scaleY(0.94) translateY(1.5px); opacity: 0.88; }
+  75% { transform: scaleY(1.04) translateY(-0.8px); opacity: 1; }
+}
+.animate-lightning-jitter {
+  animation: lightningJitter 0.08s linear infinite;
+}
+
+/* 11. 산수 요격 운석 열선 피격 진동 (450ms ~ 1000ms) */
+@keyframes meteorHitShake {
+  0%, 100% { transform: translate(-50%, 0) scale(1) rotate(0deg); }
+  20% { transform: translate(calc(-50% - 2.5px), -2px) scale(1.03) rotate(-1.5deg); }
+  40% { transform: translate(calc(-50% + 2.5px), 2px) scale(0.98) rotate(1.5deg); }
+  60% { transform: translate(calc(-50% - 2px), 1px) scale(1.02) rotate(-1deg); }
+  80% { transform: translate(calc(-50% + 2px), -1px) scale(1) rotate(1deg); }
+}
+.animate-meteor-hit-shake {
+  animation: meteorHitShake 0.08s linear infinite !important;
+}
+
+/* 12. 운석 박살 파편 산산조각 비산 키프레임 (Shatter Debris) */
+@keyframes meteorShatter {
+  0% { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.2); opacity: 0; }
+}
+.animate-meteor-shatter {
+  animation: meteorShatter 0.65s cubic-bezier(0.15, 0.85, 0.35, 1) forwards;
+}

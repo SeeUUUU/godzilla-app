@@ -1,6 +1,7 @@
-import React from 'react';
+﻿import React from 'react';
 import type { GodzillaStageTier } from '../types';
 import { getGodzillaEvolution, getGodzillaAura } from '../types';
+import { GodzillaArt } from './GodzillaArt';
 
 export type GodzillaSkin = GodzillaStageTier;
 
@@ -13,15 +14,8 @@ interface GodzillaCharacterProps {
   skin?: GodzillaStageTier;
   isFever?: boolean;
   className?: string;
+  attackPhase?: 'idle' | 'charge' | 'fire' | 'impact';
 }
-
-const GODZILLA_TIER_IMAGES: Record<GodzillaStageTier, string> = {
-  chibi: '/images/godzilla-chibi.png',
-  classic: '/images/godzilla-classic.png',
-  minusone: '/images/godzilla-minusone.png',
-  evil: '/images/godzilla-evil.png',
-  burning: '/images/godzilla-burning.png',
-};
 
 export const GodzillaCharacter: React.FC<GodzillaCharacterProps> = ({
   isShooting,
@@ -32,6 +26,7 @@ export const GodzillaCharacter: React.FC<GodzillaCharacterProps> = ({
   skin,
   isFever = false,
   className = '',
+  attackPhase,
 }) => {
   // tier가 주어지면 tier 사용, level이 주어지면 level로부터 tier 계산
   const effectiveTier: GodzillaStageTier =
@@ -105,8 +100,6 @@ export const GodzillaCharacter: React.FC<GodzillaCharacterProps> = ({
     imgFilter = 'drop-shadow(0 0 8px #f97316) drop-shadow(0 6px 12px rgba(0, 0, 0, 0.75))';
   }
 
-  const imageSrc = GODZILLA_TIER_IMAGES[effectiveTier] || '/images/godzilla-classic.png';
-
   return (
     <div
       className={`relative flex items-end justify-center select-none ${className}`}
@@ -170,17 +163,18 @@ export const GodzillaCharacter: React.FC<GodzillaCharacterProps> = ({
         }}
       />
 
-      {/* 고질라 5단계 진화 PNG 이미지 (/images/godzilla-*.png) */}
-      <img
-        src={imageSrc}
-        alt={evo.name}
-        className="h-full w-auto max-h-full block object-contain pointer-events-none"
+      {/* 고질라 5단계 진화 SVG (viewBox 320x220 = 기존 PNG 비율 동일 → 열선/HP 레이아웃 유지) */}
+      <div
+        className="pointer-events-none"
         style={{
+          position: 'absolute',
+          inset: 0,
           filter: imgFilter,
           transition: 'filter 0.25s ease',
         }}
-        draggable={false}
-      />
+      >
+        <GodzillaArt tier={effectiveTier} isShooting={isShooting} isDefeated={isDefeated} label={evo.name} attackPhase={attackPhase} />
+      </div>
     </div>
   );
 };
