@@ -36,6 +36,7 @@ interface HeaderProps {
   onOpenInstall?: () => void;
   isStandalone?: boolean;
   onOpenSpeedQuiz?: () => void;
+  onOpenSchoolMission?: () => void;
   userEmail?: string | null;
   onSignOut?: () => void;
 }
@@ -73,6 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenInstall,
   isStandalone = false,
   onOpenSpeedQuiz,
+  onOpenSchoolMission,
   userEmail,
   onSignOut,
 }) => {
@@ -202,7 +204,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* ─── 2. 중앙: 과목 전환 및 일일 듀얼 퀘스트 통합 토글 탭 바 ─── */}
         {onSelectMode && (
           <div className="w-full md:w-auto order-3 md:order-2 flex justify-center py-0.5 md:py-0">
-            <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-lg border border-slate-800/90 shadow-inner">
+            <div className="flex flex-wrap justify-center items-center gap-1 bg-slate-900/90 p-0.5 rounded-lg border border-slate-800/90 shadow-inner">
               {/* 듀얼 퀘스트 완주 인디케이터 */}
               {dailyDualQuest && (
                 <span
@@ -267,6 +269,7 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
               </button>
 
+              {onOpenSchoolMission && <button type="button" onClick={onOpenSchoolMission} className="px-2 py-1 rounded-md text-[11px] font-black text-emerald-200 bg-emerald-950 border border-emerald-700 hover:bg-emerald-900">🏫 학교 탐험</button>}
               {onOpenSpeedQuiz && (
                 <>
                   <div className="w-px h-3 bg-slate-800" />

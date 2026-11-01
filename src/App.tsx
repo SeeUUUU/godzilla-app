@@ -31,6 +31,7 @@ const MiniComboModal = lazy(() => import('./components/MiniComboModal').then((m)
 const AttendanceModal = lazy(() => import('./components/AttendanceModal').then((m) => ({ default: m.AttendanceModal })));
 const GoldenChestModal = lazy(() => import('./components/LuckyEggGachaModal').then((m) => ({ default: m.GoldenChestModal })));
 const SpeedQuizModal = lazy(() => import('./components/SpeedQuizModal').then((m) => ({ default: m.SpeedQuizModal })));
+const SchoolMission = lazy(() => import('./components/SchoolMission').then((m) => ({ default: m.SchoolMission })));
 import {
   getStoredUnlockedMonsters,
   setStoredUnlockedMonsters,
@@ -676,6 +677,8 @@ export function App() {
   const [isGachaOpen, setIsGachaOpen] = useState(false);
   const [isMonsterBookOpen, setIsMonsterBookOpen] = useState(false);
   const [isSpeedQuizOpen, setIsSpeedQuizOpen] = useState(false);
+  const [isSchoolMissionOpen, setIsSchoolMissionOpen] = useState(false);
+  const closeSchoolMission = useCallback(() => setIsSchoolMissionOpen(false), []);
 
   const addBonusExp = useCallback((bonusExpAmount: number) => {
     if (bonusExpAmount <= 0) return;
@@ -2622,6 +2625,7 @@ export function App() {
         onOpenInstall={triggerInstall}
         isStandalone={isStandalone}
         onOpenSpeedQuiz={() => setIsSpeedQuizOpen(true)}
+        onOpenSchoolMission={() => setIsSchoolMissionOpen(true)}
         userEmail={authUser?.email}
         onSignOut={() => signOutUser()}
       />
@@ -3055,6 +3059,9 @@ export function App() {
               }
             }}
           />
+        )}
+        {isSchoolMissionOpen && (
+          <SchoolMission key={authUser.uid} userId={authUser.uid} level={gameState.level} onClose={closeSchoolMission} onReward={addBonusExp} />
         )}
       </Suspense>
 
