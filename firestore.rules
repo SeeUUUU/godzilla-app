@@ -4,7 +4,9 @@ service cloud.firestore {
     // 플레이어 문서 격리 및 데이터 무결성(Delta) 검증 규칙
     match /players/{userId} {
       // 1. 본인 인증(익명/소셜) 문서만 읽기 허용
-      allow read: if request.auth != null && request.auth.uid == userId;
+      // 학부모 관리자 계정(s9230179@gmail.com, 이메일 인증 완료)은 모든 players 문서를 read(get/list) 가능 (쓰기 권한은 없음)
+      allow read: if request.auth != null
+        && (request.auth.uid == userId || isParentAdmin());
 
       // 2. 최초 문서 생성 시 스키마 및 초기 상한치 검증
       allow create: if request.auth != null
@@ -16,6 +18,12 @@ service cloud.firestore {
         && request.auth.uid == userId
         && isValidPlayerSchema(request.resource.data)
         && isSafeDelta(resource.data, request.resource.data);
+
+      function isParentAdmin() {
+        return request.auth != null
+          && request.auth.token.email == 's9230179@gmail.com'
+          && request.auth.token.email_verified == true;
+      }
 
       function isValidPlayerSchema(data) {
         return (!('gameState' in data) || (

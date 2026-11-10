@@ -956,7 +956,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       } else {
         // [오답] 진동 & 체력 감소 및 시각 피드백 (콤보 리셋 & 애널리틱스/ZPD 반영)
         playErrorBuzzer();
-        recordMathAttempt(currentProblem, false);
+        recordMathAttempt(currentProblem, false, choice);
         updateAdaptiveZpd(false, responseTimeMs);
         setSelectedWrongChoices((prev) => [...prev, choice]);
         setCombo(0);

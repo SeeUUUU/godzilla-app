@@ -24,6 +24,9 @@ const BossMiniGame = lazy(() => import('./components/BossMiniGame').then((m) => 
 const MathDefenseStage = lazy(() => import('./components/MathDefenseStage').then((m) => ({ default: m.MathDefenseStage })));
 const ParentModal = lazy(() => import('./components/ParentModal').then((m) => ({ default: m.ParentModal })));
 const ReviewModal = lazy(() => import('./components/ReviewModal').then((m) => ({ default: m.ReviewModal })));
+const ParentAdminDashboard = lazy(() =>
+  import('./components/ParentAdminDashboard').then((m) => ({ default: m.ParentAdminDashboard }))
+);
 const EggGachaModal = lazy(() => import('./components/EggGachaModal').then((m) => ({ default: m.EggGachaModal })));
 const MonsterBookModal = lazy(() => import('./components/MonsterBookModal').then((m) => ({ default: m.MonsterBookModal })));
 const VoiceAttackModal = lazy(() => import('./components/VoiceAttackModal').then((m) => ({ default: m.VoiceAttackModal })));
@@ -82,6 +85,12 @@ import {
   addDailyStudySeconds,
   recordLanguageAttempt,
 } from './data/learningAnalytics';
+import {
+  PARENT_ADMIN_EMAIL,
+  applyRemoteParentMonitor,
+  recordAppAccess,
+  resetAppAccessSession,
+} from './data/parentMonitor';
 
 const STORAGE_KEY_WORDS = 'godzilla_language_words_v3';
 const STORAGE_KEY_STATE = 'godzilla_language_state_v6';
@@ -1116,6 +1125,8 @@ export function App() {
       const mergedAnalytics = mergeLearningAnalytics(localAnalytics, remoteData.learningAnalytics);
       saveLearningAnalytics(mergedAnalytics);
     }
+    // 14. 학부모 모니터링 데이터(오답 분석 노트 / 일자별 학습 기록) 스마트 병합 (값 감소 방지)
+    applyRemoteParentMonitor(remoteData);
   }, [refreshCouponCount, setCumulativeAttendanceDays, setRecords, setStampCount]);
 
   // 일일 활성 학습 시간(Study Seconds) 15초 주기 측정 및 클라우드 동기화
@@ -1147,6 +1158,7 @@ export function App() {
         setIsAuthChecking(false);
         syncedUidRef.current = null;
         isFirestoreInitialized.current = false;
+        resetAppAccessSession();
         return;
       }
 
@@ -1208,6 +1220,8 @@ export function App() {
         if (!result.isNewlyCreated) {
           applyRemoteDataToLocal(result.data);
         }
+        // 학부모 모니터링: 접속 1회 기록 + email / lastActiveAt 갱신 (신규/기존 문서 모두)
+        recordAppAccess();
       } catch (err) {
         console.warn(`[Firestore] UID (${currentUser.uid}) 동기화 실패 (로컬 스토리지 유지):`, err);
       }
@@ -1327,6 +1341,10 @@ export function App() {
   const attackTimerRef = useRef<number | null>(null);
   const [isGhidorahAttacking, setIsGhidorahAttacking] = useState(false);
   const [isParentModalOpen, setIsParentModalOpen] = useState(false);
+  const [isParentAdminOpen, setIsParentAdminOpen] = useState(false);
+  // 학부모 전용 관리자 페이지는 지정된 학부모 이메일로 로그인했을 때만 노출
+  const isParentAdminUser =
+    (authUser?.email ?? '').trim().toLowerCase() === PARENT_ADMIN_EMAIL;
   const [bonusBossDamage, setBonusBossDamage] = useState(0);
 
   // 라돈 장착 시 스테이지 시작 직후 첫 단어 힌트 안내
@@ -1824,7 +1842,34 @@ export function App() {
 
       const targetItem = currentList.find((w) => String(w.id) === targetKey);
       // 언어 학습 오답 및 취약 단어 누적 횟수 기록
-      recordLanguageAttempt(false, targetItem ? targetItem.id : targetKey);
+      // (학부모 모니터링용) 아들이 잘못 고른 카드 내용 추출: 정답 단어와 다른 카드만 언어별로 기록
+      const lookupFailedWord = (rawId: string | number): WordItem | undefined =>
+        currentList.find((w) => String(w.id) === String(rawId)) ||
+        words.find((w) => String(w.id) === String(rawId));
+      const pickedLangs: Array<{ key: 'ko' | 'en' | 'ja'; label: string }> = [
+        { key: 'ko', label: '한국어' },
+        { key: 'en', label: '영어' },
+        { key: 'ja', label: '일본어' },
+      ];
+      const wrongPicks: string[] = [];
+      failedIds.forEach((rawId, idx) => {
+        if (String(rawId) === targetKey) return;
+        const picked = lookupFailedWord(rawId);
+        const langInfo = pickedLangs[idx];
+        if (picked && langInfo) wrongPicks.push(`${langInfo.label}: ${picked[langInfo.key]}`);
+      });
+      recordLanguageAttempt(
+        false,
+        targetItem ? targetItem.id : targetKey,
+        targetItem
+          ? {
+              question: targetItem.ko,
+              correctAnswer: `${targetItem.en} / ${targetItem.ja}`,
+              selectedWrongAnswer: wrongPicks.join(' · ') || '-',
+              stage: currentStageNum,
+            }
+          : undefined
+      );
       if (targetItem) {
         const now = Date.now();
         unmarkWordsGraduated([targetItem.id]);
@@ -1869,7 +1914,7 @@ export function App() {
     } else {
       recordLanguageAttempt(false);
     }
-  }, [damagePerHit, isReviewMode, reviewWords, stageWords, currentStageNum, equippedPartnerId, triggerPartnerNotice]);
+  }, [damagePerHit, isReviewMode, reviewWords, stageWords, words, currentStageNum, equippedPartnerId, triggerPartnerNotice]);
 
   // ─────────────────────────────────────────────
   // 10. 게임 리셋 / 스테이지 진행
@@ -1938,9 +1983,14 @@ export function App() {
   }, [isInfiniteMode, cycleCount, currentStageNum, totalStages, resetBattle]);
 
   // 보스 미니게임 및 배틀 중 발생한 오답 단어 수집 핸들러
-  const handleCollectWrongWord = useCallback((wrongItem: WordItem) => {
+  const handleCollectWrongWord = useCallback((wrongItem: WordItem, selectedWrongAnswer?: string) => {
     if (!wrongItem || !wrongItem.id) return;
-    recordLanguageAttempt(false, wrongItem.id);
+    recordLanguageAttempt(false, wrongItem.id, {
+      question: wrongItem.ko,
+      correctAnswer: `${wrongItem.en} / ${wrongItem.ja}`,
+      selectedWrongAnswer: selectedWrongAnswer || '시간 초과',
+      stage: currentStageNum,
+    });
     unmarkWordsGraduated([wrongItem.id]);
     setWrongWordList((prev) => {
       if (prev.some((w) => w.id === wrongItem.id)) return prev;
@@ -1953,7 +2003,7 @@ export function App() {
       savePlayerDataToFirestore({ wrongWordList: updated });
       return updated;
     });
-  }, []);
+  }, [currentStageNum]);
 
   // 보스 특화 미니게임(운석 요격) 클리어 핸들러
   const handleBossMiniGameClear = useCallback(
@@ -2628,6 +2678,8 @@ export function App() {
         onOpenSchoolMission={() => setIsSchoolMissionOpen(true)}
         userEmail={authUser?.email}
         onSignOut={() => signOutUser()}
+        isParentAdmin={isParentAdminUser}
+        onOpenParentAdmin={() => setIsParentAdminOpen(true)}
       />
 
       {/* 2. 메인 게임 영역 (일반 배틀: 2단 분할 / 보스 미니게임 / 산수 요격: 단일 전체화면 확장) */}
@@ -2796,6 +2848,13 @@ export function App() {
             attendanceDays={cumulativeAttendanceDays}
             dailyDualQuest={dailyDualQuest}
           />
+        </Suspense>
+      )}
+
+      {/* 4-1. 학부모 전용 관리자 대시보드 (학부모 이메일 로그인 시에만 렌더링) */}
+      {isParentAdminUser && isParentAdminOpen && (
+        <Suspense fallback={null}>
+          <ParentAdminDashboard onClose={() => setIsParentAdminOpen(false)} />
         </Suspense>
       )}
 

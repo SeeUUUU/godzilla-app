@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Zap, Volume2, Trophy, RotateCcw, Sparkles } from 'lucide-react';
 import type { WordItem } from '../types';
 import { DEFAULT_WORDS } from '../data/words';
+import { recordStudyAttempt } from '../data/parentMonitor';
 import {
   playCardTapSound,
   playDingDongSuccess,
@@ -25,6 +26,8 @@ interface SpeedQuestion {
   speakLang?: string;
   choices: string[];
   correctAnswer: string;
+  /** 학부모 오답 분석 노트용 문제 식별/표시 정보 */
+  record: { id: string | number; type: 'word' | 'math'; question: string; recordAnswer: string };
 }
 
 const BEST_SCORE_STORAGE_KEY = 'godzilla_speed_quiz_best';
@@ -53,6 +56,12 @@ function generateSpeedQuestion(mode: SpeedQuizMode, wordPool: WordItem[] = DEFAU
       }
     }
     const choices = Array.from(choiceSet).sort(() => Math.random() - 0.5);
+    const wordRecord: SpeedQuestion['record'] = {
+      id: target.id,
+      type: 'word',
+      question: target.ko,
+      recordAnswer: `${target.en} / ${target.ja}`,
+    };
 
     if (askEnglish) {
       return {
@@ -62,6 +71,7 @@ function generateSpeedQuestion(mode: SpeedQuizMode, wordPool: WordItem[] = DEFAU
         speakLang: 'en-US',
         choices,
         correctAnswer: correctLabel,
+        record: wordRecord,
       };
     } else {
       const readingHint = target.jaKana || target.reading || target.ja;
@@ -72,6 +82,7 @@ function generateSpeedQuestion(mode: SpeedQuizMode, wordPool: WordItem[] = DEFAU
         speakLang: 'ja-JP',
         choices,
         correctAnswer: correctLabel,
+        record: wordRecord,
       };
     }
   } else {
@@ -80,6 +91,7 @@ function generateSpeedQuestion(mode: SpeedQuizMode, wordPool: WordItem[] = DEFAU
     let promptMain: string;
     let promptSub: string;
     let answer: number;
+    let problemId: string;
 
     if (roll < 0.45) {
       // 구구단 (2~9단)
@@ -87,6 +99,7 @@ function generateSpeedQuestion(mode: SpeedQuizMode, wordPool: WordItem[] = DEFAU
       const b = Math.floor(Math.random() * 8) + 2;
       answer = a * b;
       promptMain = `${a} × ${b} = ?`;
+      problemId = `speed-${a}x${b}`;
       promptSub = `⚡ 구구단 ${a}단 번개 암산!`;
     } else if (roll < 0.75) {
       // 두 자리 + 한/두 자리 암산
@@ -94,6 +107,7 @@ function generateSpeedQuestion(mode: SpeedQuizMode, wordPool: WordItem[] = DEFAU
       const b = Math.floor(Math.random() * 25) + 8;
       answer = a + b;
       promptMain = `${a} + ${b} = ?`;
+      problemId = `speed-${a}p${b}`;
       promptSub = `⚡ 일의 자리와 십의 자리를 빠르게 더해 보세요!`;
     } else {
       // 두 자리 뺄셈 암산
@@ -101,6 +115,7 @@ function generateSpeedQuestion(mode: SpeedQuizMode, wordPool: WordItem[] = DEFAU
       const b = Math.floor(Math.random() * 22) + 6;
       answer = a - b;
       promptMain = `${a} - ${b} = ?`;
+      problemId = `speed-${a}m${b}`;
       promptSub = `⚡ 침착하게 빼면 바로 보여요!`;
     }
 
@@ -120,6 +135,7 @@ function generateSpeedQuestion(mode: SpeedQuizMode, wordPool: WordItem[] = DEFAU
       promptSub,
       choices,
       correctAnswer: String(answer),
+      record: { id: problemId, type: 'math', question: promptMain, recordAnswer: String(answer) },
     };
   }
 }
@@ -244,6 +260,7 @@ export const SpeedQuizModal: React.FC<SpeedQuizModalProps> = ({
   const handleAnswer = (selected: string) => {
     if (phase !== 'playing' || feedback !== 'idle') return;
     if (selected === question.correctAnswer) {
+      recordStudyAttempt({ mode: 'speed', isCorrect: true });
       playDingDongSuccess();
       const nextScore = score + 1;
       const nextCombo = combo + 1;
@@ -260,6 +277,18 @@ export const SpeedQuizModal: React.FC<SpeedQuizModalProps> = ({
         }
       }, 220);
     } else {
+      recordStudyAttempt({
+        mode: 'speed',
+        isCorrect: false,
+        wrong: {
+          id: question.record.id,
+          type: question.record.type,
+          question: question.record.question,
+          correctAnswer: question.record.recordAnswer,
+          selectedWrongAnswer: selected,
+          stage: 0,
+        },
+      });
       playErrorBuzzer();
       setCombo(0);
       setFeedback('wrong');

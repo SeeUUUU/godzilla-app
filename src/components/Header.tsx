@@ -39,6 +39,9 @@ interface HeaderProps {
   onOpenSchoolMission?: () => void;
   userEmail?: string | null;
   onSignOut?: () => void;
+  /** 학부모 관리자 계정(s9230179@gmail.com) 로그인 시에만 true → [📊 학부모 관리] 버튼 노출 */
+  isParentAdmin?: boolean;
+  onOpenParentAdmin?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -77,6 +80,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSchoolMission,
   userEmail,
   onSignOut,
+  isParentAdmin = false,
+  onOpenParentAdmin,
 }) => {
   const expProgress = Math.min(100, Math.max(0, exp));
   const evo = getGodzillaEvolution(level);
@@ -425,6 +430,20 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <LogOut className="w-3 h-3 text-amber-400 shrink-0" />
               <span>종료</span>
+            </button>
+          )}
+
+          {/* [학부모 전용] 📊 학부모 관리 (학부모 이메일 로그인 시에만 렌더링 - 항상 노출) */}
+          {isParentAdmin && onOpenParentAdmin && (
+            <button
+              type="button"
+              onClick={onOpenParentAdmin}
+              title="아들의 학습 진행 상황 · 오답 내역 원격 모니터링"
+              aria-label="학부모 관리"
+              className="flex items-center gap-1 px-2 py-1 rounded-md bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 border border-amber-300/80 text-slate-950 text-[11px] font-black transition-all active:scale-95 shadow-[0_0_10px_rgba(251,191,36,0.55)] cursor-pointer shrink-0"
+            >
+              <span className="leading-none text-xs">📊</span>
+              <span className="whitespace-nowrap">학부모 관리</span>
             </button>
           )}
 

@@ -7,6 +7,14 @@ import {
   doc,
   getDoc,
   setDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+  getDocsFromServer,
+  type Query,
+  type QuerySnapshot,
+  type DocumentData,
   type DocumentReference,
   type Firestore,
 } from "firebase/firestore";
@@ -21,6 +29,7 @@ import {
 import type { GameState, UnlockedMonsterRecord, WordItem, DailyDualQuest, LearningAnalyticsData } from "./types";
 import type { EarnedCoupon } from "./data/gachaRewards";
 import type { EquippedAtomicGear } from "./data/atomicPartsData";
+import type { WrongAnswerRecord, StudyLogEntry } from "./data/parentMonitor";
 
 const env = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : ({} as Record<string, string>);
 
@@ -160,6 +169,14 @@ export interface PlayerFirestoreData {
   atomicUnlockedTitles?: string[];
   atomicEquippedGear?: EquippedAtomicGear;
   learningAnalytics?: LearningAnalyticsData;
+  /** 로그인한 유저의 이메일 (학부모 관리자 페이지에서 계정 식별용) */
+  email?: string;
+  /** 마지막 접속/문제 풀이 시각 (Unix timestamp ms) */
+  lastActiveAt?: number;
+  /** 누적 오답 맵 (key = 문제 id) */
+  wrongAnswers?: Record<string, WrongAnswerRecord>;
+  /** 날짜별(YYYY-MM-DD) 접속/학습 요약 */
+  studyLogs?: Record<string, StudyLogEntry>;
   updatedAt?: string;
 }
 
@@ -325,4 +342,58 @@ export const resetAllPlayerDataToFirestore = async (
     console.warn("[Firestore] Failed to reset player data:", error);
     return false;
   }
+};
+
+/**
+ * [학부모 관리자 전용] 자녀 계정의 players 문서를 조회합니다.
+ * 1) email 필드가 자녀 이메일과 일치하는 문서를 우선 반환
+ * 2) 없으면(이메일 필드가 아직 없는 기존 문서) 내 UID 가 아닌 다른 플레이어 문서들을 후보로 반환
+ * Firestore 보안 규칙(isParentAdmin)이 허용한 계정만 성공하며, 실패 시 예외를 그대로 던집니다.
+ */
+export interface ParentViewPlayerDoc {
+  uid: string;
+  data: PlayerFirestoreData;
+  matchedByEmail: boolean;
+}
+
+const getDocsPreferServer = async (
+  q: Query<DocumentData>
+): Promise<QuerySnapshot<DocumentData>> => {
+  try {
+    return await getDocsFromServer(q);
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code;
+    if (code === "permission-denied") throw error;
+    return getDocs(q);
+  }
+};
+
+const playerUpdatedMillis = (data: PlayerFirestoreData): number => {
+  const a = Number(data.lastActiveAt);
+  if (Number.isFinite(a) && a > 0) return a;
+  const b = data.updatedAt ? Date.parse(data.updatedAt) : 0;
+  return Number.isNaN(b) ? 0 : b;
+};
+
+export const fetchChildPlayerDocsForParent = async (
+  childEmail: string
+): Promise<ParentViewPlayerDoc[]> => {
+  const me = auth.currentUser;
+  if (!me) return [];
+  const colRef = collection(db, PLAYER_COLLECTION);
+  const normalizedEmail = childEmail.trim().toLowerCase();
+
+  const byEmail = await getDocsPreferServer(query(colRef, where("email", "==", normalizedEmail)));
+  if (!byEmail.empty) {
+    return byEmail.docs
+      .map((d) => ({ uid: d.id, data: (d.data() || {}) as PlayerFirestoreData, matchedByEmail: true }))
+      .sort((a, b) => playerUpdatedMillis(b.data) - playerUpdatedMillis(a.data));
+  }
+
+  const all = await getDocsPreferServer(colRef);
+  return all.docs
+    .filter((d) => d.id !== me.uid)
+    .map((d) => ({ uid: d.id, data: (d.data() || {}) as PlayerFirestoreData, matchedByEmail: false }))
+    .filter((p) => !p.data.email)
+    .sort((a, b) => playerUpdatedMillis(b.data) - playerUpdatedMillis(a.data));
 };

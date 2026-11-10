@@ -8,6 +8,7 @@ import type {
 import { getProblemHintFormula } from './mathData';
 import { savePlayerDataToFirestore } from '../firebase';
 import { getTodayDateStr } from '../hooks/useAttendance';
+import { recordStudyAttempt } from './parentMonitor';
 
 export const STORAGE_KEY_LEARNING_ANALYTICS = 'godzilla_learning_analytics_v1';
 
@@ -232,9 +233,17 @@ export const addDailyStudySeconds = (seconds: number, syncFirestore = false): Le
 /**
  * 3개 국어 매칭 정답/오답 기록 및 단어별 누적 오답 횟수 카운트
  */
+export interface WrongAttemptDetail {
+  question: string;
+  correctAnswer: string;
+  selectedWrongAnswer?: string;
+  stage?: number;
+}
+
 export const recordLanguageAttempt = (
   isCorrect: boolean,
-  failedWordId?: string | number
+  failedWordId?: string | number,
+  detail?: WrongAttemptDetail
 ): LearningAnalyticsData => {
   const data = loadLearningAnalytics();
   const todayStat = ensureTodayStat(data);
@@ -248,6 +257,15 @@ export const recordLanguageAttempt = (
     }
   }
   saveLearningAnalytics(data, true);
+  // 학부모 모니터링: 일자별 학습 로그 + 오답 분석 노트 (오답 문제 정보가 있을 때만 누적)
+  recordStudyAttempt({
+    mode: 'language',
+    isCorrect,
+    wrong:
+      !isCorrect && detail && failedWordId !== undefined && failedWordId !== null
+        ? { id: failedWordId, type: 'word', ...detail }
+        : undefined,
+  });
   return data;
 };
 
@@ -256,7 +274,8 @@ export const recordLanguageAttempt = (
  */
 export const recordMathAttempt = (
   problem: MathProblemItem,
-  isCorrect: boolean
+  isCorrect: boolean,
+  selectedWrongAnswer?: string
 ): LearningAnalyticsData => {
   const data = loadLearningAnalytics();
   const todayStat = ensureTodayStat(data);
@@ -275,6 +294,21 @@ export const recordMathAttempt = (
   data.mathSkillStats[category] = stat;
 
   saveLearningAnalytics(data, true);
+  // 학부모 모니터링: 일자별 학습 로그 + 오답 분석 노트
+  recordStudyAttempt({
+    mode: 'math',
+    isCorrect,
+    wrong: isCorrect
+      ? undefined
+      : {
+          id: problem.id,
+          type: 'math',
+          question: problem.isWordProblem && problem.problemText ? problem.problemText : problem.question,
+          correctAnswer: String(problem.answer),
+          selectedWrongAnswer: selectedWrongAnswer ?? '시간 초과',
+          stage: problem.stage,
+        },
+  });
   return data;
 };
 

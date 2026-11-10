@@ -3,6 +3,7 @@ import confetti from 'canvas-confetti';
 import { Volume2, ShieldAlert, Heart, Trophy, RotateCcw, Zap, ArrowRight, Flame } from 'lucide-react';
 import type { WordItem } from '../types';
 import { useSpeech } from '../hooks/useSpeech';
+import { recordStudyAttempt } from '../data/parentMonitor';
 import {
   playLaserPewPew,
   playMeteorExplosionSound,
@@ -19,7 +20,7 @@ interface BossMiniGameProps {
   level: number;
   equippedPartnerId?: string | null;
   onClear: (bonusExp: number, bonusEggs: number) => void;
-  onWrongWord?: (word: WordItem) => void;
+  onWrongWord?: (word: WordItem, selectedWrongAnswer?: string) => void;
   onPartnerNotice?: (message: string, icon: string) => void;
   onFail?: () => void;
   onGoToMath?: () => void;
@@ -264,6 +265,7 @@ export const BossMiniGame: React.FC<BossMiniGameProps> = ({
 
       if (choice === currentRound.correctAnswer) {
         // [정답] 고질라 대각선 아토믹 레이저 빔 발사 & 운석 공중 요격 폭발
+        recordStudyAttempt({ mode: 'language', isCorrect: true });
         clearAllTimers();
         setPhase('INTERCEPTING');
         setIsShootingBeam(true);
@@ -320,7 +322,7 @@ export const BossMiniGame: React.FC<BossMiniGameProps> = ({
         window.setTimeout(() => setIsImpactShaking(false), 400);
 
         if (currentRound?.targetWord) {
-          onWrongWord?.(currentRound.targetWord);
+          onWrongWord?.(currentRound.targetWord, choice);
         }
 
         if (mothraShieldActive) {
