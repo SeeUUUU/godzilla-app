@@ -1,30 +1,37 @@
-import type { MathProblemItem, MathHintFormula } from '../types';
+import type { MathProblemItem, MathHintFormula, MathSkillCategory } from '../types';
 
 // =================================================================
-// 초등 2학년 덧셈·뺄셈 전용 데이터셋 (총 120문제, 12스테이지) - 곱셈 없음
+// 초등(소학교) 2학년 산수 데이터셋 (총 160문제, 16스테이지)
 // =================================================================
 //   STAGE 1~3   : 두 자리 수 ± 두 자리 수 (받아올림/내림 없음)
 //   STAGE 4~6   : 두 자리 수 ± 두 자리 수 (받아올림/내림 1회)
 //   STAGE 7~8   : 세 수의 덧셈과 뺄셈
 //   STAGE 9~10  : 100 이하 두 자리 수 종합 덧셈·뺄셈 (혼합)
 //   STAGE 11~12 : 서술형(문장제) 문제 - 운석 낙하 없음, 시간제한 없음
+//   STAGE 13    : 구구단 기초 (2~5단 곱셈 + 빈칸 + 서술형)
+//   STAGE 14    : 구구단 심화 (6~9단 곱셈 + 빈칸 + 서술형)
+//   STAGE 15    : 길이·들이 단위 변환 (cm/mm, m/cm, L/dL/mL)
+//   STAGE 16    : 초2 2학기 종합 마스터 (구구단·단위·시계·서술형)
 // =================================================================
 
-export const TOTAL_MATH_STAGES = 12;
+export const TOTAL_MATH_STAGES = 16;
 export const PROBLEMS_PER_MATH_STAGE = 10;
 
 // ---------- 유틸 ----------
 
 export const DIGITS = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
 
-/** 0~100 한자어 한국어 수 읽기 (예: 34 → 삼십사) */
+/** 0~1000 한자어 한국어 수 읽기 (예: 34 → 삼십사, 200 → 이백) */
 export const readSino = (n: number): string => {
   if (n === 0) return '영';
-  if (n === 100) return '백';
-  const tens = Math.floor(n / 10);
-  const ones = n % 10;
+  if (n === 1000) return '천';
+  const hundreds = Math.floor(n / 100);
+  const rest = n % 100;
+  const hundredsStr = hundreds === 0 ? '' : hundreds === 1 ? '백' : `${DIGITS[hundreds]}백`;
+  const tens = Math.floor(rest / 10);
+  const ones = rest % 10;
   const tensStr = tens === 0 ? '' : tens === 1 ? '십' : `${DIGITS[tens]}십`;
-  return `${tensStr}${DIGITS[ones]}`;
+  return `${hundredsStr}${tensStr}${DIGITS[ones]}`;
 };
 
 const EN_ONES = [
@@ -33,26 +40,50 @@ const EN_ONES = [
 ];
 const EN_TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
 
-/** 0~100 영어 수 읽기 (예: 34 → thirty-four) */
+/** 0~1000 영어 수 읽기 (예: 34 → thirty-four) */
 export const readEnglish = (n: number): string => {
-  if (n < 0 || n > 100) return String(n);
+  if (n < 0 || n > 1000) return String(n);
   if (n < 20) return EN_ONES[n];
-  if (n === 100) return 'one hundred';
-  const tens = Math.floor(n / 10);
-  const ones = n % 10;
-  return ones === 0 ? EN_TENS[tens] : `${EN_TENS[tens]}-${EN_ONES[ones]}`;
+  if (n === 1000) return 'one thousand';
+  const hundreds = Math.floor(n / 100);
+  const rest = n % 100;
+  const hPart = hundreds > 0 ? `${EN_ONES[hundreds]} hundred` : '';
+  if (rest === 0) return hPart;
+  const tens = Math.floor(rest / 10);
+  const ones = rest % 10;
+  const rPart =
+    rest < 20
+      ? EN_ONES[rest]
+      : ones === 0
+      ? EN_TENS[tens]
+      : `${EN_TENS[tens]}-${EN_ONES[ones]}`;
+  return hPart ? `${hPart} ${rPart}` : rPart;
 };
 
 const JP_DIGITS = ['', 'いち', 'に', 'さん', 'よん', 'ご', 'ろく', 'なな', 'はち', 'きゅう'];
 
-/** 0~100 일본어 수 읽기 (예: 34 → さんじゅうよん) */
+/** 0~1000 일본어 수 읽기 (예: 34 → さんじゅうよん) */
 export const readJapanese = (n: number): string => {
   if (n === 0) return 'ぜろ';
-  if (n === 100) return 'ひゃく';
-  const tens = Math.floor(n / 10);
-  const ones = n % 10;
+  if (n === 1000) return 'せん';
+  const hundreds = Math.floor(n / 100);
+  const rest = n % 100;
+  const hMap: Record<number, string> = {
+    0: '',
+    1: 'ひゃく',
+    2: 'にひゃく',
+    3: 'さんびゃく',
+    4: 'よんひゃく',
+    5: 'ごひゃく',
+    6: 'ろっぴゃく',
+    7: 'ななひゃく',
+    8: 'はっぴゃく',
+    9: 'きゅうひゃく',
+  };
+  const tens = Math.floor(rest / 10);
+  const ones = rest % 10;
   const tensStr = tens === 0 ? '' : tens === 1 ? 'じゅう' : `${JP_DIGITS[tens]}じゅう`;
-  return `${tensStr}${JP_DIGITS[ones]}`;
+  return `${hMap[hundreds] ?? ''}${tensStr}${JP_DIGITS[ones]}`;
 };
 
 /** 시드 고정 난수 (매번 같은 문제가 나오도록) */
@@ -1138,12 +1169,330 @@ export const generateClockProblem = (
   };
 };
 
+// ---------- 구구단(2~9단) & 단위 변환(cm/mm, m/cm, L/dL/mL) 생성기 ----------
+
+const buildMultiplicationOptions = (a: number, b: number, answer: number, seed: number): string[] => {
+  const rng = makeRng(seed * 7919 + answer * 131);
+  const candidates = new Set<number>();
+  if (b > 1) candidates.add(a * (b - 1));
+  if (b < 9) candidates.add(a * (b + 1));
+  if (a > 1) candidates.add((a - 1) * b);
+  if (a < 9) candidates.add((a + 1) * b);
+  candidates.add(a + b);
+  candidates.add(Math.max(2, answer - a));
+  candidates.add(answer + a);
+  candidates.add(answer + 2);
+  if (answer > 3) candidates.add(answer - 2);
+  candidates.delete(answer);
+
+  const wrongs = Array.from(candidates).filter((n) => n > 0 && n <= 90);
+  for (let i = wrongs.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [wrongs[i], wrongs[j]] = [wrongs[j], wrongs[i]];
+  }
+  const picked = wrongs.slice(0, 3);
+  let delta = 1;
+  while (picked.length < 3) {
+    const cand = answer + delta;
+    if (cand > 0 && cand !== answer && !picked.includes(cand)) picked.push(cand);
+    delta = delta > 0 ? -delta : -delta + 1;
+  }
+  const all = [answer, ...picked];
+  for (let i = all.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [all[i], all[j]] = [all[j], all[i]];
+  }
+  return all.map(String);
+};
+
+const generateMultiplicationWordProblems = (
+  stageNum: number,
+  minDan: number,
+  maxDan: number,
+  count: number,
+  childName: string,
+  sessionSeed: number
+): MathProblemItem[] => {
+  const rng = makeRng(stageNum * 4099 + sessionSeed * 613 + 77);
+  const siwooGa = formatNameWithParticle(childName, '이가');
+  const siwooNeun = formatNameWithParticle(childName, '은는');
+  const templates = [
+    (a: number, b: number) =>
+      `${siwooGa} 1상자에 파워 큐브를 ${a}개씩 ${b}상자에 담았습니다. 파워 큐브는 모두 몇 개일까요?`,
+    (a: number, b: number) =>
+      `고질라가 한 번 열선을 쏠 때 에너지를 ${a}만큼 모읍니다. ${b}번 연속으로 모으면 에너지는 모두 얼마일까요?`,
+    (a: number, b: number) =>
+      `${siwooNeun} 사탕을 ${a}개씩 ${b}봉지 가지고 있습니다. 사탕은 모두 몇 개일까요?`,
+    (a: number, b: number) =>
+      `괴수 카드가 1묶음에 ${a}장씩 들어 있습니다. ${b}묶음을 모으면 카드는 모두 몇 장일까요?`,
+  ];
+
+  const items: MathProblemItem[] = [];
+  for (let i = 0; i < count; i++) {
+    const a = randInt(rng, minDan, maxDan);
+    const b = randInt(rng, 2, 9);
+    const answer = a * b;
+    const tmpl = templates[(i + Math.floor(rng() * templates.length)) % templates.length];
+    const text = tmpl(a, b);
+    items.push({
+      id: `math_mul_word_s${stageNum}_${i + 1}_${sessionSeed}`,
+      stage: stageNum,
+      skillCategory: 'multiplication',
+      isWordProblem: true,
+      question: text,
+      problemText: text,
+      answer: String(answer),
+      options: buildMultiplicationOptions(a, b, answer, stageNum * 100 + i + sessionSeed),
+      readKr: text,
+      multiplicationQuestion: { a, b },
+    });
+  }
+  return items;
+};
+
+export const generateMultiplicationProblems = (
+  stageNum: number,
+  minDan: number,
+  maxDan: number,
+  count = 8,
+  customChildName?: string,
+  sessionSeed = 0,
+  includeWordCount = 0
+): MathProblemItem[] => {
+  const name = customChildName || getChildName();
+  const rng = makeRng(stageNum * 8191 + sessionSeed * 9973 + 51);
+  const seen = new Set<string>();
+  const items: MathProblemItem[] = [];
+  let guard = 0;
+
+  while (items.length < count && guard < 1000) {
+    guard += 1;
+    const a = randInt(rng, minDan, maxDan);
+    const b = randInt(rng, 2, 9);
+    const key = `${a}x${b}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const idx = items.length;
+    const isMissing = count >= 6 && (idx === 6 || idx === 7);
+    const product = a * b;
+
+    if (isMissing) {
+      const missingFirst = idx === 6;
+      const ans = missingFirst ? a : b;
+      const question = missingFirst ? `□ × ${b} = ${product}` : `${a} × □ = ${product}`;
+      const readKr = missingFirst
+        ? `어떤 수 곱하기 ${readSino(b)}는 ${readSino(product)}`
+        : `${readSino(a)} 곱하기 어떤 수는 ${readSino(product)}`;
+      items.push({
+        id: `math_mul_s${stageNum}_p${idx + 1}_${sessionSeed}`,
+        stage: stageNum,
+        skillCategory: 'multiplication',
+        question,
+        answer: String(ans),
+        options: buildOptions(ans, idx + stageNum + sessionSeed * 11).map(String),
+        readKr,
+        isMissingNumber: true,
+        missingPosition: missingFirst ? 'first' : 'second',
+        multiplicationQuestion: { a, b, isMissingFactor: true },
+      });
+    } else {
+      items.push({
+        id: `math_mul_s${stageNum}_p${idx + 1}_${sessionSeed}`,
+        stage: stageNum,
+        skillCategory: 'multiplication',
+        question: `${a} × ${b}`,
+        answer: String(product),
+        options: buildMultiplicationOptions(a, b, product, idx + stageNum + sessionSeed * 13),
+        readKr: `${readSino(a)} 곱하기 ${readSino(b)}`,
+        multiplicationQuestion: { a, b },
+      });
+    }
+  }
+
+  if (includeWordCount > 0) {
+    items.push(
+      ...generateMultiplicationWordProblems(stageNum, minDan, maxDan, includeWordCount, name, sessionSeed)
+    );
+  }
+  return items;
+};
+
+interface UnitProblemSpec {
+  kind: 'length' | 'volume';
+  question: string;
+  readKr: string;
+  answer: number;
+  distractors: number[];
+  conversionGuide: string;
+}
+
+const generateUnitProblemPool = (rng: () => number, childName: string): UnitProblemSpec[] => {
+  const siwooGa = formatNameWithParticle(childName, '이가');
+  const cmVal = randInt(rng, 2, 9);
+  const mmSmall = randInt(rng, 1, 9);
+  const mVal = randInt(rng, 1, 4);
+  const cmPart = randInt(rng, 10, 85);
+  const lVal = randInt(rng, 2, 8);
+  const dlPart = randInt(rng, 1, 9);
+  const dlRound = randInt(rng, 2, 9) * 10;
+
+  return [
+    {
+      kind: 'length',
+      question: `${cmVal} cm = □ mm`,
+      readKr: `${readSino(cmVal)} 센티미터는 몇 밀리미터일까요?`,
+      answer: cmVal * 10,
+      distractors: [cmVal, cmVal * 100, cmVal + 10],
+      conversionGuide: '📏 1 cm = 10 mm! cm를 mm로 바꿀 땐 10배(0을 하나 붙이기) 해요!',
+    },
+    {
+      kind: 'length',
+      question: `${cmVal} cm ${mmSmall} mm = □ mm`,
+      readKr: `${readSino(cmVal)} 센티미터 ${readSino(mmSmall)} 밀리미터는 모두 몇 밀리미터일까요?`,
+      answer: cmVal * 10 + mmSmall,
+      distractors: [cmVal + mmSmall, cmVal * 100 + mmSmall, mmSmall * 10 + cmVal],
+      conversionGuide: `📏 ${cmVal} cm는 ${cmVal * 10} mm예요! 여기에 ${mmSmall} mm를 더하면 돼요!`,
+    },
+    {
+      kind: 'length',
+      question: `${cmVal * 10} mm = □ cm`,
+      readKr: `${readSino(cmVal * 10)} 밀리미터는 몇 센티미터일까요?`,
+      answer: cmVal,
+      distractors: [cmVal * 10, cmVal * 100, cmVal + 1],
+      conversionGuide: '📏 10 mm = 1 cm! mm를 cm로 바꿀 땐 끝의 0을 하나 떼어내요!',
+    },
+    {
+      kind: 'length',
+      question: `${mVal} m = □ cm`,
+      readKr: `${readSino(mVal)} 미터는 몇 센티미터일까요?`,
+      answer: mVal * 100,
+      distractors: [mVal * 10, mVal, mVal * 100 + 10],
+      conversionGuide: '📏 1 m = 100 cm! m를 cm로 바꿀 땐 100배(0을 두 개 붙이기) 해요!',
+    },
+    {
+      kind: 'length',
+      question: `${mVal} m ${cmPart} cm = □ cm`,
+      readKr: `${readSino(mVal)} 미터 ${readSino(cmPart)} 센티미터는 모두 몇 센티미터일까요?`,
+      answer: mVal * 100 + cmPart,
+      distractors: [mVal * 10 + cmPart, mVal + cmPart, mVal * 100 + cmPart + 10],
+      conversionGuide: `📏 ${mVal} m는 ${mVal * 100} cm예요! ${mVal * 100} + ${cmPart}을 계산해 보세요!`,
+    },
+    {
+      kind: 'volume',
+      question: `${lVal} L = □ dL`,
+      readKr: `${readSino(lVal)} 리터는 몇 데시리터일까요?`,
+      answer: lVal * 10,
+      distractors: [lVal, lVal * 100, lVal + 10],
+      conversionGuide: '🥛 1 L = 10 dL! L를 dL로 바꿀 땐 10배(0을 하나 붙이기) 해요!',
+    },
+    {
+      kind: 'volume',
+      question: `${lVal} L ${dlPart} dL = □ dL`,
+      readKr: `${readSino(lVal)} 리터 ${readSino(dlPart)} 데시리터는 모두 몇 데시리터일까요?`,
+      answer: lVal * 10 + dlPart,
+      distractors: [lVal + dlPart, lVal * 100 + dlPart, dlPart * 10 + lVal],
+      conversionGuide: `🥛 ${lVal} L는 ${lVal * 10} dL예요! 여기에 ${dlPart} dL를 더하면 돼요!`,
+    },
+    {
+      kind: 'volume',
+      question: `${dlRound} dL = □ L`,
+      readKr: `${readSino(dlRound)} 데시리터는 몇 리터일까요?`,
+      answer: dlRound / 10,
+      distractors: [dlRound, dlRound * 10, dlRound / 10 + 1],
+      conversionGuide: '🥛 10 dL = 1 L! dL를 L로 바꿀 땐 0을 하나 떼어내요!',
+    },
+    {
+      kind: 'volume',
+      question: `${siwooGa} 물통에 물 ${lVal} L를 담았습니다. 1 dL 컵으로 모두 몇 컵을 채울 수 있을까요?`,
+      readKr: `${siwooGa} 물통에 물 ${readSino(lVal)} 리터를 담았습니다. 1 데시리터 컵으로 모두 몇 컵을 채울 수 있을까요?`,
+      answer: lVal * 10,
+      distractors: [lVal, lVal * 100, lVal + 10],
+      conversionGuide: `🥛 1 L는 1 dL 컵 10개 분량(1 L = 10 dL)이에요!`,
+    },
+    {
+      kind: 'length',
+      question: `고질라의 등 지느러미 길이는 ${cmVal} cm ${mmSmall} mm입니다. 모두 몇 mm일까요?`,
+      readKr: `고질라의 등 지느러미 길이는 ${readSino(cmVal)} 센티미터 ${readSino(mmSmall)} 밀리미터입니다. 모두 몇 밀리미터일까요?`,
+      answer: cmVal * 10 + mmSmall,
+      distractors: [cmVal + mmSmall, cmVal * 100 + mmSmall, cmVal * 10],
+      conversionGuide: `📏 1 cm = 10 mm이므로 ${cmVal} cm = ${cmVal * 10} mm예요!`,
+    },
+  ];
+};
+
+export const generateUnitConversionProblems = (
+  stageNum: number,
+  count = 8,
+  customChildName?: string,
+  sessionSeed = 0,
+  includeWordCount = 0
+): MathProblemItem[] => {
+  const name = customChildName || getChildName();
+  const rng = makeRng(stageNum * 6553 + sessionSeed * 7919 + 29);
+  const pool = generateUnitProblemPool(rng, name);
+  const calcPool = pool.slice(0, 8);
+  const wordPool = pool.slice(8);
+
+  const shuffledCalc = shuffle(calcPool);
+  const items: MathProblemItem[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const spec = shuffledCalc[i % shuffledCalc.length];
+    const uniqueOpts = Array.from(new Set([spec.answer, ...spec.distractors])).slice(0, 4);
+    while (uniqueOpts.length < 4) {
+      uniqueOpts.push(spec.answer + uniqueOpts.length * 5);
+    }
+    const opts = shuffle(uniqueOpts).map(String);
+    items.push({
+      id: `math_unit_s${stageNum}_p${i + 1}_${sessionSeed}`,
+      stage: stageNum,
+      skillCategory: 'units',
+      question: spec.question,
+      answer: String(spec.answer),
+      options: opts,
+      readKr: spec.readKr,
+      isMissingNumber: true,
+      unitQuestion: {
+        kind: spec.kind,
+        conversionGuide: spec.conversionGuide,
+      },
+    });
+  }
+
+  for (let i = 0; i < includeWordCount; i++) {
+    const spec = wordPool[i % wordPool.length];
+    const uniqueOpts = Array.from(new Set([spec.answer, ...spec.distractors])).slice(0, 4);
+    const opts = shuffle(uniqueOpts).map(String);
+    items.push({
+      id: `math_unit_word_s${stageNum}_${i + 1}_${sessionSeed}`,
+      stage: stageNum,
+      skillCategory: 'units',
+      isWordProblem: true,
+      question: spec.question,
+      problemText: spec.question,
+      answer: String(spec.answer),
+      options: opts,
+      readKr: spec.readKr,
+      unitQuestion: {
+        kind: spec.kind,
+        conversionGuide: spec.conversionGuide,
+      },
+    });
+  }
+
+  return items;
+};
+
 /**
- * 특정 스테이지(1~12)에 해당하는 10개 수학 문제를 반환합니다.
+ * 특정 스테이지(1~16)에 해당하는 10개 수학 문제를 반환합니다.
  * - sessionSeed: 게임 재시작, 재도전 또는 세션 변경 시 새로운 수식을 생성하도록 시드 오프셋 지원
- * - 모든 스테이지(1~12)의 9번, 10번 문제는 서술형 문장제(시간제한 없음)로 랜덤 출제됩니다!
- * - 1~10 스테이지의 4번(시계 읽기), 8번(경과 시간 계산) 라운드에는 '킹 기도라의 시간 폭탄 해체(시각과 시간)' 문제가 출제됩니다!
- * - STAGE 11, 12는 10문제 전체가 서술형 문장제로 랜덤 출제됩니다.
+ * - STAGE 1~10: 두 자리 수 덧셈·뺄셈 + 4번/8번 시계 폭탄 + 9~10번 서술형
+ * - STAGE 11~12: 10문제 전체 서술형 문장제
+ * - STAGE 13: 구구단 기초 (2~5단 곱셈 + 빈칸 + 서술형 2문제)
+ * - STAGE 14: 구구단 심화 (6~9단 곱셈 + 빈칸 + 서술형 2문제)
+ * - STAGE 15: 길이·들이 단위 변환 (cm/mm, m/cm, L/dL + 서술형 2문제)
+ * - STAGE 16: 초2 2학기 종합 마스터 (구구단 + 단위 변환 + 시계 + 서술형)
  */
 export const getMathProblemsForStage = (
   stageNum: number,
@@ -1156,6 +1505,31 @@ export const getMathProblemsForStage = (
   // 11, 12 스테이지: 10문제 전체 서술형 랜덤 출제
   if (normalizedStage === 11 || normalizedStage === 12) {
     return generateRandomWordProblems(normalizedStage, PROBLEMS_PER_MATH_STAGE, 1, name);
+  }
+
+  // 13 스테이지: 구구단 기초 (2~5단)
+  if (normalizedStage === 13) {
+    return generateMultiplicationProblems(13, 2, 5, 8, name, sessionSeed, 2);
+  }
+
+  // 14 스테이지: 구구단 심화 (6~9단)
+  if (normalizedStage === 14) {
+    return generateMultiplicationProblems(14, 6, 9, 8, name, sessionSeed, 2);
+  }
+
+  // 15 스테이지: 길이·들이 단위 변환
+  if (normalizedStage === 15) {
+    return generateUnitConversionProblems(15, 8, name, sessionSeed, 2);
+  }
+
+  // 16 스테이지: 2학년 2학기 종합 마스터 (구구단 4문제 + 단위 변환 3문제 + 시계 1문제 + 서술형 2문제)
+  if (normalizedStage === 16) {
+    const muls = generateMultiplicationProblems(16, 2, 9, 4, name, sessionSeed, 0);
+    const units = generateUnitConversionProblems(16, 3, name, sessionSeed, 0);
+    const clock = generateClockProblem(16, 8, sessionSeed, 'elapsed');
+    const mulWord = generateMultiplicationWordProblems(16, 3, 9, 1, name, sessionSeed);
+    const unitWord = generateUnitConversionProblems(16, 0, name, sessionSeed, 1);
+    return [...muls, ...units, clock, ...mulWord, ...unitWord];
   }
 
   // 1~10 스테이지: 1~8번 계산 수식 문제 + 4번/8번 라운드 시계 폭탄 문제 결합
@@ -1175,6 +1549,121 @@ export const getMathProblemsForStage = (
   const wordProblems = generateRandomWordProblems(normalizedStage, 2, 9, name);
 
   return [...baseCalcs, ...wordProblems];
+};
+
+/**
+ * 특정 산수 연산/학습 영역(MathSkillCategory)에 맞춘 집중 훈련 문제 생성기
+ */
+export const generateProblemsForSkillCategory = (
+  category: MathSkillCategory,
+  count = 1,
+  customChildName?: string,
+  sessionSeed = 0
+): MathProblemItem[] => {
+  const name = customChildName || getChildName();
+  const safeCount = Math.max(1, count);
+
+  if (category === 'word_problem') {
+    return generateRandomWordProblems(11 + (sessionSeed % 2), safeCount, 1, name).map((item, idx) => ({
+      ...item,
+      id: `math_weak_word_${sessionSeed}_${idx + 1}_${Date.now()}`,
+    }));
+  }
+
+  if (category === 'clock') {
+    return Array.from({ length: safeCount }, (_, idx) => {
+      const mode = idx % 2 === 0 ? 'read' : 'elapsed';
+      const problem = generateClockProblem(5 + (idx % 6), idx + 1, sessionSeed + idx, mode);
+      return {
+        ...problem,
+        id: `math_weak_clock_${sessionSeed}_${idx + 1}`,
+      };
+    });
+  }
+
+  if (category === 'missing_number') {
+    const rng = makeRng(7001 + sessionSeed * 9973);
+    const seen = new Set<string>();
+    const items: MathProblemItem[] = [];
+    const maker = alternate(addCarry, subBorrow);
+    let guard = 0;
+    while (items.length < safeCount && guard < 1000) {
+      guard += 1;
+      const base = maker(rng);
+      if (base.answer < 0 || base.answer > 100) continue;
+      const missing = makeMissingNumberSpec(base, items.length % 2 === 0);
+      if (seen.has(missing.question)) continue;
+      seen.add(missing.question);
+      const idx = items.length;
+      items.push({
+        id: `math_weak_missing_${sessionSeed}_${idx + 1}`,
+        stage: 6,
+        question: missing.question,
+        answer: String(missing.answer),
+        options: buildOptions(missing.answer, idx + sessionSeed * 17, missing).map(String),
+        readKr: missing.readKr,
+        hintFormula: missing.hintFormula,
+        isMissingNumber: true,
+        missingPosition: missing.missingPosition,
+      });
+    }
+    return items;
+  }
+
+  if (category === 'multiplication') {
+    return generateMultiplicationProblems(14, 2, 9, safeCount, name, sessionSeed, 0).map(
+      (item, idx) => ({
+        ...item,
+        id: `math_weak_mul_${sessionSeed}_${idx + 1}`,
+      })
+    );
+  }
+
+  if (category === 'units') {
+    return generateUnitConversionProblems(15, safeCount, name, sessionSeed, 0).map(
+      (item, idx) => ({
+        ...item,
+        id: `math_weak_unit_${sessionSeed}_${idx + 1}`,
+      })
+    );
+  }
+
+  const makerMap: Record<
+    Exclude<MathSkillCategory, 'word_problem' | 'clock' | 'missing_number' | 'multiplication' | 'units'>,
+    { stage: number; maker: SpecMaker; onlyKind?: 'add' | 'sub' }
+  > = {
+    add_basic: { stage: 1, maker: addNoCarry, onlyKind: 'add' },
+    sub_basic: { stage: 2, maker: subNoBorrow, onlyKind: 'sub' },
+    add_carry: { stage: 4, maker: addCarry, onlyKind: 'add' },
+    sub_borrow: { stage: 5, maker: subBorrow, onlyKind: 'sub' },
+    three_numbers: { stage: 8, maker: alternate(tripleAdd, tripleMixed) },
+  };
+
+  const cfg = makerMap[category];
+  const rng = makeRng(cfg.stage * 7919 + 31 + sessionSeed * 9973);
+  const seen = new Set<string>();
+  const items: MathProblemItem[] = [];
+  let guard = 0;
+  while (items.length < safeCount && guard < 1500) {
+    guard += 1;
+    const spec = cfg.maker(rng);
+    if (cfg.onlyKind === 'add' && !spec.question.includes('+')) continue;
+    if (cfg.onlyKind === 'sub' && !spec.question.includes('-')) continue;
+    if (spec.answer < 0 || spec.answer > 100) continue;
+    if (seen.has(spec.question)) continue;
+    seen.add(spec.question);
+    const idx = items.length;
+    items.push({
+      id: `math_weak_${category}_${sessionSeed}_${idx + 1}`,
+      stage: cfg.stage,
+      question: spec.question,
+      answer: String(spec.answer),
+      options: buildOptions(spec.answer, idx + cfg.stage + sessionSeed * 19, spec).map(String),
+      readKr: spec.readKr,
+      hintFormula: spec.hintFormula,
+    });
+  }
+  return items;
 };
 
 /**
@@ -1240,6 +1729,20 @@ export const getMathQuickTip = (
   selectedWrongChoice?: string | number
 ): string => {
   if (!item) return '일의 자리부터 차근차근 묶음과 낱개로 계산해 보세요!';
+
+  // 0-A. 구구단(곱셈) 문제 팁
+  if (item.multiplicationQuestion) {
+    const { a, b, isMissingFactor } = item.multiplicationQuestion;
+    if (isMissingFactor) {
+      return `✖️ ${a}단 또는 ${b}단 구구단에서 ${a * b}가 나오는 짝을 찾아보세요! (${a} × ${b} = ${a * b})`;
+    }
+    return `✖️ ${a}씩 ${b}묶음이에요! ${a}단 구구단을 외우거나 ${a}를 ${b}번 뛰어 세어 보세요!`;
+  }
+
+  // 0-B. 길이·들이 단위 변환 팁
+  if (item.unitQuestion) {
+    return item.unitQuestion.conversionGuide;
+  }
 
   // 0. 아날로그 시계 시한폭탄 문제 (정답 직접 노출 스포일러 제거 -> 원리 기반 비계 힌트)
   if (item.clockQuestion) {

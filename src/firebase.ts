@@ -12,6 +12,8 @@ import {
   where,
   getDocs,
   getDocsFromServer,
+  onSnapshot,
+  type Unsubscribe,
   type Query,
   type QuerySnapshot,
   type DocumentData,
@@ -30,6 +32,14 @@ import type { GameState, UnlockedMonsterRecord, WordItem, DailyDualQuest, Learni
 import type { EarnedCoupon } from "./data/gachaRewards";
 import type { EquippedAtomicGear } from "./data/atomicPartsData";
 import type { WrongAnswerRecord, StudyLogEntry } from "./data/parentMonitor";
+import type { WrongMathRecord } from "./data/mathWeakness";
+import type { SchoolProgress } from "./data/schoolMission";
+
+export interface ParentDailyMission {
+  text: string;
+  updatedAt: number;
+  completedDate?: string;
+}
 
 const env = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : ({} as Record<string, string>);
 
@@ -157,6 +167,7 @@ export interface PlayerFirestoreData {
   unlockedMonsters?: Record<string, UnlockedMonsterRecord>;
   coupons?: EarnedCoupon[];
   wrongWordList?: WordItem[];
+  wrongMathList?: WrongMathRecord[];
   hasClaimedCodexReward?: boolean;
   treasureBoxCount?: number;
   cycleCount?: number;
@@ -177,6 +188,15 @@ export interface PlayerFirestoreData {
   wrongAnswers?: Record<string, WrongAnswerRecord>;
   /** 날짜별(YYYY-MM-DD) 접속/학습 요약 */
   studyLogs?: Record<string, StudyLogEntry>;
+  /** 부모님 응원 메시지 & 원격 미션 */
+  parentCheerMessage?: string;
+  parentCheerUpdatedAt?: number;
+  parentDailyMission?: ParentDailyMission | null;
+  /** 커스텀 단어장(숙제 단어) 클라우드 백업 */
+  customWords?: WordItem[];
+  /** 고질라 학교 탐험 진도 및 마을 장식 */
+  schoolProgress?: SchoolProgress;
+  schoolGarden?: string[];
   updatedAt?: string;
 }
 
@@ -396,4 +416,52 @@ export const fetchChildPlayerDocsForParent = async (
     .map((d) => ({ uid: d.id, data: (d.data() || {}) as PlayerFirestoreData, matchedByEmail: false }))
     .filter((p) => !p.data.email)
     .sort((a, b) => playerUpdatedMillis(b.data) - playerUpdatedMillis(a.data));
+};
+
+/**
+ * [학부모 관리자 전용] 자녀 계정에 응원 메시지 및 일일 원격 미션 전송
+ */
+export const sendParentRemoteMessageToChild = async (
+  childUid: string,
+  payload: {
+    parentCheerMessage?: string;
+    parentCheerUpdatedAt?: number;
+    parentDailyMission?: ParentDailyMission | null;
+  }
+): Promise<void> => {
+  if (!childUid) throw new Error("Missing child UID");
+  const docRef = doc(db, PLAYER_COLLECTION, childUid);
+  await setDoc(
+    docRef,
+    {
+      ...payload,
+      updatedAt: new Date().toISOString(),
+    },
+    { merge: true }
+  );
+};
+
+/**
+ * 현재 로그인한 플레이어 문서의 부모님 응원/미션 변경 사항 실시간 구독
+ */
+export const subscribePlayerParentMessages = (
+  onUpdate: (data: Pick<PlayerFirestoreData, "parentCheerMessage" | "parentCheerUpdatedAt" | "parentDailyMission">) => void
+): Unsubscribe | null => {
+  const docRef = getPlayerDocRef();
+  if (!docRef) return null;
+  return onSnapshot(
+    docRef,
+    (snap) => {
+      if (!snap.exists()) return;
+      const d = snap.data() as PlayerFirestoreData;
+      onUpdate({
+        parentCheerMessage: d.parentCheerMessage,
+        parentCheerUpdatedAt: d.parentCheerUpdatedAt,
+        parentDailyMission: d.parentDailyMission,
+      });
+    },
+    (err) => {
+      console.warn("[Firestore] Parent message listener warning:", err);
+    }
+  );
 };

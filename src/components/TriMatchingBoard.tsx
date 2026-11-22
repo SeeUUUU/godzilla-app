@@ -80,7 +80,13 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
 
   const [isShaking, setIsShaking] = useState(false);
   const [isMatchingSuccess, setIsMatchingSuccess] = useState(false);
-  const [isListeningMode, setIsListeningMode] = useState(false);
+  const [isListeningMode, setIsListeningMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('godzilla_blind_listening_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const isLockedRef = useRef(false);
   const mismatchTimerRef = useRef<number | null>(null);
   const matchFallbackTimerRef = useRef<number | null>(null);
@@ -249,14 +255,24 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
           )}
         </div>
 
-        {/* L2 소리 듣고 맞추기 (듣기 챌린지) 모드 원클릭 토글 버튼 */}
+        {/* L2 귀 기울여 듣기 (블라인드 리스닝 챌린지) 모드 원클릭 토글 버튼 */}
         <button
           type="button"
           onClick={() => {
             playCardTapSound();
-            setIsListeningMode((prev) => !prev);
+            setIsListeningMode((prev) => {
+              const next = !prev;
+              try {
+                localStorage.setItem('godzilla_blind_listening_mode', String(next));
+              } catch {}
+              return next;
+            });
           }}
-          title={isListeningMode ? '일반 보기 모드로 전환' : '글자를 가리고 소리만 듣고 맞추는 챌린지 모드'}
+          title={
+            isListeningMode
+              ? '일반 보기 모드로 전환'
+              : '영어·일본어 글자를 가리고 원어민 소리만 듣고 한국어와 매칭하는 블라인드 리스닝 모드'
+          }
           className={`px-2 sm:px-2.5 py-0.5 rounded-full text-[9px] sm:text-[10px] md:text-xs font-black flex items-center gap-1 border transition-all cursor-pointer active:scale-95 shadow-sm ${
             isListeningMode
               ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.5)] animate-pulse'
@@ -264,7 +280,7 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
           }`}
         >
           <Ear className="w-3 h-3 text-purple-300" />
-          <span>{isListeningMode ? '🎧 소리 챌린지 ON' : '👂 소리 챌린지'}</span>
+          <span>{isListeningMode ? '🎧 블라인드 리스닝 ON' : '👂 블라인드 리스닝'}</span>
         </button>
       </div>
 
@@ -399,13 +415,13 @@ export const TriMatchingBoard: React.FC<TriMatchingBoardProps> = ({
                           opacity: opacityStyle,
                         }}
                       >
-                        {/* 큼직하고 시원시원한 단어 텍스트 (수직 중앙 정렬 및 일본어 2줄 밸런스 유지) */}
+                        {/* 큼직하고 시원시원한 단어 텍스트 (블라인드 리스닝 시 영어·일본어만 가리고 소리로 매칭) */}
                         <div className="flex flex-col min-w-0 flex-1 text-left justify-center pr-1 overflow-hidden">
-                          {isListeningMode && !isCleared && !isSelected ? (
+                          {isListeningMode && card.lang !== 'ko' && !isCleared ? (
                             <div className="flex items-center gap-1.5 text-purple-300/90 py-0.5">
-                              <span className="text-base sm:text-lg flex-shrink-0 animate-pulse">🔊</span>
-                              <span className="text-xs sm:text-sm font-black tracking-wider text-purple-200">
-                                소리 듣기
+                              <span className="text-base sm:text-lg flex-shrink-0 animate-pulse">🎧</span>
+                              <span className="text-xs sm:text-sm font-black tracking-wider text-purple-200 truncate">
+                                {isSelected ? '🔊 선택됨 (???)' : '🔊 소리 듣고 찾기'}
                               </span>
                               {isHint && (
                                 <span className="text-[8px] font-black text-amber-300 px-1 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 flex-shrink-0 animate-bounce">

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createSchoolRound, emptySchoolProgress, parseSchoolProgress, SCHOOL_WORDS } from '../data/schoolMission';
 import type { SchoolProgress, SchoolQuestion } from '../data/schoolMission';
 import { SchoolAdventure } from './SchoolAdventure';
+import { savePlayerDataToFirestore } from '../firebase';
 
 interface Props { userId:string; level:number; onClose:()=>void; onReward:(exp:number)=>void }
 export function SchoolMission({userId,level,onClose,onReward}:Props) {
@@ -39,7 +40,11 @@ export function SchoolMission({userId,level,onClose,onReward}:Props) {
   },[onClose]);
   function save(next:SchoolProgress) {
     setProgress(next);
-    try {localStorage.setItem(storageKey,JSON.stringify(next));return true;}
+    try {
+      localStorage.setItem(storageKey,JSON.stringify(next));
+      void savePlayerDataToFirestore({ schoolProgress: next });
+      return true;
+    }
     catch {setNotice('기록을 저장하지 못했어요. 이 브라우저의 저장 설정을 확인해 주세요.');return false;}
   }
   function start() {

@@ -29,7 +29,7 @@ const TensBlock: React.FC<{
     type="button"
     onClick={onClick}
     disabled={!onClick}
-    className={`flex flex-col items-center justify-between w-7 sm:w-8 h-20 sm:h-24 rounded-md border-2 shadow-md select-none p-0.5 relative transition-all ${
+    className={`flex flex-col items-center justify-between w-6 sm:w-7 h-14 sm:h-16 rounded-md border-2 shadow-md select-none p-0.5 relative transition-all ${
       isCrossedOut
         ? 'border-red-500/50 bg-slate-800/40 opacity-40 scale-95'
         : isNewCarry
@@ -125,8 +125,8 @@ const NumberBlockSection: React.FC<{
       : 'border-cyan-500/50 bg-cyan-950/30';
 
   return (
-    <div className={`flex flex-col p-2.5 sm:p-3 rounded-xl border ${borderColor} shadow-inner transition-all`}>
-      <div className="flex items-center justify-between mb-2 pb-1 border-b border-slate-700/60 flex-wrap gap-1">
+    <div className={`flex flex-col p-2 rounded-xl border ${borderColor} shadow-inner transition-all`}>
+      <div className="flex items-center justify-between mb-1.5 pb-1 border-b border-slate-700/60 flex-wrap gap-1">
         <span className="text-xs font-bold text-slate-300">{label}</span>
         <span className="text-lg sm:text-xl font-black text-white flex items-center gap-1">
           <span className="text-yellow-300">{num}</span>
@@ -147,7 +147,7 @@ const NumberBlockSection: React.FC<{
               10개 묶음 ({Math.max(0, displayTens - crossedOutTens + (extraCarryTen ? 1 : 0))}개)
             </span>
           </span>
-          <div className="flex flex-wrap items-center justify-center gap-1.5 min-h-[5rem] py-1">
+          <div className="flex flex-wrap items-center justify-center gap-1.5 min-h-[4rem] py-0.5">
             {displayTens > 0 || extraCarryTen ? (
               <>
                 {[...Array(displayTens)].map((_, i) => {
@@ -182,7 +182,7 @@ const NumberBlockSection: React.FC<{
               )}
             </span>
           </span>
-          <div className="grid grid-cols-5 gap-1 items-center justify-center min-h-[5rem] content-center p-1">
+          <div className="grid grid-cols-5 gap-1 items-center justify-center min-h-[4rem] content-center p-0.5">
             {totalOnes > 0 ? (
               [...Array(totalOnes)].map((_, i) => {
                 const isFromBorrow = isBorrowedSplit && i >= baseOnes;
@@ -227,6 +227,130 @@ export const MathBlockHintModal: React.FC<MathBlockHintModalProps> = ({
   }, [isOpen, problem?.id]);
 
   if (!isOpen) return null;
+
+  const mulInfo = problem.multiplicationQuestion;
+  const unitInfo = problem.unitQuestion;
+
+  if (mulInfo || unitInfo) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn"
+        onClick={onClose}
+      >
+        <div
+          className="relative w-full max-w-xl max-h-[92dvh] flex flex-col bg-slate-900/95 border-2 border-cyan-400 rounded-2xl shadow-2xl overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex-none flex items-center justify-between px-4 py-3 bg-gradient-to-r from-slate-900 via-cyan-950/70 to-slate-900 border-b border-cyan-500/40">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-cyan-500/20 border border-cyan-400/50 text-cyan-300">
+                <Search size={18} />
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-black text-white">
+                  {mulInfo ? '✖️ 구구단 묶음 블록 힌트' : '📏 단위 변환 그림 자판'}
+                </h3>
+                <p className="text-[11px] text-cyan-200/80 font-medium">
+                  ⭐ {childName} 대장님! 그림으로 쉽게 이해해 보아요! (일시정지됨)
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
+            <div className="p-3 rounded-xl bg-slate-950/80 border border-amber-500/40 text-center">
+              <span className="text-xs text-amber-300 font-bold block mb-1">풀어야 할 문제</span>
+              <span className="text-lg sm:text-xl font-black text-white">{problem.question}</span>
+            </div>
+
+            {mulInfo ? (
+              <div className="p-3 rounded-xl bg-indigo-950/50 border border-indigo-400/40 space-y-2.5">
+                <div className="text-xs sm:text-sm font-black text-cyan-200 text-center">
+                  {mulInfo.a}개씩 {mulInfo.b}묶음 = {mulInfo.a} × {mulInfo.b}
+                </div>
+                <div className="space-y-1.5 max-h-60 overflow-y-auto p-1">
+                  {Array.from({ length: mulInfo.b }).map((_, rowIdx) => (
+                    <div
+                      key={rowIdx}
+                      className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-slate-900/80 border border-slate-700/70"
+                    >
+                      <span className="text-[11px] font-black text-amber-300 w-14 shrink-0">
+                        {rowIdx + 1}묶음
+                      </span>
+                      <div className="flex flex-wrap gap-1 flex-1">
+                        {Array.from({ length: mulInfo.a }).map((__, colIdx) => (
+                          <span
+                            key={colIdx}
+                            className="w-4 h-4 rounded bg-gradient-to-br from-cyan-400 to-blue-500 border border-cyan-200 shadow-sm"
+                          />
+                        ))}
+                      </div>
+                      <span className="text-xs font-black text-emerald-300 shrink-0">
+                        ({(rowIdx + 1) * mulInfo.a})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-400/40 space-y-2.5">
+                <p className="text-sm font-black text-yellow-300 text-center">
+                  {unitInfo?.conversionGuide}
+                </p>
+                <div className="grid grid-cols-2 gap-2 text-xs font-bold">
+                  <div className="p-2.5 rounded-lg bg-slate-900/90 border border-cyan-500/30 text-center">
+                    <div className="text-cyan-300 font-black mb-0.5">📏 길이</div>
+                    <div className="text-white">1 cm = 10 mm</div>
+                    <div className="text-slate-300">1 m = 100 cm</div>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-900/90 border border-emerald-500/30 text-center">
+                    <div className="text-emerald-300 font-black mb-0.5">🥛 들이</div>
+                    <div className="text-white">1 L = 10 dL</div>
+                    <div className="text-slate-300">1 dL = 100 mL</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+              <span className="text-xs text-slate-400 font-medium">정답 확인하기</span>
+              <button
+                type="button"
+                onClick={() => setShowAnswer((prev) => !prev)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs font-bold cursor-pointer"
+              >
+                {showAnswer ? <EyeOff size={14} /> : <Eye size={14} />}
+                <span>{showAnswer ? '정답 숨기기' : '정답 확인하기'}</span>
+              </button>
+            </div>
+            {showAnswer && (
+              <div className="p-3 rounded-xl bg-emerald-950/80 border-2 border-emerald-400 text-center">
+                <span className="text-2xl font-black text-yellow-300">{problem.answer}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex-none p-3 bg-slate-950 border-t border-cyan-500/30 flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full sm:w-auto px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-black text-xs sm:text-sm cursor-pointer flex items-center justify-center gap-1.5"
+            >
+              <span>이해했어요! 요격하러 가기</span>
+              <ArrowRight size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const formula = getProblemHintFormula(problem);
   const answerNum = typeof problem.answer === 'number' ? problem.answer : parseInt(problem.answer, 10);
@@ -280,7 +404,7 @@ export const MathBlockHintModal: React.FC<MathBlockHintModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-xl max-h-[90vh] flex flex-col bg-slate-900/95 border-2 border-cyan-400 rounded-2xl shadow-2xl shadow-cyan-950/70 overflow-hidden"
+        className="relative w-full max-w-5xl max-h-[96dvh] flex flex-col bg-slate-900/95 border-2 border-cyan-400 rounded-2xl shadow-2xl shadow-cyan-950/70 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 모달 상단 헤더 */}
@@ -317,7 +441,8 @@ export const MathBlockHintModal: React.FC<MathBlockHintModalProps> = ({
         </div>
 
         {/* 모달 본문 영역 (스크롤 가능) */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3.5 sm:space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+          <div className="space-y-2">
           {/* 1. 수식 안내 카드 */}
           <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950/80 border border-amber-500/40">
             <div className="flex items-center gap-2">
@@ -446,8 +571,8 @@ export const MathBlockHintModal: React.FC<MathBlockHintModalProps> = ({
               hiddenCarryOnes={isAddition && isCarryCombined ? Math.min(onesA, 10) : 0}
             />
 
-            <div className="flex items-center justify-center my-1">
-              <span className="w-8 h-8 rounded-full bg-amber-500 text-slate-950 font-black text-lg flex items-center justify-center shadow-md">
+            <div className="flex items-center justify-center -my-0.5">
+              <span className="w-7 h-7 rounded-full bg-amber-500 text-slate-950 font-black text-base flex items-center justify-center shadow-md">
                 {op}
               </span>
             </div>
@@ -474,6 +599,9 @@ export const MathBlockHintModal: React.FC<MathBlockHintModalProps> = ({
             )}
           </div>
 
+          </div>
+
+          <div className="space-y-2">
           {/* 3. 단계별 수 모형 해결 비법 가이드 */}
           <div className="p-3 sm:p-4 rounded-xl bg-gradient-to-br from-indigo-950/60 to-slate-950 border border-indigo-500/40 space-y-2.5">
             <div className="flex items-center gap-1.5 text-xs sm:text-sm font-black text-indigo-300">
@@ -632,6 +760,7 @@ export const MathBlockHintModal: React.FC<MathBlockHintModalProps> = ({
               </span>
             </div>
           )}
+          </div>
         </div>
 
         {/* 모달 하단 닫기/요격 버튼 */}

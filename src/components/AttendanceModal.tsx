@@ -348,7 +348,7 @@ export const AttendanceModal: React.FC<AttendanceModalProps> = ({
                 </span>
               ) : (
                 <span style={{ color: '#fde047' }}>
-                  일일 듀얼 훈련(언어 1판 + 산수 1판)을 모두 완주하면 오늘의 발자국이 쾅 찍혀요!
+                  언어 배틀 또는 산수 요격 중 1판만 완주해도 오늘의 발자국이 쾅 찍혀요! (2과목 모두 완주 시 보너스 알 추가!)
                 </span>
               )}
             </p>

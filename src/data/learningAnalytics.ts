@@ -9,6 +9,7 @@ import { getProblemHintFormula } from './mathData';
 import { savePlayerDataToFirestore } from '../firebase';
 import { getTodayDateStr } from '../hooks/useAttendance';
 import { recordStudyAttempt } from './parentMonitor';
+import { recordWrongMathProblem } from './mathWeakness';
 
 export const STORAGE_KEY_LEARNING_ANALYTICS = 'godzilla_learning_analytics_v1';
 
@@ -21,6 +22,8 @@ export const MATH_SKILL_CATEGORIES: MathSkillCategory[] = [
   'missing_number',
   'clock',
   'word_problem',
+  'multiplication',
+  'units',
 ];
 
 export const MATH_SKILL_LABELS: Record<MathSkillCategory, { label: string; icon: string }> = {
@@ -32,6 +35,8 @@ export const MATH_SKILL_LABELS: Record<MathSkillCategory, { label: string; icon:
   missing_number: { label: '빈칸(□) 거꾸로 셈', icon: '🔍' },
   clock: { label: '시계 읽기·시간 계산', icon: '🕰️' },
   word_problem: { label: '서술형(문장제) 사고력', icon: '📖' },
+  multiplication: { label: '구구단 (2~9단 곱셈)', icon: '✖️' },
+  units: { label: '길이·들이 단위 변환', icon: '📏' },
 };
 
 export const createDefaultAnalytics = (): LearningAnalyticsData => {
@@ -181,9 +186,12 @@ export const mergeLearningAnalytics = (
 };
 
 /**
- * 산수 문제를 8대 핵심 연산 유형으로 자동 분류
+ * 산수 문제를 핵심 연산·교과 영역으로 자동 분류
  */
 export const classifyMathProblem = (problem: MathProblemItem): MathSkillCategory => {
+  if (problem.skillCategory) return problem.skillCategory;
+  if (problem.multiplicationQuestion) return 'multiplication';
+  if (problem.unitQuestion) return 'units';
   if (problem.clockQuestion) return 'clock';
   if (problem.isWordProblem) return 'word_problem';
   if (problem.isMissingNumber) return 'missing_number';
@@ -290,6 +298,8 @@ export const recordMathAttempt = (
   stat.attempts += 1;
   if (isCorrect) {
     stat.correct += 1;
+  } else {
+    recordWrongMathProblem(problem, category, true);
   }
   data.mathSkillStats[category] = stat;
 

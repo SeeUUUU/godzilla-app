@@ -14,10 +14,24 @@ service cloud.firestore {
         && isValidPlayerSchema(request.resource.data);
 
       // 3. 문서 업데이트 시 본인 UID 확인 + 스키마 검증 + 급격한 재화/레벨 점프(Delta) 치팅 방어
+      //    또는 학부모 관리자 계정이 응원 메시지/원격 미션 필드만 업데이트하는 경우 허용
       allow update: if request.auth != null
-        && request.auth.uid == userId
-        && isValidPlayerSchema(request.resource.data)
-        && isSafeDelta(resource.data, request.resource.data);
+        && (
+          (
+            request.auth.uid == userId
+            && isValidPlayerSchema(request.resource.data)
+            && isSafeDelta(resource.data, request.resource.data)
+          )
+          || (
+            isParentAdmin()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'parentCheerMessage',
+              'parentCheerUpdatedAt',
+              'parentDailyMission',
+              'updatedAt'
+            ])
+          )
+        );
 
       function isParentAdmin() {
         return request.auth != null

@@ -5,7 +5,7 @@ export default {
     extend: {
       screens: {
         'xs': '400px',
-        'landscape-short': { raw: '(orientation: landscape) and (max-height: 550px)' },
+        'landscape-short': { raw: '(orientation: landscape) and (max-height: 920px)' },
       },
       colors: {
         godzilla: {

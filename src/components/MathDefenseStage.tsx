@@ -7,7 +7,6 @@ import { GodzillaArt } from './GodzillaArt';
 import {
   getMathProblemsForStage,
   TOTAL_MATH_STAGES,
-  PROBLEMS_PER_MATH_STAGE,
   getChildName,
   readSino,
   readEnglish,
@@ -15,7 +14,18 @@ import {
   getMathQuickTip,
   getProblemHintFormula,
 } from '../data/mathData';
-import { recordMathAttempt } from '../data/learningAnalytics';
+import {
+  recordMathAttempt,
+  loadLearningAnalytics,
+  MATH_SKILL_LABELS,
+} from '../data/learningAnalytics';
+import {
+  buildMathWeaknessRound,
+  loadWrongMathProblems,
+  resolveWrongMathProblem,
+  hasClaimedDailyMathWeaknessEgg,
+  markDailyMathWeaknessEggClaimed,
+} from '../data/mathWeakness';
 import { useSpeech } from '../hooks/useSpeech';
 import { MathBlockHintModal } from './MathBlockHintModal';
 import { AtomicHangarModal } from './AtomicHangarModal';
@@ -33,7 +43,6 @@ import {
   playCriticalRoarSound,
   playPerfectAtomicRoarSound,
   playMeteorExplosionSound,
-  playWarningSirenSound,
   playErrorBuzzer,
   playVictoryFanfare,
   playCardTapSound,
@@ -41,20 +50,22 @@ import {
 } from '../utils/soundEffects';
 
 interface MathDefenseStageProps {
-  stageNum: number; // 1 ~ 12
+  stageNum: number; // 1 ~ 16
   level?: number;
   equippedPartnerId?: string | null;
-  onClear: (bonusExp: number) => void;
+  onClear: (bonusExp: number, options?: { isWeaknessMode?: boolean; bonusEggEarned?: boolean }) => void;
   onFail?: () => void;
   onPartnerNotice?: (message: string, icon: string) => void;
   onGoToLanguage?: () => void;
   isLanguageDoneToday?: boolean;
   onNextMathStage?: () => void;
+  onSelectMathStage?: (stageIndex: number) => void;
+  onOpenGeometryLab?: () => void;
+  onGearChanged?: (gear: EquippedAtomicGear) => void;
 }
 
 type GamePhase = 'WARNING' | 'PLAYING' | 'INTERCEPTING' | 'IMPACT' | 'VICTORY' | 'GAME_OVER';
 
-const TOTAL_ROUNDS = PROBLEMS_PER_MATH_STAGE; // 10문제
 const FALL_DURATION_MS = 14000; // 14초 (초등 2학년 두 자리 수 암산 및 TTS 청취 시간 넉넉히 확보)
 
 // 괴수별 이모지 매핑
@@ -127,6 +138,9 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   onGoToLanguage,
   isLanguageDoneToday = false,
   onNextMathStage,
+  onSelectMathStage,
+  onOpenGeometryLab,
+  onGearChanged,
 }) => {
   // 언어 배틀 고질라 성장 레벨 및 진화 형태 연동
   const godzillaEvo = useMemo(() => getGodzillaEvolution(level), [level]);
@@ -264,11 +278,23 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   const equippedTitle = ATOMIC_TITLES.find((t) => t.id === equippedGear.title) || ATOMIC_TITLES[0];
 
   const [gameSession, setGameSession] = useState(0);
+  const [isWeaknessMode, setIsWeaknessMode] = useState(false);
+  const [wrongMathCount, setWrongMathCount] = useState(() => loadWrongMathProblems().length);
+  const [weaknessSessionEggEarned, setWeaknessSessionEggEarned] = useState(false);
 
-  // 1. 해당 스테이지의 10문제 가져오기
+  const weaknessPlan = useMemo(() => {
+    return buildMathWeaknessRound(loadLearningAnalytics(), childName, gameSession, 6);
+  }, [childName, gameSession]);
+
+  // 1. 해당 스테이지(또는 약점 특훈)의 문제 가져오기
   const stageProblems = useMemo<MathProblemItem[]>(() => {
+    if (isWeaknessMode && weaknessPlan.problems.length > 0) {
+      return weaknessPlan.problems;
+    }
     return getMathProblemsForStage(stageNum, childName, gameSession);
-  }, [stageNum, gameSession, childName]);
+  }, [isWeaknessMode, weaknessPlan, stageNum, gameSession, childName]);
+
+  const totalRounds = Math.max(1, stageProblems.length);
 
   const currentProblem = stageProblems[roundIndex] || stageProblems[0];
   const isWordProblem = currentProblem?.isWordProblem === true;
@@ -277,6 +303,18 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
   const steppingStoneHint = useMemo<string | null>(() => {
     if (!currentProblem || currentProblem.clockQuestion) return null;
     if (selectedWrongChoices.length === 0 && consecutiveFailures < 1) return null;
+
+    if (currentProblem.unitQuestion) {
+      return `🪜 징검다리 힌트: ${currentProblem.unitQuestion.conversionGuide}`;
+    }
+
+    if (currentProblem.multiplicationQuestion) {
+      const { a, b, isMissingFactor } = currentProblem.multiplicationQuestion;
+      if (isMissingFactor) {
+        return `🪜 징검다리 힌트: ${a}단과 ${b}단 구구단 중 ${a * b}가 되는 짝을 떠올려 보세요!`;
+      }
+      return `🪜 징검다리 힌트: ${a}씩 ${b}번 뛰어 세어 보세요! (${a}×${Math.max(1, b - 1)}=${a * Math.max(1, b - 1)}에 +${a})`;
+    }
 
     if (currentProblem.isMissingNumber) {
       return '🪜 징검다리 힌트: 결과 수와 알고 있는 수의 차이를 구해 빈칸(□)을 찾아보세요!';
@@ -443,6 +481,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     showQuickTip(currentProblem);
     if (currentProblem) {
       recordMathAttempt(currentProblem, false);
+      setWrongMathCount(loadWrongMathProblems().length);
     }
     updateAdaptiveZpd(false, adaptiveFallDurationRef.current);
 
@@ -457,7 +496,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       nextRoundTimerRef.current = window.setTimeout(() => {
         setIsImpactShaking(false);
         cancel();
-        setRoundIndex((curr) => (curr + 1 < TOTAL_ROUNDS ? curr + 1 : curr));
+        setRoundIndex((curr) => (curr + 1 < totalRounds ? curr + 1 : curr));
         setPhase('PLAYING');
       }, 1400);
       return;
@@ -476,13 +515,13 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         nextRoundTimerRef.current = window.setTimeout(() => {
           setIsImpactShaking(false);
           cancel();
-          setRoundIndex((curr) => (curr + 1 < TOTAL_ROUNDS ? curr + 1 : curr));
+          setRoundIndex((curr) => (curr + 1 < totalRounds ? curr + 1 : curr));
           setPhase('PLAYING');
         }, 1400);
       }
       return nextLives;
     });
-  }, [clearAllTimers, cancel, mothraShieldActive, onPartnerNotice, triggerDamageFeedback, isWordProblem, showQuickTip, currentProblem, updateAdaptiveZpd]);
+  }, [clearAllTimers, cancel, mothraShieldActive, onPartnerNotice, triggerDamageFeedback, isWordProblem, showQuickTip, currentProblem, updateAdaptiveZpd, totalRounds]);
 
   // 🌟 언어배틀급 극딜 아토믹 레이저 빔: 고질라 입 -> 운석 중심 실시간 벡터 좌표 연산
   const updateBeamCoordinates = useCallback(() => {
@@ -762,6 +801,10 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       if (choice === String(currentProblem.answer)) {
         // [정답] 애널리틱스 및 실시간 적응형 ZPD 기록
         recordMathAttempt(currentProblem, true);
+        if (isWeaknessMode) {
+          const remaining = resolveWrongMathProblem(currentProblem, true);
+          setWrongMathCount(remaining.length);
+        }
         updateAdaptiveZpd(true, responseTimeMs);
 
         // [정답] 콤보 누적 및 버닝 피버 판정
@@ -828,7 +871,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
           });
         } else {
           const ansNum = parseInt(String(currentProblem.answer), 10);
-          if (!isNaN(ansNum) && ansNum >= 0 && ansNum <= 100) {
+          if (!isNaN(ansNum) && ansNum >= 0 && ansNum <= 1000) {
             const krStr = readSino(ansNum);
             const enStr = readEnglish(ansNum);
             const jaStr = readJapanese(ansNum);
@@ -924,19 +967,28 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             nextRoundTimerRef.current = window.setTimeout(() => {
               nextRoundTimerRef.current = null;
               cancel();
-              if (roundIndex + 1 >= TOTAL_ROUNDS) {
+              if (roundIndex + 1 >= totalRounds) {
                 setPhase('VICTORY');
                 playVictoryFanfare();
 
-                // 아토믹 파츠 및 칭호 해금 평가 & 지급
-                const rewards = evaluateStageClearRewards({
-                  stageNum,
-                  isPerfect: reviveCount === 0,
-                  maxCombo: Math.max(maxCombo, nextCombo),
-                  hasDefeatedBoss: true,
-                });
-                if (rewards.newlyUnlockedParts.length > 0 || rewards.newlyUnlockedTitles.length > 0) {
-                  setNewRewardResult(rewards);
+                if (isWeaknessMode) {
+                  if (!hasClaimedDailyMathWeaknessEgg()) {
+                    markDailyMathWeaknessEggClaimed();
+                    setWeaknessSessionEggEarned(true);
+                  } else {
+                    setWeaknessSessionEggEarned(false);
+                  }
+                } else {
+                  // 아토믹 파츠 및 칭호 해금 평가 & 지급
+                  const rewards = evaluateStageClearRewards({
+                    stageNum,
+                    isPerfect: reviveCount === 0,
+                    maxCombo: Math.max(maxCombo, nextCombo),
+                    hasDefeatedBoss: true,
+                  });
+                  if (rewards.newlyUnlockedParts.length > 0 || rewards.newlyUnlockedTitles.length > 0) {
+                    setNewRewardResult(rewards);
+                  }
                 }
 
                 confetti({
@@ -957,6 +1009,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         // [오답] 진동 & 체력 감소 및 시각 피드백 (콤보 리셋 & 애널리틱스/ZPD 반영)
         playErrorBuzzer();
         recordMathAttempt(currentProblem, false, choice);
+        setWrongMathCount(loadWrongMathProblems().length);
         updateAdaptiveZpd(false, responseTimeMs);
         setSelectedWrongChoices((prev) => [...prev, choice]);
         setCombo(0);
@@ -1008,13 +1061,13 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
       isGoldenMeteor,
       showQuickTip,
       updateAdaptiveZpd,
+      totalRounds,
+      isWeaknessMode,
     ]
   );
 
-  // 9. 인트로 경고 사운드 재생 (자동 시작 타이머 완전 제거: 사용자가 [산수 요격 개시] 클릭 시에만 게임 시작)
+  // 9. 언마운트 시 타이머 및 음성 정리 (자동 시작 타이머 완전 제거: 사용자가 [산수 요격 개시] 클릭 시에만 게임 시작)
   useEffect(() => {
-    playWarningSirenSound();
-
     return () => {
       clearAllTimers();
       cancel();
@@ -1074,10 +1127,65 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     setMothraShieldActive(equippedPartnerId === 'mothra');
   }, [clearAllTimers, cancel, equippedPartnerId]);
 
+  // 10-3. 산수 약점 집중 특훈 시작 / 종료
+  const handleStartWeaknessDrill = useCallback(() => {
+    clearAllTimers();
+    cancel();
+    hasSubmittedClearRef.current = false;
+    lastSpokenProblemIdRef.current = null;
+    setIsWeaknessMode(true);
+    setWeaknessSessionEggEarned(false);
+    setSelectedWrongChoices([]);
+    setSolvedAnswerDisplay(null);
+    setMeteorProgress(0);
+    setIsShootingBeam(false);
+    setIsExploding(false);
+    setIsImpactShaking(false);
+    setLives(3);
+    setRoundIndex(0);
+    setReviveCount(0);
+    setGameSession((prev) => prev + 1);
+    setCombo(0);
+    setMaxCombo(0);
+    setMathQuickTip(null);
+    setNewRewardResult(null);
+    setIsStarted(true);
+    setPhase('PLAYING');
+    setMothraShieldActive(equippedPartnerId === 'mothra');
+  }, [clearAllTimers, cancel, equippedPartnerId]);
+
+  const handleExitWeaknessDrill = useCallback(() => {
+    clearAllTimers();
+    cancel();
+    hasSubmittedClearRef.current = false;
+    lastSpokenProblemIdRef.current = null;
+    setIsWeaknessMode(false);
+    setWeaknessSessionEggEarned(false);
+    setSelectedWrongChoices([]);
+    setSolvedAnswerDisplay(null);
+    setMeteorProgress(0);
+    setIsShootingBeam(false);
+    setIsExploding(false);
+    setIsImpactShaking(false);
+    setLives(3);
+    setRoundIndex(0);
+    setReviveCount(0);
+    setGameSession((prev) => prev + 1);
+    setCombo(0);
+    setMaxCombo(0);
+    setMathQuickTip(null);
+    setNewRewardResult(null);
+    setIsStarted(false);
+    setPhase('WARNING');
+    setMothraShieldActive(equippedPartnerId === 'mothra');
+  }, [clearAllTimers, cancel, equippedPartnerId]);
+
   // 11. 경험치 계산 (퍼펙트 완주 보너스 +20 EXP, 피버 모드 달성 보너스 +15 EXP, 메카고질라 +20%)
   const isPerfect = reviveCount === 0;
   const feverBonusExp = maxCombo >= 3 ? 15 : 0;
-  const baseExp = (isPerfect ? 95 : 75) + feverBonusExp; // 무결점 95 EXP, 부활 완주 75 EXP, 피버 달성시 +15 EXP
+  const baseExp = isWeaknessMode
+    ? (isPerfect ? 75 : 55) + feverBonusExp
+    : (isPerfect ? 95 : 75) + feverBonusExp; // 무결점 95 EXP, 부활 완주 75 EXP, 피버 달성시 +15 EXP
   const isMecha = equippedPartnerId === 'mechagodzilla';
   const earnedExp = isMecha ? Math.round(baseExp * 1.2) : baseExp;
 
@@ -1087,7 +1195,12 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
     hasSubmittedClearRef.current = true;
     clearAllTimers();
     cancel();
-    onClear(earnedExp);
+    onClear(
+      earnedExp,
+      isWeaknessMode
+        ? { isWeaknessMode: true, bonusEggEarned: weaknessSessionEggEarned }
+        : undefined
+    );
     return true;
   };
 
@@ -1175,18 +1288,30 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         <div className="flex items-center gap-1.5 sm:gap-2">
           <span
             className={`px-2 py-0.5 rounded-md text-white font-black text-[10px] sm:text-xs tracking-wider flex items-center gap-1 shadow-sm transition-colors ${
-              isFever ? 'bg-orange-600 animate-pulse' : 'bg-amber-600/90'
+              isWeaknessMode
+                ? 'bg-rose-600 animate-pulse'
+                : isFever
+                ? 'bg-orange-600 animate-pulse'
+                : 'bg-amber-600/90'
             }`}
           >
             <Calculator size={13} />
-            STAGE {stageNum} 산수
+            {isWeaknessMode ? '🎯 약점 집중 특훈' : `STAGE ${stageNum} 산수`}
           </span>
           <span
             className={`font-extrabold text-xs sm:text-sm truncate transition-colors ${
-              isFever ? 'text-yellow-300 drop-shadow-[0_0_8px_rgba(253,224,71,0.5)]' : 'text-amber-300'
+              isWeaknessMode
+                ? 'text-rose-200'
+                : isFever
+                ? 'text-yellow-300 drop-shadow-[0_0_8px_rgba(253,224,71,0.5)]'
+                : 'text-amber-300'
             }`}
           >
-            수식 운석 요격 디펜스
+            {isWeaknessMode
+              ? weaknessPlan.weakestCategory
+                ? `${MATH_SKILL_LABELS[weaknessPlan.weakestCategory].icon} ${MATH_SKILL_LABELS[weaknessPlan.weakestCategory].label}`
+                : '취약 연산 집중 복습'
+              : '수식 운석 요격 디펜스'}
           </span>
 
           {/* 콤보 배지 (서술형/보스전 및 1콤보 미만일 때는 숨김) */}
@@ -1252,6 +1377,55 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             <Award size={12} className="text-yellow-400" />
             <span className="hidden sm:inline">격납고</span>
           </button>
+
+          {/* 도형·서술형 특훈(일본 소학교 2학년 長方形と 正方形) 바로가기 버튼 */}
+          {onOpenGeometryLab && (
+            <button
+              type="button"
+              onClick={() => {
+                playCardTapSound();
+                onOpenGeometryLab();
+              }}
+              title="일본 소학교 2학년 도형·서술형(長方形と 正方形) 그림 특훈!"
+              className="px-2 py-0.5 rounded-full bg-cyan-950/90 hover:bg-cyan-900 border border-cyan-400 text-cyan-200 text-[10px] sm:text-xs font-black flex items-center gap-1 shadow-sm transition-all active:scale-95 cursor-pointer"
+            >
+              <span>📐</span>
+              <span>도형·서술형 특훈</span>
+            </button>
+          )}
+
+          {/* 🎯 산수 약점 집중 특훈 토글 버튼 */}
+          {isWeaknessMode ? (
+            <button
+              type="button"
+              onClick={() => {
+                playCardTapSound();
+                handleExitWeaknessDrill();
+              }}
+              title="일반 산수 스테이지로 돌아가기"
+              className="px-2 py-0.5 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-500 text-slate-200 text-[10px] sm:text-xs font-black flex items-center gap-1 shadow-sm transition-all active:scale-95 cursor-pointer"
+            >
+              <span>⚔️</span>
+              <span>일반 STAGE {stageNum}</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                playCardTapSound();
+                handleStartWeaknessDrill();
+              }}
+              title="틀린 문제와 가장 취약한 산수 유형 집중 복습"
+              className={`px-2 py-0.5 rounded-full border text-[10px] sm:text-xs font-black flex items-center gap-1 shadow-sm transition-all active:scale-95 cursor-pointer ${
+                wrongMathCount > 0
+                  ? 'bg-rose-950/90 hover:bg-rose-900 border-rose-400 text-rose-200 animate-pulse'
+                  : 'bg-purple-950/80 hover:bg-purple-900 border-purple-400/70 text-purple-200'
+              }`}
+            >
+              <span>🎯</span>
+              <span>약점 특훈{wrongMathCount > 0 ? ` (${wrongMathCount})` : ''}</span>
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
@@ -1259,7 +1433,7 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
           <div className="flex items-center gap-1 text-[11px] sm:text-xs font-black text-amber-300">
             <span>요격:</span>
             <span className="text-white">
-              {Math.min(TOTAL_ROUNDS, roundIndex + (phase === 'VICTORY' ? 1 : 0))} / {TOTAL_ROUNDS}
+              {Math.min(totalRounds, roundIndex + (phase === 'VICTORY' ? 1 : 0))} / {totalRounds}
             </span>
           </div>
 
@@ -1308,18 +1482,99 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
             STAGE {stageNum} 산수 운석 요격!
           </h2>
           <p className="text-sm sm:text-base font-bold text-yellow-300 mb-1">
-            ☄️ 하늘에서 계산 수식 운석이 떨어집니다!
+            {stageNum === 13
+              ? '✖️ 구구단 기초(2~5단) 운석이 떨어집니다!'
+              : stageNum === 14
+              ? '✖️ 구구단 심화(6~9단) 운석이 떨어집니다!'
+              : stageNum === 15
+              ? '📏 길이·들이 단위 변환(cm/mm, L/dL) 운석이 떨어집니다!'
+              : stageNum === 16
+              ? '👑 초2 2학기 종합 마스터 운석이 떨어집니다!'
+              : '☄️ 하늘에서 계산 수식 운석이 떨어집니다!'}
           </p>
-          <p className="text-xs sm:text-sm text-slate-300 mb-4 max-w-sm">
-            운석에 적힌 덧셈·뺄셈 문제의 정답을 빠르게 골라 아토믹 열선으로 요격하세요!
+          <p className="text-xs sm:text-sm text-slate-300 mb-3 max-w-sm">
+            {stageNum >= 13
+              ? '구구단과 단위 변환 문제를 빠르게 계산해 아토믹 열선으로 요격하세요!'
+              : '운석에 적힌 덧셈·뺄셈 문제의 정답을 빠르게 골라 아토믹 열선으로 요격하세요!'}
           </p>
-          <button
-            type="button"
-            onClick={handleStartGame}
-            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 via-orange-500 to-yellow-500 hover:brightness-110 active:scale-95 text-slate-950 font-black text-sm border border-yellow-300 shadow-xl cursor-pointer"
-          >
-            ⚔️ 산수 요격 개시!
-          </button>
+          {onSelectMathStage && (
+            <div className="mb-4 flex items-center justify-center gap-2 text-xs">
+              <label htmlFor="math-stage-picker" className="text-slate-400 font-bold">
+                스테이지 선택:
+              </label>
+              <select
+                id="math-stage-picker"
+                value={stageNum}
+                onChange={(e) => {
+                  const chosen = Math.max(1, Math.min(TOTAL_MATH_STAGES, Number(e.target.value) || 1));
+                  onSelectMathStage(chosen - 1);
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-amber-500/50 text-amber-200 font-bold cursor-pointer"
+              >
+                {Array.from({ length: TOTAL_MATH_STAGES }, (_, i) => i + 1).map((s) => (
+                  <option key={s} value={s}>
+                    {s <= 3
+                      ? `STAGE ${s} · 두 자리 기본 연산`
+                      : s <= 6
+                      ? `STAGE ${s} · 받아올림/내림`
+                      : s <= 8
+                      ? `STAGE ${s} · 세 수의 연산`
+                      : s <= 10
+                      ? `STAGE ${s} · 100 이하 종합`
+                      : s <= 12
+                      ? `STAGE ${s} · 서술형 마스터`
+                      : s === 13
+                      ? `STAGE 13 · ✖️ 구구단 기초 (2~5단)`
+                      : s === 14
+                      ? `STAGE 14 · ✖️ 구구단 심화 (6~9단)`
+                      : s === 15
+                      ? `STAGE 15 · 📏 길이·들이 단위 변환`
+                      : `STAGE 16 · 👑 2학기 종합 마스터`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
+            <button
+              type="button"
+              onClick={handleStartGame}
+              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 via-orange-500 to-yellow-500 hover:brightness-110 active:scale-95 text-slate-950 font-black text-sm border border-yellow-300 shadow-xl cursor-pointer"
+            >
+              ⚔️ 산수 요격 개시!
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                playCardTapSound();
+                handleStartWeaknessDrill();
+              }}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 via-pink-600 to-purple-600 hover:brightness-110 active:scale-95 text-white font-black text-sm border border-rose-300 shadow-xl cursor-pointer flex items-center gap-1.5"
+            >
+              <span>🎯</span>
+              <span>
+                약점 집중 특훈
+                {wrongMathCount > 0
+                  ? ` (오답 ${wrongMathCount}개)`
+                  : weaknessPlan.weakestCategory
+                  ? ` (${MATH_SKILL_LABELS[weaknessPlan.weakestCategory].label})`
+                  : ''}
+              </span>
+            </button>
+            {onOpenGeometryLab && (
+              <button
+                type="button"
+                onClick={() => {
+                  playCardTapSound();
+                  onOpenGeometryLab();
+                }}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:brightness-110 active:scale-95 text-slate-950 font-black text-sm border border-cyan-200 shadow-xl cursor-pointer flex items-center gap-1.5"
+              >
+                <span>📐</span>
+                <span>도형·서술형 그림 특훈 (長方形と正方形)</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -2125,8 +2380,14 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                         </div>
                       ) : currentProblem.isMissingNumber ? (
                         <div className="flex items-center gap-1.5 flex-wrap justify-center text-center">
-                          <span className="px-2 py-0.5 rounded bg-purple-900/80 border border-purple-400 text-purple-200 text-[10px] sm:text-xs font-black animate-pulse whitespace-nowrap">
-                            🔍 빈칸 채우기
+                          <span
+                            className={`px-2 py-0.5 rounded border text-[10px] sm:text-xs font-black animate-pulse whitespace-nowrap ${
+                              currentProblem.unitQuestion
+                                ? 'bg-cyan-900/80 border-cyan-400 text-cyan-200'
+                                : 'bg-purple-900/80 border-purple-400 text-purple-200'
+                            }`}
+                          >
+                            {currentProblem.unitQuestion ? '📏 단위 변환' : '🔍 빈칸 채우기'}
                           </span>
                           <span className="text-xl sm:text-3xl font-black text-yellow-300 tracking-wider drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] whitespace-nowrap">
                             {currentProblem.question.split('□').map((part, pIdx, arr) => (
@@ -2186,12 +2447,26 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
                           setIsHintModalOpen(true);
                         }
                       }}
-                      title={currentProblem.clockQuestion ? '시계 읽기 힌트 보기' : '수 모형 힌트 보기 (10개 묶음과 낱개)'}
+                      title={
+                        currentProblem.clockQuestion
+                          ? '시계 읽기 힌트 보기'
+                          : currentProblem.multiplicationQuestion
+                          ? '구구단 묶음 그림 힌트 보기'
+                          : currentProblem.unitQuestion
+                          ? '단위 변환 힌트 보기'
+                          : '수 모형 힌트 보기 (10개 묶음과 낱개)'
+                      }
                       className="relative pointer-events-auto flex-none p-1.5 sm:p-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/40 border border-cyan-400/60 text-cyan-300 cursor-pointer active:scale-90 transition-transform flex items-center gap-1 shadow-sm"
                     >
                       <Search size={16} className="text-cyan-300" />
                       <span className="hidden sm:inline text-xs font-black">
-                        {currentProblem.clockQuestion ? '시계 힌트' : '수 모형'}
+                        {currentProblem.clockQuestion
+                          ? '시계 힌트'
+                          : currentProblem.multiplicationQuestion
+                          ? '구구단 힌트'
+                          : currentProblem.unitQuestion
+                          ? '단위 힌트'
+                          : '수 모형'}
                       </span>
                     </button>
                   </div>
@@ -2266,9 +2541,11 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
           )}
 
           <p className="text-xs sm:text-sm text-slate-300 mb-3 max-w-sm">
-            {reviveCount === 0
-              ? `STAGE ${stageNum}의 ${TOTAL_ROUNDS}개 수식 운석을 실수 없이 단숨에 모두 격파했습니다!`
-              : `위기가 찾아와도 포기하지 않고 ${stageNum}스테이지 ${TOTAL_ROUNDS}문제를 끝까지 모두 풀어냈어요!`}
+            {isWeaknessMode
+              ? `약점 집중 특훈 ${totalRounds}문제를 모두 격파해 약점을 극복했어요!`
+              : reviveCount === 0
+              ? `STAGE ${stageNum}의 ${totalRounds}개 수식 운석을 실수 없이 단숨에 모두 격파했습니다!`
+              : `위기가 찾아와도 포기하지 않고 ${stageNum}스테이지 ${totalRounds}문제를 끝까지 모두 풀어냈어요!`}
           </p>
 
           {/* 보상 정보 뱃지 */}
@@ -2277,6 +2554,12 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
               <Zap size={14} className="fill-cyan-400" />
               <span>EXP +{earnedExp} 획득</span>
             </span>
+            {isWeaknessMode && weaknessSessionEggEarned && (
+              <span className="px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-400 text-emerald-300 text-xs sm:text-sm font-black flex items-center gap-1 shadow-sm animate-bounce">
+                <span>🥚</span>
+                <span>일일 특훈 보너스 알 +1!</span>
+              </span>
+            )}
             {maxCombo >= 2 && (
               <span className="px-2.5 py-1 rounded-full bg-orange-950/80 border border-orange-400 text-yellow-300 text-xs font-black shadow-sm flex items-center gap-1 animate-pulse">
                 <Flame size={13} className="text-orange-400 fill-orange-400" />
@@ -2359,18 +2642,43 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
               </button>
             )}
 
-            {/* 다음 산수 스테이지 또는 완료 버튼 */}
-            <button
-              type="button"
-              onClick={() => {
-                if (handleConfirmClear() && onNextMathStage) {
-                  onNextMathStage();
-                }
-              }}
-              className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs sm:text-sm shadow-lg active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-yellow-200 cursor-pointer"
-            >
-              <span>⚔️ 다음 산수 스테이지 (STAGE {(stageNum % TOTAL_MATH_STAGES) + 1})</span>
-            </button>
+            {/* 다음 산수 스테이지 또는 약점 특훈 종료/재도전 버튼 */}
+            {isWeaknessMode ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleConfirmClear();
+                    handleStartWeaknessDrill();
+                  }}
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-rose-500 to-purple-600 hover:brightness-110 text-white font-black text-xs sm:text-sm shadow-lg active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-rose-300 cursor-pointer"
+                >
+                  <span>🎯 약점 집중 특훈 한 번 더!</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleConfirmClear();
+                    handleExitWeaknessDrill();
+                  }}
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs sm:text-sm shadow-lg active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-yellow-200 cursor-pointer"
+                >
+                  <span>⚔️ 일반 산수 STAGE {stageNum}로 돌아가기</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (handleConfirmClear() && onNextMathStage) {
+                    onNextMathStage();
+                  }
+                }}
+                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs sm:text-sm shadow-lg active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-yellow-200 cursor-pointer"
+              >
+                <span>⚔️ 다음 산수 스테이지 (STAGE {(stageNum % TOTAL_MATH_STAGES) + 1})</span>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -2445,7 +2753,10 @@ export const MathDefenseStage: React.FC<MathDefenseStageProps> = ({
         isOpen={isHangarOpen}
         onClose={() => setIsHangarOpen(false)}
         childName={childName}
-        onGearChanged={setEquippedGearState}
+        onGearChanged={(gear) => {
+          setEquippedGearState(gear);
+          onGearChanged?.(gear);
+        }}
       />
     </div>
   );

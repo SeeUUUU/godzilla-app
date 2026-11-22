@@ -11,6 +11,7 @@ import {
 } from '../data/learningAnalytics';
 import { getThisWeekEarnedCouponMinutes } from '../data/gachaRewards';
 import { formatDateToStr } from '../hooks/useAttendance';
+import { savePlayerDataToFirestore } from '../firebase';
 
 export const STORAGE_KEY_PARENT_CHEER = 'godzilla_parent_cheer_message';
 
@@ -57,7 +58,11 @@ const getMathCurriculumLabel = (mathStage: number): string => {
   if (mathStage <= 6) return '받아올림·받아내림 1회 집중 훈련';
   if (mathStage <= 8) return '세 수의 연속 덧셈과 뺄셈';
   if (mathStage <= 10) return '100 이하 두 자리 수 종합 응용';
-  return '초2 서술형(문장제) 사고력 문제';
+  if (mathStage <= 12) return '초2 서술형(문장제) 사고력 문제';
+  if (mathStage === 13) return '구구단 기초 (2~5단 곱셈)';
+  if (mathStage === 14) return '구구단 심화 (6~9단 곱셈)';
+  if (mathStage === 15) return '길이·들이 단위 변환 (cm/mm, L/dL)';
+  return '초2 2학기 종합 마스터 (구구단·단위·시계)';
 };
 
 export const ParentModal: React.FC<ParentModalProps> = ({
@@ -256,8 +261,13 @@ export const ParentModal: React.FC<ParentModalProps> = ({
   };
 
   const handleSaveCheer = () => {
+    const trimmed = cheerMessage.trim();
     try {
-      localStorage.setItem(STORAGE_KEY_PARENT_CHEER, cheerMessage.trim());
+      localStorage.setItem(STORAGE_KEY_PARENT_CHEER, trimmed);
+      void savePlayerDataToFirestore({
+        parentCheerMessage: trimmed,
+        parentCheerUpdatedAt: Date.now(),
+      });
       setCheerSaved(true);
       window.setTimeout(() => setCheerSaved(false), 1800);
     } catch {

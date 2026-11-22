@@ -141,6 +141,9 @@ export const GoldenChestModal: React.FC<GoldenChestModalProps> = ({
         if (rolled.id !== 'miss') {
           // 쿠폰 당첨 시 쿠폰함에 즉시 저장
           saveCoupon(rolled);
+          if (rolled.bonusExp > 0 && onBonusExp) {
+            onBonusExp(rolled.bonusExp);
+          }
 
           // 희귀도별 팡파레 사운드 & 축하 폭죽
           playCardRevealFanfare(rolled.id);

@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { X, RefreshCw, Copy, Check, AlertTriangle } from 'lucide-react';
+import { X, RefreshCw, Copy, Check, AlertTriangle, Send, Heart } from 'lucide-react';
 import {
   fetchChildPlayerDocsForParent,
+  sendParentRemoteMessageToChild,
+  type ParentDailyMission,
   type ParentViewPlayerDoc,
   type PlayerFirestoreData,
 } from '../firebase';
+import { getTodayDateStr } from '../hooks/useAttendance';
 import {
   CHILD_ACCOUNT_EMAIL,
   STUDY_MODES,
@@ -82,7 +85,7 @@ const toNumber = (v: unknown, fallback = 0): number => {
 // ─────────────────────────────────────────────
 // 타입
 // ─────────────────────────────────────────────
-type DashboardTab = 'wrong' | 'daily' | 'vocab';
+type DashboardTab = 'wrong' | 'daily' | 'vocab' | 'remote';
 type WrongFilter = 'all' | 'word' | 'math';
 
 interface DisplayWrongAnswer extends WrongAnswerRecord {
@@ -259,6 +262,10 @@ export const ParentAdminDashboard: React.FC<ParentAdminDashboardProps> = ({ onCl
   const [wrongFilter, setWrongFilter] = useState<WrongFilter>('all');
   const [copyState, setCopyState] = useState<'idle' | 'done' | 'fail'>('idle');
   const [now, setNow] = useState(() => Date.now());
+  const [remoteCheerInput, setRemoteCheerInput] = useState('');
+  const [remoteMissionInput, setRemoteMissionInput] = useState('');
+  const [remoteSendStatus, setRemoteSendStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [remoteSendError, setRemoteSendError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -298,6 +305,65 @@ export const ParentAdminDashboard: React.FC<ParentAdminDashboardProps> = ({ onCl
     [players, selectedUid]
   );
   const data = useMemo<PlayerFirestoreData>(() => selected?.data ?? {}, [selected]);
+
+  useEffect(() => {
+    setRemoteCheerInput(data.parentCheerMessage ?? '');
+    setRemoteMissionInput(data.parentDailyMission?.text ?? '');
+    setRemoteSendStatus('idle');
+    setRemoteSendError(null);
+  }, [selectedUid, data.parentCheerMessage, data.parentDailyMission?.text]);
+
+  const handleSendRemoteSupport = useCallback(
+    async (clearMission = false) => {
+      if (!selected?.uid) return;
+      setRemoteSendStatus('saving');
+      setRemoteSendError(null);
+      const cheerText = remoteCheerInput.trim();
+      const missionText = clearMission ? '' : remoteMissionInput.trim();
+      const nextMission: ParentDailyMission | null = missionText
+        ? {
+            text: missionText,
+            updatedAt: Date.now(),
+            completedDate:
+              data.parentDailyMission?.text === missionText
+                ? data.parentDailyMission.completedDate
+                : undefined,
+          }
+        : null;
+      const nowMs = Date.now();
+      try {
+        await sendParentRemoteMessageToChild(selected.uid, {
+          parentCheerMessage: cheerText,
+          parentCheerUpdatedAt: nowMs,
+          parentDailyMission: nextMission,
+        });
+        setPlayers((prev) =>
+          prev.map((p) =>
+            p.uid === selected.uid
+              ? {
+                  ...p,
+                  data: {
+                    ...p.data,
+                    parentCheerMessage: cheerText,
+                    parentCheerUpdatedAt: nowMs,
+                    parentDailyMission: nextMission,
+                  },
+                }
+              : p
+          )
+        );
+        if (clearMission) setRemoteMissionInput('');
+        setRemoteSendStatus('saved');
+        window.setTimeout(() => setRemoteSendStatus('idle'), 2200);
+      } catch (err) {
+        setRemoteSendStatus('error');
+        setRemoteSendError(
+          `전송 실패: ${(err as Error | null)?.message ?? 'Firestore 규칙 배포 여부를 확인해 주세요.'}`
+        );
+      }
+    },
+    [selected?.uid, remoteCheerInput, remoteMissionInput, data.parentDailyMission]
+  );
 
   const wrongAnswers = useMemo(() => buildWrongAnswers(data), [data]);
   const dailyLogs = useMemo(() => buildDailyLogs(data), [data]);
@@ -415,7 +481,7 @@ export const ParentAdminDashboard: React.FC<ParentAdminDashboardProps> = ({ onCl
         <div className="min-w-0">
           <h2 className="text-base sm:text-lg font-black text-amber-300 truncate">📊 학부모 관리 대시보드</h2>
           <p className="text-[10px] sm:text-xs text-slate-400 truncate">
-            아들 학습 진행 · 오답 내역 원격 모니터링 (읽기 전용)
+            아들 학습 진행 · 오답 내역 모니터링 &amp; 원격 응원/미션 전송
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -511,7 +577,9 @@ export const ParentAdminDashboard: React.FC<ParentAdminDashboardProps> = ({ onCl
                 {summaryCard(
                   '🦖 현재 레벨',
                   `LV.${summary.level}`,
-                  `${summary.cycle}회독 · 언어 STAGE ${summary.stageNum} · 산수 STAGE ${summary.mathStage}`
+                  `${summary.cycle}회독 · 언어 STAGE ${summary.stageNum} · 산수 STAGE ${summary.mathStage}${
+                    data.schoolProgress?.completed ? ` · 학교탐험 ${data.schoolProgress.completed}회` : ''
+                  }`
                 )}
                 {summaryCard(
                   '📚 총 학습 단어 수',
@@ -530,6 +598,7 @@ export const ParentAdminDashboard: React.FC<ParentAdminDashboardProps> = ({ onCl
                 {tabButton('wrong', '🚨 오답 분석 노트 (취약 문제 TOP)')}
                 {tabButton('daily', '📅 일자별 접속 & 학습 기록')}
                 {tabButton('vocab', '📖 단어장 복습 현황')}
+                {tabButton('remote', '💌 응원 & 원격 미션 보내기')}
               </div>
 
               {/* 탭 1: 오답 분석 노트 */}
@@ -777,6 +846,134 @@ export const ParentAdminDashboard: React.FC<ParentAdminDashboardProps> = ({ onCl
                       </table>
                     </div>
                   )}
+                </section>
+              )}
+
+              {/* 탭 4: 응원 & 원격 미션 보내기 */}
+              {tab === 'remote' && (
+                <section className="rounded-xl border border-rose-500/40 bg-slate-900/70 p-4 space-y-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm sm:text-base font-black text-rose-300 flex items-center gap-1.5">
+                        <Heart className="w-4 h-4 text-rose-400 fill-rose-400" />
+                        <span>아이 태블릿으로 실시간 응원 &amp; 오늘의 미션 보내기</span>
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        전송하면 아이가 접속 중인 화면 상단과 괴수 도감에 바로 반영됩니다.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* 응원 메시지 입력 */}
+                  <div className="space-y-2">
+                    <label className="block text-xs font-black text-amber-300">
+                      💌 사랑의 응원 메시지
+                    </label>
+                    <textarea
+                      value={remoteCheerInput}
+                      onChange={(e) => setRemoteCheerInput(e.target.value)}
+                      rows={2}
+                      maxLength={120}
+                      placeholder="예: 오늘도 고질라와 함께 화이팅! 엄마 아빠가 응원해 ❤️"
+                      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs sm:text-sm text-white focus:outline-none focus:border-rose-400"
+                    />
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        '오늘도 고질라 대장 화이팅! 사랑해 ❤️',
+                        '오답 레이드 1판만 클리어하면 최고! 🌟',
+                        '구구단 산수 요격 도전해 볼까? 🦖⚡',
+                      ].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setRemoteCheerInput(preset)}
+                          className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-600 text-[11px] text-slate-200 font-bold cursor-pointer"
+                        >
+                          + {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 오늘의 원격 미션 입력 */}
+                  <div className="space-y-2 pt-2 border-t border-slate-800">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-xs font-black text-cyan-300">
+                        🎯 오늘의 부모님 특별 미션 (선택)
+                      </label>
+                      {data.parentDailyMission?.text && (
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[11px] font-black border ${
+                            data.parentDailyMission.completedDate === getTodayDateStr()
+                              ? 'bg-emerald-950/80 border-emerald-400 text-emerald-300'
+                              : 'bg-amber-950/80 border-amber-400 text-amber-300'
+                          }`}
+                        >
+                          {data.parentDailyMission.completedDate === getTodayDateStr()
+                            ? '✅ 오늘 아이가 완료함!'
+                            : '⏳ 진행 대기 중'}
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={remoteMissionInput}
+                      onChange={(e) => setRemoteMissionInput(e.target.value)}
+                      maxLength={80}
+                      placeholder="예: 언어 배틀 1스테이지 + 구구단 요격 1판 완료하기"
+                      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-400"
+                    />
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        '언어 배틀 1스테이지 + 산수 1스테이지 완주!',
+                        '산수 약점 특훈 1회 클리어하기 🎯',
+                        '오답노트 단어 복습 레이드 끝내기 ⚔️',
+                      ].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setRemoteMissionInput(preset)}
+                          className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-600 text-[11px] text-cyan-200 font-bold cursor-pointer"
+                        >
+                          + {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {remoteSendError && (
+                    <div className="p-2.5 rounded-lg bg-rose-950/70 border border-rose-500/60 text-xs text-rose-200">
+                      {remoteSendError}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={remoteSendStatus === 'saving'}
+                      onClick={() => void handleSendRemoteSupport(false)}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-rose-500 to-amber-500 hover:brightness-110 disabled:opacity-60 text-white text-xs sm:text-sm font-black cursor-pointer shadow-lg"
+                    >
+                      <Send className="w-4 h-4" />
+                      <span>
+                        {remoteSendStatus === 'saving'
+                          ? '전송 중...'
+                          : remoteSendStatus === 'saved'
+                          ? '✅ 전송 완료!'
+                          : '아이 기기로 전송하기'}
+                      </span>
+                    </button>
+                    {data.parentDailyMission?.text && (
+                      <button
+                        type="button"
+                        disabled={remoteSendStatus === 'saving'}
+                        onClick={() => void handleSendRemoteSupport(true)}
+                        className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 text-xs font-bold cursor-pointer"
+                      >
+                        미션 비우기
+                      </button>
+                    )}
+                  </div>
                 </section>
               )}
             </>

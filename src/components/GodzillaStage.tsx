@@ -3,17 +3,249 @@ import confetti from 'canvas-confetti';
 import { GodzillaCharacter } from './GodzillaCharacter';
 import { KingGhidorah } from './KingGhidorah';
 import { RaidBossRenderer } from './RaidBossRenderer';
-import type { RaidBossInfo } from '../data/raidBosses';
+import { RAID_BOSSES, type RaidBossInfo, type RaidBossId } from '../data/raidBosses';
 import {
   playEvolutionBeamSound,
   playElectricShockSound,
   playVictoryFanfare,
+  playMeteorExplosionSound,
+  playLaserPewPew,
+  playBaseDamageSound,
+  playFeverBeamSound,
 } from '../utils/soundEffects';
 import { getGodzillaEvolution, getGodzillaAura } from '../types';
 import type { RoarPowerResult } from '../types';
 import { GodzillaAuraEffect } from './GodzillaAuraEffect';
 import { MONSTER_MAP } from '../data/monsterData';
+import {
+  ATOMIC_PARTS,
+  ATOMIC_TITLES,
+  type EquippedAtomicGear,
+} from '../data/atomicPartsData';
 import { Trophy, RotateCcw, Swords, ShieldAlert, Zap, Heart, ArrowRight } from 'lucide-react';
+
+// 일반 스테이지 적 괴수 순환 (킹 기도라 + 5대 괴수, 스테이지 번호 기준)
+const NORMAL_BOSS_CYCLE: Array<'king-ghidorah' | RaidBossId> = [
+  'king-ghidorah',
+  'mechagodzilla',
+  'gigan',
+  'hedorah',
+  'spacegodzilla',
+  'destoroyah',
+];
+
+interface BossAttackEffectProps {
+  bossId: RaidBossId;
+  phase: 'idle' | 'charge' | 'fire' | 'impact';
+}
+
+// 적 괴수별 고유 공격 연출 (오른쪽 보스 → 왼쪽 고질라)
+const BOSS_ATTACK_STYLE: Record<
+  RaidBossId,
+  { color: string; accent: string; projectile: string; impact: string; label: string }
+> = {
+  mechagodzilla: { color: '#38bdf8', accent: '#ef4444', projectile: '🚀', impact: '💥', label: '🚀 미사일 발사!' },
+  gigan: { color: '#ef4444', accent: '#eab308', projectile: '🪓', impact: '💢', label: '🪓 사이클론 블레이드!' },
+  hedorah: { color: '#84cc16', accent: '#a855f7', projectile: '🟢', impact: '🤢', label: '🟢 스모그 슬러지!' },
+  spacegodzilla: { color: '#8b5cf6', accent: '#38bdf8', projectile: '💎', impact: '✨', label: '💎 코로나 크리스탈!' },
+  destoroyah: { color: '#ef4444', accent: '#facc15', projectile: '🔥', impact: '🔥', label: '🔥 데스 레이저!' },
+};
+
+const BossAttackEffect: React.FC<BossAttackEffectProps> = ({ bossId, phase }) => {
+  const s = BOSS_ATTACK_STYLE[bossId];
+  const tops = ['22%', '48%', '74%'];
+
+  return (
+    <>
+      <style>{`
+        @keyframes bossFlyLeft { from { left: 82%; opacity: 1; } to { left: 8%; opacity: 1; } }
+        @keyframes bossArc {
+          0% { left: 82%; top: 55%; }
+          50% { top: 8%; }
+          100% { left: 8%; top: 60%; }
+        }
+        @keyframes bossSpin { from { transform: rotate(0deg); } to { transform: rotate(-720deg); } }
+        @keyframes bossBeamGrow { from { transform: scaleX(0); opacity: 0.4; } to { transform: scaleX(1); opacity: 1; } }
+        @keyframes bossImpactPop { 0% { transform: scale(0.3); opacity: 1; } 100% { transform: scale(1.6); opacity: 0; } }
+      `}</style>
+
+      {/* 차징: 보스 쪽 에너지 응집 + 기술 이름 */}
+      {phase === 'charge' && (
+        <>
+          <div
+            className="animate-pulse"
+            style={{
+              position: 'absolute',
+              right: '6px',
+              top: '38%',
+              width: '34px',
+              height: '34px',
+              borderRadius: '9999px',
+              background: `radial-gradient(circle, #ffffff 25%, ${s.color} 65%, transparent 100%)`,
+              boxShadow: `0 0 18px ${s.color}, 0 0 32px ${s.accent}`,
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              right: '4px',
+              top: '8%',
+              padding: '1px 8px',
+              borderRadius: '9999px',
+              fontSize: '10px',
+              fontWeight: 900,
+              color: '#fff',
+              background: 'rgba(15, 23, 42, 0.9)',
+              border: `1.5px solid ${s.color}`,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {s.label}
+          </div>
+        </>
+      )}
+
+      {/* 발사: 괴수 특징에 맞는 공격 */}
+      {phase === 'fire' && (
+        <>
+          {(bossId === 'mechagodzilla' || bossId === 'spacegodzilla') &&
+            tops.map((top, i) => (
+              <div
+                key={i}
+                style={{
+                  position: 'absolute',
+                  top,
+                  fontSize: '26px',
+                  lineHeight: 1,
+                  animation: `bossFlyLeft 0.6s ${i * 0.1}s linear both`,
+                  filter: `drop-shadow(0 0 8px ${s.color}) drop-shadow(0 0 14px ${s.accent})`,
+                }}
+              >
+                <span style={{ display: 'inline-block', transform: bossId === 'mechagodzilla' ? 'rotate(-135deg)' : 'none' }}>
+                  {s.projectile}
+                </span>
+                {bossId === 'mechagodzilla' && (
+                  <span style={{ position: 'absolute', left: '100%', top: '30%', fontSize: '16px' }}>💨</span>
+                )}
+              </div>
+            ))}
+
+          {bossId === 'gigan' && (
+            <>
+              <div
+                style={{
+                  position: 'absolute',
+                  right: '18px',
+                  top: '30%',
+                  width: '78%',
+                  height: '4px',
+                  borderRadius: '9999px',
+                  background: 'linear-gradient(270deg, #ffffff, #ef4444 40%, transparent)',
+                  boxShadow: '0 0 12px #ef4444',
+                  transformOrigin: 'right center',
+                  animation: 'bossBeamGrow 0.35s ease-out both',
+                }}
+              />
+              {[0, 1].map((i) => (
+                <div
+                  key={i}
+                  style={{
+                    position: 'absolute',
+                    top: i === 0 ? '52%' : '68%',
+                    fontSize: '28px',
+                    lineHeight: 1,
+                    animation: `bossFlyLeft 0.6s ${i * 0.15}s linear both`,
+                    filter: 'drop-shadow(0 0 8px #eab308)',
+                  }}
+                >
+                  <span style={{ display: 'inline-block', animation: 'bossSpin 0.6s linear infinite' }}>{s.projectile}</span>
+                </div>
+              ))}
+            </>
+          )}
+
+          {bossId === 'hedorah' &&
+            [0, 1, 2].map((i) => (
+              <div
+                key={i}
+                style={{
+                  position: 'absolute',
+                  fontSize: `${22 + i * 4}px`,
+                  lineHeight: 1,
+                  animation: `bossArc 0.7s ${i * 0.12}s ease-in-out both`,
+                  filter: 'drop-shadow(0 0 8px #84cc16)',
+                }}
+              >
+                {i === 1 ? '🟣' : s.projectile}
+              </div>
+            ))}
+
+          {bossId === 'destoroyah' && (
+            <>
+              <div
+                style={{
+                  position: 'absolute',
+                  right: '14px',
+                  top: '40%',
+                  width: '82%',
+                  height: '16px',
+                  borderRadius: '9999px',
+                  background: 'linear-gradient(270deg, #ffffff, #facc15 25%, #ef4444 70%, #7f1d1d)',
+                  boxShadow: '0 0 18px #ef4444, 0 0 34px #facc15',
+                  transformOrigin: 'right center',
+                  animation: 'bossBeamGrow 0.4s ease-out both',
+                }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '33%',
+                  fontSize: '26px',
+                  animation: 'bossImpactPop 0.5s ease-out both',
+                }}
+              >
+                🔥
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {/* 임팩트: 고질라 피격 */}
+      {phase === 'impact' && (
+        <div
+          style={{
+            position: 'absolute',
+            left: '-6px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: '56px',
+            height: '56px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              width: '56px',
+              height: '56px',
+              borderRadius: '9999px',
+              border: `3px solid ${s.color}`,
+              boxShadow: `0 0 20px ${s.color}, 0 0 34px ${s.accent}`,
+              animation: 'bossImpactPop 0.45s ease-out both',
+            }}
+          />
+          <div style={{ fontSize: '34px', filter: `drop-shadow(0 0 14px ${s.color})`, animation: 'bounce 0.3s ease-in-out' }}>
+            {s.impact}
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
 
 interface GodzillaStageProps {
   level: number;
@@ -48,6 +280,7 @@ interface GodzillaStageProps {
   isMathDoneToday?: boolean;
   hasDejaVuNotice?: boolean;
   dejaVuNoticeKey?: string | null;
+  equippedAtomicGear?: EquippedAtomicGear;
 }
 
 export const GodzillaStage: React.FC<GodzillaStageProps> = ({
@@ -65,7 +298,6 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
   totalCount,
   isReviewMode = false,
   onExitReviewMode,
-  stageRangeLabel,
   currentStageNum,
   totalStages,
   isCriticalHit = false,
@@ -81,8 +313,30 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
   isMathDoneToday = false,
   hasDejaVuNotice = false,
   dejaVuNoticeKey = null,
+  equippedAtomicGear,
 }) => {
   const partnerMonster = equippedPartnerId ? MONSTER_MAP.get(equippedPartnerId) : null;
+  const equippedHead = equippedAtomicGear?.head
+    ? ATOMIC_PARTS.find((p) => p.id === equippedAtomicGear.head)
+    : null;
+  const equippedFin = equippedAtomicGear?.fin
+    ? ATOMIC_PARTS.find((p) => p.id === equippedAtomicGear.fin)
+    : null;
+  const equippedWeapon = equippedAtomicGear?.weapon
+    ? ATOMIC_PARTS.find((p) => p.id === equippedAtomicGear.weapon)
+    : null;
+  const equippedTitle = equippedAtomicGear
+    ? ATOMIC_TITLES.find((t) => t.id === equippedAtomicGear.title) || ATOMIC_TITLES[0]
+    : null;
+
+  // 일반 스테이지 적 괴수 (스테이지마다 순환)
+  const normalBossKey = NORMAL_BOSS_CYCLE[(Math.max(1, currentStageNum ?? 1) - 1) % NORMAL_BOSS_CYCLE.length];
+  const normalRaidBoss = normalBossKey === 'king-ghidorah' ? null : RAID_BOSSES[normalBossKey];
+  const normalBossName = normalRaidBoss ? normalRaidBoss.name : '킹 기도라';
+  // 오답 시 공격하는 적 괴수 (복습 레이드는 레이드 보스, 일반은 스테이지 순환 괴수)
+  const attackBossKey: 'king-ghidorah' | RaidBossId = isReviewMode
+    ? raidBoss?.id || 'hedorah'
+    : normalBossKey;
 
   // 데일리 데자뷰 복습 단어 알약 뱃지 (3.2초 표시 후 자동 페이드아웃)
   const [showDejaVu, setShowDejaVu] = React.useState(false);
@@ -111,7 +365,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
   }, [hasDejaVuNotice, dejaVuNoticeKey]);
 
   // 보스 HP (남은 단어 수 및 파트너 추가 데미지 보너스 반영)
-  const effectiveBossHp = Math.max(0, ghidorahHp);
+  const targetBossHp = Math.max(0, ghidorahHp);
   const isAllWordsCleared = totalCount > 0 && clearedCount >= totalCount;
   const isBossDefeated = isAllCleared && !isGameOver && isAllWordsCleared;
   // 마지막 단어 격파 시 1.8초 배틀 연출(열선 발사, 보스 HP 0% 감소, 격파 연출)이 완전히 끝나고 모든 카드가 완료된 뒤에만 결과창 오버레이 오픈
@@ -184,9 +438,36 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
 
   useEffect(() => {
     if (ghidorahPhase === 'fire') {
-      playElectricShockSound();
+      switch (attackBossKey) {
+        case 'mechagodzilla':
+          playMeteorExplosionSound();
+          break;
+        case 'gigan':
+          playLaserPewPew();
+          break;
+        case 'hedorah':
+          playBaseDamageSound();
+          break;
+        case 'spacegodzilla':
+          playEvolutionBeamSound('evil', false);
+          break;
+        case 'destoroyah':
+          playFeverBeamSound();
+          break;
+        default:
+          playElectricShockSound();
+      }
     }
-  }, [ghidorahPhase]);
+  }, [ghidorahPhase, attackBossKey]);
+
+  // 보스 HP 게이지는 고질라 열선이 실제로 명중(impact)한 순간에 줄어들도록 표시값을 지연 반영
+  const [shownBossHp, setShownBossHp] = React.useState(targetBossHp);
+  useEffect(() => {
+    if (!isShootingBeam || godzillaPhase === 'impact') {
+      setShownBossHp(targetBossHp);
+    }
+  }, [targetBossHp, isShootingBeam, godzillaPhase]);
+  const effectiveBossHp = shownBossHp;
 
   // 승리(클리어) 시 축하 효과음 및 폭죽 연출 (1.8초 배틀 연출 후 오버레이가 열릴 때 재생)
   useEffect(() => {
@@ -415,15 +696,28 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                 }}
               />
             </div>
-            {/* 파트너 동행 미니 뱃지 (슬림화) */}
-            {partnerMonster && (
-              <div
-                className="flex items-center gap-0.5 mt-0.5 px-1 py-0.2 rounded-full bg-slate-950/85 border border-amber-400/40 text-[7px] xs:text-[8px] sm:text-[9px] text-amber-300 font-extrabold shadow-sm flex-shrink-0"
-                title={`${partnerMonster.ko} 파트너 패시브: ${partnerMonster.partnerSkill.description}`}
-              >
-                <span>{partnerMonster.partnerSkill.icon}</span>
-                <span className="text-white hidden sm:inline">{partnerMonster.ko}</span>
-                <span className="text-amber-400 font-black">[{partnerMonster.partnerSkill.name}]</span>
+            {/* 파트너 동행 & 아토믹 칭호 미니 뱃지 (슬림화) */}
+            {(partnerMonster || (equippedTitle && equippedTitle.id !== 'title_default')) && (
+              <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                {partnerMonster && (
+                  <div
+                    className="flex items-center gap-0.5 px-1 py-0.2 rounded-full bg-slate-950/85 border border-amber-400/40 text-[7px] xs:text-[8px] sm:text-[9px] text-amber-300 font-extrabold shadow-sm flex-shrink-0"
+                    title={`${partnerMonster.ko} 파트너 패시브: ${partnerMonster.partnerSkill.description}`}
+                  >
+                    <span>{partnerMonster.partnerSkill.icon}</span>
+                    <span className="text-white hidden sm:inline">{partnerMonster.ko}</span>
+                    <span className="text-amber-400 font-black">[{partnerMonster.partnerSkill.name}]</span>
+                  </div>
+                )}
+                {equippedTitle && equippedTitle.id !== 'title_default' && (
+                  <div
+                    className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-cyan-950/90 border border-cyan-400/60 text-[7px] xs:text-[8px] sm:text-[9px] text-cyan-200 font-black shadow-sm flex-shrink-0"
+                    title={`아토믹 칭호: ${equippedTitle.title}`}
+                  >
+                    <span>{equippedTitle.badgeIcon}</span>
+                    <span className="hidden xs:inline">{equippedTitle.title.replace(/^[^\s]+\s/, '')}</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -481,11 +775,6 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                 </button>
               )}
             </div>
-            {stageRangeLabel && !isReviewMode && (
-              <div className="hidden xs:block text-[7px] sm:text-[8px] font-bold text-slate-500 whitespace-nowrap leading-none">
-                {stageRangeLabel}
-              </div>
-            )}
           </div>
 
           {/* [우측] 보스 HP (일반: 👑 킹 기도라, 복습 레이드: 5대 랜덤 보스) */}
@@ -503,7 +792,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                   color: isReviewMode ? (raidBoss?.themeColor || '#d8b4fe') : '#fef08a',
                 }}
               >
-                {isReviewMode ? `${raidBoss?.icon || '👾'} ${raidBoss?.title || '스모그 괴수 헤도라'}` : '👑 킹 기도라'}
+                {isReviewMode ? `${raidBoss?.icon || '👾'} ${raidBoss?.title || '스모그 괴수 헤도라'}` : normalRaidBoss ? `${normalRaidBoss.icon} ${normalRaidBoss.name}` : '👑 킹 기도라'}
               </span>
               <span
                 className="text-[11px] sm:text-xs font-black"
@@ -568,7 +857,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
             }}
           />
 
-          {/* 좌측: 5단계 진화 고질라 (상대 축 100% 일치) */}
+          {/* 좌측: 5단계 진화 고질라 (상대 축 100% 일치 + 아토믹 파츠 통합 장착 연출) */}
           <div
             className="relative h-full flex-shrink-0 flex items-end"
             style={{
@@ -581,12 +870,28 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
                   : roarPower?.level === 'GREAT'
                   ? 'drop-shadow(0 0 16px #00f2ff)'
                   : 'none'
+                : equippedFin && equippedFin.id !== 'part_fin_classic'
+                ? equippedFin.rarity === 'LEGENDARY'
+                  ? 'drop-shadow(0 0 10px rgba(250, 204, 21, 0.55))'
+                  : equippedFin.rarity === 'EPIC'
+                  ? 'drop-shadow(0 0 10px rgba(168, 85, 247, 0.55))'
+                  : 'drop-shadow(0 0 8px rgba(56, 189, 248, 0.55))'
                 : 'none',
               transition: 'filter 0.2s ease',
             }}
           >
             {/* [Lv.10 ~ Lv.50+] 궁극의 각성 아우라 이펙트 레이어 (부유 파티클, 충격파, 흑염, 황금 번개) */}
             <GodzillaAuraEffect tier={aura.tier} />
+
+            {/* 장착된 아토믹 헤드기어 뱃지 */}
+            {equippedHead && (
+              <span
+                className="absolute top-1 left-1/2 -translate-x-1/2 text-base sm:text-xl drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] select-none pointer-events-none z-30 animate-bounce"
+                title={`장착 헤드: ${equippedHead.name}`}
+              >
+                {equippedHead.turretEmoji || equippedHead.icon}
+              </span>
+            )}
 
             <GodzillaCharacter
               level={level}
@@ -597,6 +902,16 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
               isFever={isFever}
               attackPhase={godzillaPhase}
             />
+
+            {/* 장착된 아토믹 무기 / 등지느러미 뱃지 */}
+            {equippedWeapon && equippedWeapon.id !== 'part_weapon_standard' && (
+              <span
+                className="absolute bottom-1 right-0 text-sm sm:text-base drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] select-none pointer-events-none z-30"
+                title={`장착 무기: ${equippedWeapon.name}`}
+              >
+                {equippedWeapon.icon}
+              </span>
+            )}
           </div>
 
           {/* 중앙: 5단계 특화 열선 & 공격 이펙트 레이어 (반응형 연결 공간) */}
@@ -1006,7 +1321,20 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
             )}
 
             {/* [오답 시] 킹 기도라 3연장 인력광선 (Phase 1 뇌전 차징 -> Phase 2 3줄기 벡터 번개 방사 -> Phase 3 고질라 임팩트 폭발) */}
-            {isGhidorahAttacking && (
+            {isGhidorahAttacking && attackBossKey !== 'king-ghidorah' && (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: '-10px -15px',
+                  zIndex: 26,
+                  pointerEvents: 'none',
+                }}
+              >
+                <BossAttackEffect bossId={attackBossKey} phase={ghidorahPhase} />
+              </div>
+            )}
+
+            {isGhidorahAttacking && attackBossKey === 'king-ghidorah' && (
               <div
                 style={{
                   position: 'absolute',
@@ -1264,16 +1592,16 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
             className="relative h-full flex-shrink-0 flex items-end"
             style={{ height: '100%', position: 'relative', zIndex: 10 }}
           >
-            {isReviewMode ? (
+            {isReviewMode || normalRaidBoss ? (
               <RaidBossRenderer
-                bossId={raidBoss?.id || 'hedorah'}
-                isHit={isShootingBeam}
+                bossId={isReviewMode ? raidBoss?.id || 'hedorah' : normalRaidBoss!.id}
+                isHit={godzillaPhase === 'impact'}
                 isDefeated={isBossDefeated}
                 hp={effectiveBossHp}
               />
             ) : (
               <KingGhidorah
-                isHit={isShootingBeam}
+                isHit={godzillaPhase === 'impact'}
                 isDefeated={isBossDefeated}
                 hp={effectiveBossHp}
                 isAttacking={isGhidorahAttacking}
@@ -1305,7 +1633,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
               <h2 className="text-sm sm:text-base md:text-lg font-black text-amber-300 tracking-tight">
                 {isReviewMode
                   ? `🎉 ${raidBoss?.name || '약점 괴수'} 완전 퇴치!`
-                  : '🎉 킹 기도라 격퇴!'}
+                  : `🎉 ${normalBossName} 격퇴!`}
               </h2>
               {/* 스테이지 뱃지 인라인 결합 */}
               {isReviewMode ? (
@@ -1428,7 +1756,7 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
               고질라 에너지 방전!
             </h2>
             <p className="text-slate-300 text-xs font-semibold mb-3">
-              킹 기도라의 공격에 에너지가 소진되었어요. 다시 충전할까요?
+              {normalBossName}의 공격에 에너지가 소진되었어요. 다시 충전할까요?
             </p>
             <button
               type="button"
@@ -1444,3 +1772,4 @@ export const GodzillaStage: React.FC<GodzillaStageProps> = ({
     </div>
   );
 };
+

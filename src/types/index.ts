@@ -51,6 +51,17 @@ export interface ClockQuestionData {
   targetMinute: number;
 }
 
+export interface UnitQuestionData {
+  kind: 'length' | 'volume';
+  conversionGuide: string;
+}
+
+export interface MultiplicationQuestionData {
+  a: number;
+  b: number;
+  isMissingFactor?: boolean;
+}
+
 export interface MathProblemItem {
   id: string;
   stage: number;
@@ -58,6 +69,8 @@ export interface MathProblemItem {
   answer: string | number;
   options: Array<string | number>;
   readKr: string;
+  /** 명시적 학습 영역 분류 (구구단/단위 변환 등) */
+  skillCategory?: MathSkillCategory;
   /** 서술형(문장제) 문제 여부 - true이면 운석 낙하/시간제한 없음 */
   isWordProblem?: boolean;
   /** 빈칸 채우기(거꾸로 셈) 문제 여부 (예: □ + B = C) */
@@ -69,6 +82,10 @@ export interface MathProblemItem {
   hintFormula?: MathHintFormula;
   /** 아날로그 시계 읽기 & 시간 계산 시한폭탄 문제 데이터 */
   clockQuestion?: ClockQuestionData;
+  /** 구구단(곱셈) 문제 메타데이터 */
+  multiplicationQuestion?: MultiplicationQuestionData;
+  /** 길이·들이 단위 변환 문제 메타데이터 */
+  unitQuestion?: UnitQuestionData;
 }
 
 export interface DailyDualQuest {
@@ -355,7 +372,9 @@ export type MathSkillCategory =
   | 'three_numbers'
   | 'missing_number'
   | 'clock'
-  | 'word_problem';
+  | 'word_problem'
+  | 'multiplication'
+  | 'units';
 
 export interface SkillStat {
   attempts: number;

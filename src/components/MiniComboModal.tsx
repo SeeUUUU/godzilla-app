@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Volume2, Zap, Sparkles, RotateCcw, HelpCircle, CheckCircle2, Flame, Puzzle, Headphones } from 'lucide-react';
+import { Volume2, Zap, Sparkles, RotateCcw, HelpCircle, CheckCircle2, Flame, Puzzle, Headphones, Type } from 'lucide-react';
 import type { WordItem } from '../types';
 import { buildMiniComboSentences, type MiniComboSentences } from '../utils/miniComboSentences';
 import { playCardTapSound, playDingDongSuccess } from '../utils/soundEffects';
@@ -49,7 +49,7 @@ function createShuffledTokens(tokens: string[]): BlockToken[] {
 }
 
 export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
-  const [activeTab, setActiveTab] = useState<'listen' | 'puzzle'>('listen');
+  const [activeTab, setActiveTab] = useState<'listen' | 'puzzle' | 'spelling'>('listen');
   const [heardCount, setHeardCount] = useState(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -67,6 +67,12 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
   const [placedTokens, setPlacedTokens] = useState<BlockToken[]>([]);
   const [isPuzzleSolved, setIsPuzzleSolved] = useState(false);
   const [puzzleShake, setPuzzleShake] = useState(false);
+
+  // 글자 블록 스펠링 챌린지 (영어 철자 / 일본어 가나) 상태
+  const [spellingLang, setSpellingLang] = useState<'en' | 'ja'>('en');
+  const [placedSpellingTokens, setPlacedSpellingTokens] = useState<BlockToken[]>([]);
+  const [isSpellingSolved, setIsSpellingSolved] = useState(false);
+  const [spellingShake, setSpellingShake] = useState(false);
 
   const sentences = useMemo(() => buildMiniComboSentences(word), [word]);
   const lines = useMemo(() => [
@@ -93,6 +99,33 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
     return initialPoolTokens.filter((token) => !placedIds.has(token.id));
   }, [initialPoolTokens, placedTokens]);
 
+  // 글자 블록 스펠링 정답 글자 배열
+  const targetSpellingChars = useMemo(() => {
+    if (spellingLang === 'en') {
+      const cleaned = word.en.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      const chars = Array.from(cleaned || word.en.trim());
+      return chars.length > 0 ? chars : ['a'];
+    }
+    const jaRaw = (word.jaKana || word.ja).trim().replace(/\s+/g, '');
+    const chars = Array.from(jaRaw);
+    return chars.length > 0 ? chars : ['あ'];
+  }, [spellingLang, word]);
+
+  const initialSpellingPool = useMemo(
+    () => createShuffledTokens(targetSpellingChars),
+    [targetSpellingChars]
+  );
+
+  useEffect(() => {
+    setPlacedSpellingTokens([]);
+    setIsSpellingSolved(false);
+  }, [spellingLang, word]);
+
+  const availableSpellingPool = useMemo(() => {
+    const placedIds = new Set(placedSpellingTokens.map((p) => p.id));
+    return initialSpellingPool.filter((token) => !placedIds.has(token.id));
+  }, [initialSpellingPool, placedSpellingTokens]);
+
   const stopSpeech = useCallback(() => {
     sessionRef.current += 1;
     isPlayingRef.current = false;
@@ -107,7 +140,7 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
 
   useEffect(() => () => stopSpeech(), [stopSpeech]);
 
-  const playSentences = () => {
+  const playSentences = useCallback(() => {
     if (isPlayingRef.current) return;
     const startIndex = heardCountRef.current === lines.length ? 0 : heardCountRef.current;
     stopSpeech();
@@ -176,7 +209,20 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
       }
     };
     playLine(startIndex);
-  };
+  }, [lines, stopSpeech]);
+
+  const playSentencesRef = useRef(playSentences);
+  useEffect(() => {
+    playSentencesRef.current = playSentences;
+  }, [playSentences]);
+
+  // 모달 오픈 300ms 후 자동 재생 시작
+  useEffect(() => {
+    const autoPlayTimer = window.setTimeout(() => {
+      playSentencesRef.current();
+    }, 300);
+    return () => window.clearTimeout(autoPlayTimer);
+  }, [word]);
 
   // 블록 추가
   const handleAddToken = (token: BlockToken) => {
@@ -241,16 +287,66 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
     setPlacedTokens([]);
   };
 
-  const finish = () => {
-    if (completedRef.current || isPlayingRef.current) return;
-    const canFinish = heardCountRef.current === lines.length || canReadFallback || isPuzzleSolved;
-    if (!canFinish) return;
-    completedRef.current = true;
-    stopSpeech();
-    onComplete(isPuzzleSolved);
+  // 글자 블록 스펠링 핸들러
+  const handleAddSpellingToken = (token: BlockToken) => {
+    if (isSpellingSolved) return;
+    playCardTapSound();
+    const nextPlaced = [...placedSpellingTokens, token];
+    setPlacedSpellingTokens(nextPlaced);
+
+    if (nextPlaced.length === targetSpellingChars.length) {
+      const isCorrect = nextPlaced.every((t, i) => t.text === targetSpellingChars[i]);
+      if (isCorrect) {
+        setIsSpellingSolved(true);
+        playDingDongSuccess();
+        setHeardCount(lines.length);
+        heardCountRef.current = lines.length;
+      } else {
+        setSpellingShake(true);
+        window.setTimeout(() => setSpellingShake(false), 500);
+      }
+    }
   };
 
-  const canFire = heardCount === lines.length || canReadFallback || isPuzzleSolved;
+  const handleRemoveSpellingToken = (index: number) => {
+    if (isSpellingSolved) return;
+    playCardTapSound();
+    setPlacedSpellingTokens((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handlePlaySpellingWordAudio = () => {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const text = spellingLang === 'en' ? word.en : word.jaKana || word.ja;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = spellingLang === 'en' ? 'en-US' : 'ja-JP';
+    utterance.rate = 0.8;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handleAutoHintSpelling = () => {
+    if (isSpellingSolved) return;
+    const nextIdx = placedSpellingTokens.length;
+    if (nextIdx >= targetSpellingChars.length) return;
+    const needed = targetSpellingChars[nextIdx];
+    const candidate = availableSpellingPool.find((t) => t.text === needed);
+    if (candidate) handleAddSpellingToken(candidate);
+  };
+
+  const handleResetSpelling = () => {
+    if (isSpellingSolved) return;
+    playCardTapSound();
+    setPlacedSpellingTokens([]);
+  };
+
+  const isBonusChallengeSolved = isPuzzleSolved || isSpellingSolved;
+
+  const finish = () => {
+    if (completedRef.current) return;
+    completedRef.current = true;
+    stopSpeech();
+    onComplete(isBonusChallengeSolved);
+  };
 
   return (
     <div
@@ -279,12 +375,16 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
           <p style={{ fontSize: '13px', color: '#cbd5e1', margin: 0 }}>
             {activeTab === 'listen'
               ? '세 나라의 한 줄 문장을 듣고 열선을 발사해요!'
-              : '🔐 기도라의 문장 암호 블록을 순서대로 맞춰 보너스 EXP와 추가 타격을 날려요!'}
+              : activeTab === 'puzzle'
+              ? '🔐 기도라의 문장 암호 블록을 순서대로 맞춰 보너스 EXP와 추가 타격을 날려요!'
+              : '🔤 영어 알파벳·일본어 글자 블록을 조립해 단어 스펠링을 마스터해요!'}
           </p>
 
-          {/* 모드 전환 탭 (듣기 vs 블록 조립) */}
+          {/* 모드 전환 탭 (듣기 vs 문장 퍼즐 vs 스펠링 챌린지) */}
           <div style={{
             display: 'inline-flex',
+            flexWrap: 'wrap',
+            justifyContent: 'center',
             marginTop: '12px',
             background: 'rgba(15, 23, 42, 0.8)',
             padding: '4px',
@@ -298,10 +398,10 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                padding: '6px 14px',
+                gap: '5px',
+                padding: '6px 10px',
                 borderRadius: '12px',
-                fontSize: '13px',
+                fontSize: '12px',
                 fontWeight: 800,
                 border: 'none',
                 cursor: 'pointer',
@@ -310,7 +410,7 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
                 transition: 'all 0.15s ease',
               }}
             >
-              <Headphones size={15} /> 3개 국어 듣기
+              <Headphones size={14} /> 3개 국어 듣기
             </button>
             <button
               type="button"
@@ -318,10 +418,10 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                padding: '6px 14px',
+                gap: '5px',
+                padding: '6px 10px',
                 borderRadius: '12px',
-                fontSize: '13px',
+                fontSize: '12px',
                 fontWeight: 800,
                 border: 'none',
                 cursor: 'pointer',
@@ -331,7 +431,28 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
                 transition: 'all 0.15s ease',
               }}
             >
-              <Puzzle size={15} /> 🧩 기도라 암호 해독 (+15 EXP) {isPuzzleSolved && '✓'}
+              <Puzzle size={14} /> 문장 암호 {isPuzzleSolved && '✓'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('spelling')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '6px 10px',
+                borderRadius: '12px',
+                fontSize: '12px',
+                fontWeight: 800,
+                border: 'none',
+                cursor: 'pointer',
+                background: activeTab === 'spelling' ? 'linear-gradient(to right, #9333ea, #ec4899)' : 'transparent',
+                color: activeTab === 'spelling' ? '#ffffff' : '#94a3b8',
+                boxShadow: activeTab === 'spelling' ? '0 0 12px rgba(236, 72, 153, 0.4)' : 'none',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Type size={14} /> 글자 스펠링 {isSpellingSolved && '✓'}
             </button>
           </div>
         </div>
@@ -403,7 +524,7 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
               </button>
             )}
           </>
-        ) : (
+        ) : activeTab === 'puzzle' ? (
           /* 탭 2: L3 문장 블록 조립 챌린지 모드 */
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }} className="flex flex-col">
             {/* 언어 선택 탭 */}
@@ -560,30 +681,185 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
               )}
             </div>
           </div>
+        ) : (
+          /* 탭 3: 글자 블록 스펠링 챌린지 (영어 철자 / 일본어 가나) */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }} className="flex flex-col">
+            <div className="flex items-center justify-between gap-2 bg-slate-950/60 p-2 rounded-xl border border-slate-700/80">
+              <span className="text-xs font-bold text-slate-300">스펠링 언어:</span>
+              <div className="flex items-center gap-1.5">
+                {(['en', 'ja'] as const).map((lang) => {
+                  const flag = lang === 'en' ? '🇺🇸 영어 철자' : '🇯🇵 일본어 가나';
+                  const isSelected = spellingLang === lang;
+                  return (
+                    <button
+                      key={lang}
+                      type="button"
+                      onClick={() => setSpellingLang(lang)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-pink-500 text-white shadow-md font-extrabold scale-105'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      {flag}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950/70 border border-pink-500/30 flex items-center justify-between gap-2">
+              <div className="text-left">
+                <div className="text-[11px] font-bold text-pink-300 mb-0.5">🇰🇷 뜻 보고 글자 맞추기</div>
+                <div className="text-lg font-black text-amber-200">
+                  {word.emoji ? `${word.emoji} ` : ''}
+                  {word.ko}
+                </div>
+              </div>
+              {spellingLang === 'ja' && word.jaKana && word.ja !== word.jaKana && (
+                <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-sm font-bold text-emerald-300">
+                  한자: {word.ja}
+                </span>
+              )}
+            </div>
+
+            <div
+              className={`p-3.5 rounded-2xl bg-slate-950/90 border-2 transition-all min-h-[84px] flex flex-col justify-center ${
+                isSpellingSolved
+                  ? 'border-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.3)] bg-emerald-950/30'
+                  : spellingShake
+                  ? 'border-red-400 animate-shake'
+                  : 'border-pink-500/50'
+              }`}
+            >
+              <div className="text-[11px] font-bold text-pink-300 mb-2 flex items-center justify-between">
+                <span>{isSpellingSolved ? '🎉 스펠링 완성!' : '조립된 글자 블록 (누르면 취소)'}</span>
+                <span className="text-[10px] text-slate-400">
+                  {placedSpellingTokens.length} / {targetSpellingChars.length} 글자
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-1.5 min-h-[38px]">
+                {placedSpellingTokens.map((token, idx) => (
+                  <button
+                    key={`sp-placed-${token.id}-${idx}`}
+                    type="button"
+                    onClick={() => handleRemoveSpellingToken(idx)}
+                    disabled={isSpellingSolved}
+                    className={`min-w-[34px] h-9 px-2.5 rounded-xl font-black text-base flex items-center justify-center shadow-md transition-all active:scale-95 ${
+                      isSpellingSolved
+                        ? 'bg-emerald-400 text-slate-950 ring-2 ring-emerald-300 animate-pulse'
+                        : 'bg-pink-500 hover:bg-pink-400 text-white cursor-pointer'
+                    }`}
+                  >
+                    {token.text}
+                  </button>
+                ))}
+                {!isSpellingSolved &&
+                  Array.from({
+                    length: Math.max(0, targetSpellingChars.length - placedSpellingTokens.length),
+                  }).map((_, i) => (
+                    <div
+                      key={`sp-empty-${i}`}
+                      className="w-8 h-9 rounded-xl border border-dashed border-slate-600 text-slate-600 text-xs font-bold flex items-center justify-center"
+                    >
+                      _
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            {isSpellingSolved && (
+              <div className="p-2.5 rounded-xl bg-gradient-to-r from-emerald-950/80 to-pink-950/80 border border-emerald-400/80 flex items-center justify-between text-left animate-fadeIn">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+                  <div>
+                    <div className="text-xs font-black text-emerald-300">
+                      🔤 스펠링 마스터 성공! (+15 EXP &amp; 보스 추가 타격 5%!)
+                    </div>
+                    <div className="text-[10px] text-slate-300">
+                      완벽하게 철자를 조립해 보너스 열선을 해금했어요!
+                    </div>
+                  </div>
+                </div>
+                <Sparkles className="w-4 h-4 text-amber-400 animate-bounce" />
+              </div>
+            )}
+
+            {!isSpellingSolved && (
+              <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-700/80">
+                <div className="text-[11px] font-bold text-slate-400 mb-2 text-left">글자 블록 고르기</div>
+                <div className="flex flex-wrap items-center gap-2 justify-center min-h-[44px]">
+                  {availableSpellingPool.map((token) => (
+                    <button
+                      key={`sp-pool-${token.id}`}
+                      type="button"
+                      onClick={() => handleAddSpellingToken(token)}
+                      className="min-w-[38px] h-10 px-3 rounded-xl bg-gradient-to-b from-slate-700 to-slate-800 hover:from-pink-500 hover:to-purple-500 text-white font-black text-base border border-slate-600 hover:border-pink-300 shadow-md active:scale-95 transition-all cursor-pointer"
+                    >
+                      {token.text}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-2 mt-1">
+              <button
+                type="button"
+                onClick={handlePlaySpellingWordAudio}
+                className="flex-1 py-2 px-2.5 rounded-xl bg-sky-950 border border-sky-400/60 hover:bg-sky-900 text-sky-200 text-xs font-bold flex items-center justify-center gap-1.5 shadow transition-all cursor-pointer"
+              >
+                <Volume2 size={14} /> 발음 듣기
+              </button>
+
+              {!isSpellingSolved && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleAutoHintSpelling}
+                    className="flex-1 py-2 px-2.5 rounded-xl bg-amber-950 border border-amber-400/60 hover:bg-amber-900 text-amber-200 text-xs font-bold flex items-center justify-center gap-1.5 shadow transition-all cursor-pointer"
+                  >
+                    <HelpCircle size={14} /> 다음 글자
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResetSpelling}
+                    disabled={placedSpellingTokens.length === 0}
+                    className={`py-2 px-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1 transition-all ${
+                      placedSpellingTokens.length > 0
+                        ? 'bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700 cursor-pointer'
+                        : 'bg-slate-900 border-slate-800 text-slate-600 cursor-not-allowed'
+                    }`}
+                  >
+                    <RotateCcw size={13} /> 리셋
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         )}
 
         {/* 열선 발사 하단 버튼 */}
         <button
           type="button"
           onClick={finish}
-          disabled={!canFire || isSpeaking}
           style={{
             width: '100%',
             padding: '13px',
             borderRadius: '14px',
             marginTop: '12px',
-            border: canFire ? '2px solid #facc15' : '1px solid #475569',
-            background: isPuzzleSolved
+            border: '2px solid #facc15',
+            background: isBonusChallengeSolved
               ? 'linear-gradient(to right, #ea580c, #f59e0b)'
-              : canFire
-              ? '#b45309'
-              : '#334155',
+              : '#b45309',
             color: 'white',
             fontSize: '15px',
             fontWeight: 900,
-            cursor: canFire && !isSpeaking ? 'pointer' : 'not-allowed',
-            opacity: canFire && !isSpeaking ? 1 : 0.55,
-            boxShadow: isPuzzleSolved ? '0 0 20px rgba(245, 158, 11, 0.5)' : 'none',
+            cursor: 'pointer',
+            opacity: 1,
+            boxShadow: isBonusChallengeSolved ? '0 0 20px rgba(245, 158, 11, 0.5)' : '0 0 12px rgba(250, 204, 21, 0.25)',
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
@@ -591,7 +867,7 @@ export const MiniComboModal = ({ word, onComplete }: MiniComboModalProps) => {
             transition: 'all 0.2s ease',
           }}
         >
-          {isPuzzleSolved ? (
+          {isBonusChallengeSolved ? (
             <>
               <Flame size={19} className="text-yellow-300 animate-bounce" />
               <span>🔥 퍼즐 마스터 보너스 열선 발사! 💥</span>

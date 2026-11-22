@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { GodzillaCharacter } from './GodzillaCharacter';
 import './SchoolAdventure.css';
 import { createAdventure, readAdventureHistory } from '../data/schoolAdventure';
+import { savePlayerDataToFirestore } from '../firebase';
 
 const decorations = [{id:'sakura',label:'벚꽃나무',icon:'🌸'},{id:'house',label:'작은 집',icon:'🏡'},{id:'tree',label:'초록 나무',icon:'🌳'}];
 interface Props { limit:number; userId:string; level:number; onBack:()=>void; onComplete:(reviewWords:string[])=>boolean }
@@ -58,7 +59,11 @@ export function SchoolAdventure({limit,userId,level,onBack,onComplete}:Props) {
   function chooseGift(id:string) {
     if(gift)return;
     const updated=[...garden,id].slice(-6);
-    try{localStorage.setItem(storageKey,JSON.stringify(updated));setGarden(updated);setGift(id);setStorageError(false);}catch{setStorageError(true);}
+    try{
+      localStorage.setItem(storageKey,JSON.stringify(updated));
+      void savePlayerDataToFirestore({ schoolGarden: updated });
+      setGarden(updated);setGift(id);setStorageError(false);
+    }catch{setStorageError(true);}
   }
   const choices=mission?.choices||[];
   return <section className="school-adventure" aria-label="고질라 학교 가는 길">
